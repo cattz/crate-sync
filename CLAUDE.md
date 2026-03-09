@@ -1,0 +1,25 @@
+# Crate Sync
+
+This project is intended to build a helper tool to manage my Spotify playlists (maybe Tidal as well) adn sync them with Lexicon.
+This is basically a mix of 2 separate projects that I started:
+
+- `sldl-python` is a tool that, given a spotify playlist, syncs that list songs with a playlist with the same name in LexiconDJ. For the songs that can not find in Lexicon, it tries to download them form different sources. Currently only Soulseek is implemented.
+
+- `spoty-poty` is a tool that helps me manage my Spotify playlists: rename, merge, fix, remove duplicates, etc.
+
+- `slsk-batchdl` is a tool I took as a starting poitn for `sldl-python`. I's kept for reference.
+
+Some design notes:
+
+- I want the Spotify data to persist locally (probably Sqlite) so we do not get into throttling issues with Spotify.
+
+- Song matching is very important and we use it in several places. It should be pluggable and easier to maintain.
+    - Spotify -> LexiconDJ
+    - Spotify -> soulseek
+    - Soulseek download -> Spotify -> Lexicon
+    - Spotify -> spotify for matching lists with duplicates
+    - ...
+
+- Since manual intervention to confirm/deny matches will be unavoidable, I want to keep a *central* location to list all the known false matches.
+
+I want to complete the list of features and high level architecture design and choice of stack before starting any implementation.
