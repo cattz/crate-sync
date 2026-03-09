@@ -1,3 +1,10 @@
 sldl-python
 spoty-poty
 slsk-batchdl
+
+node_modules
+dist
+data
+*.db
+.env
+.env.local
