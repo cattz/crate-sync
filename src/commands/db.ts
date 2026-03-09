@@ -1,8 +1,10 @@
 import { Command } from "commander";
 import chalk from "chalk";
+import { loadConfig } from "../config.js";
 import { getDb } from "../db/client.js";
 import { count } from "drizzle-orm";
 import * as schema from "../db/schema.js";
+import { SpotifyService } from "../services/spotify-service.js";
 
 export function registerDbCommands(program: Command): void {
   const db = program
@@ -11,13 +13,59 @@ export function registerDbCommands(program: Command): void {
 
   db.command("sync")
     .description("Sync Spotify playlists to local DB")
-    .action(() => {
-      console.log(chalk.yellow("⏳ Not yet implemented."));
-      console.log(
-        chalk.dim(
-          "Will fetch all playlists and tracks from Spotify and upsert them into the local SQLite database.",
-        ),
-      );
+    .action(async () => {
+      try {
+        const config = loadConfig();
+        const spotify = new SpotifyService(config.spotify);
+
+        const authenticated = await spotify.isAuthenticated();
+        if (!authenticated) {
+          console.log(chalk.red("Not authenticated. Run `crate-sync auth login` first."));
+          return;
+        }
+
+        console.log(chalk.dim("Syncing playlists from Spotify..."));
+
+        const result = await spotify.syncToDb();
+
+        console.log();
+        console.log(chalk.bold("Playlist sync complete"));
+        console.log(`  Added      ${chalk.green(String(result.added))}`);
+        console.log(`  Updated    ${chalk.yellow(String(result.updated))}`);
+        console.log(`  Unchanged  ${chalk.dim(String(result.unchanged))}`);
+
+        // Now sync tracks for each playlist
+        const database = getDb();
+        const allPlaylists = database.select().from(schema.playlists).all();
+
+        console.log();
+        console.log(chalk.dim(`Syncing tracks for ${allPlaylists.length} playlist(s)...`));
+        console.log();
+
+        for (const pl of allPlaylists) {
+          if (!pl.spotifyId) continue;
+
+          process.stdout.write(`  ${pl.name.slice(0, 40).padEnd(40)}  `);
+
+          try {
+            const trackResult = await spotify.syncPlaylistTracks(pl.spotifyId);
+            console.log(
+              chalk.green(`+${trackResult.added}`) +
+              chalk.dim(" / ") +
+              chalk.yellow(`~${trackResult.updated}`),
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.log(chalk.red(`error: ${message}`));
+          }
+        }
+
+        console.log();
+        console.log(chalk.green("Sync complete."));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Sync failed: ${message}`));
+      }
     });
 
   db.command("status")
