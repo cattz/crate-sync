@@ -81,7 +81,11 @@ function mergeDefaults(
     lexicon: { ...base.lexicon, ...partial.lexicon },
     soulseek: { ...base.soulseek, ...partial.soulseek },
     matching: { ...base.matching, ...partial.matching },
-    download: { ...base.download, ...partial.download },
+    download: {
+      ...base.download,
+      ...partial.download,
+      formats: partial.download?.formats?.filter((f): f is string => f != null) ?? base.download.formats,
+    },
   };
 }
 
