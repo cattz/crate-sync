@@ -21,18 +21,23 @@ function unwrapResponse<T>(body: unknown, key: string): T {
 }
 
 function normalizeLexiconTrack(raw: Record<string, unknown>): LexiconTrack {
+  // Duration: API returns seconds in `duration`, convert to ms
+  let durationMs: number | undefined;
+  if (raw.duration != null) {
+    durationMs = Math.round(Number(raw.duration) * 1000);
+  } else if (raw.durationMs != null) {
+    durationMs = Number(raw.durationMs);
+  } else if (raw.duration_ms != null) {
+    durationMs = Number(raw.duration_ms);
+  }
+
   return {
     id: normalizeId(raw.id),
-    filePath: String(raw.filePath ?? raw.file_path ?? ""),
+    filePath: String(raw.location ?? raw.filePath ?? raw.file_path ?? ""),
     title: String(raw.title ?? ""),
     artist: String(raw.artist ?? ""),
-    album: raw.album != null ? String(raw.album) : undefined,
-    durationMs:
-      raw.durationMs != null
-        ? Number(raw.durationMs)
-        : raw.duration_ms != null
-          ? Number(raw.duration_ms)
-          : undefined,
+    album: raw.albumTitle != null ? String(raw.albumTitle) : raw.album != null ? String(raw.album) : undefined,
+    durationMs,
   };
 }
 
