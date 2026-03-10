@@ -155,93 +155,61 @@ describe("LexiconService", () => {
 
   // --- createPlaylist ---
 
-  it("createPlaylist sends POST and returns normalized playlist", async () => {
-    const fetchFn = mockFetch({
-      id: 7,
-      name: "My Playlist",
-      trackIds: [1, 2, 3],
-    });
+  it("createPlaylist sends POST then PATCH /playlist-tracks", async () => {
+    // First call: POST /playlist (create)
+    // Second call: PATCH /playlist-tracks (add tracks)
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: () => Promise.resolve({ id: 7, name: "My Playlist" }),
+        text: () => Promise.resolve(""),
+        headers: new Headers({ "content-type": "application/json" }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 204,
+        json: () => Promise.resolve(undefined),
+        text: () => Promise.resolve(""),
+        headers: new Headers(),
+      } as unknown as Response);
+    vi.stubGlobal("fetch", fetchFn);
 
     const playlist = await svc.createPlaylist("My Playlist", ["1", "2", "3"]);
     expect(playlist.id).toBe("7");
     expect(playlist.name).toBe("My Playlist");
-    expect(playlist.trackIds).toEqual(["1", "2", "3"]);
 
-    const [, opts] = fetchFn.mock.calls[0];
-    expect(opts.method).toBe("POST");
-    expect(JSON.parse(opts.body)).toEqual({
-      name: "My Playlist",
-      trackIds: [1, 2, 3],
-    });
+    // POST should not include trackIds
+    const [, postOpts] = fetchFn.mock.calls[0];
+    expect(postOpts.method).toBe("POST");
+    expect(JSON.parse(postOpts.body)).toEqual({ name: "My Playlist" });
+
+    // PATCH should add tracks
+    const [patchUrl, patchOpts] = fetchFn.mock.calls[1];
+    expect(patchUrl).toContain("/playlist-tracks");
+    expect(patchOpts.method).toBe("PATCH");
+    expect(JSON.parse(patchOpts.body)).toEqual({ id: 7, trackIds: [1, 2, 3] });
   });
 
   // --- addTracksToPlaylist ---
 
-  it("addTracksToPlaylist fetches current, merges, and PATCHes", async () => {
-    // First call: GET current playlist
-    // Second call: PATCH merged list
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            id: "1",
-            name: "PL",
-            trackIds: ["10", "20"],
-          }),
-        text: () => Promise.resolve(""),
-        headers: new Headers({ "content-type": "application/json" }),
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 204,
-        json: () => Promise.resolve(undefined),
-        text: () => Promise.resolve(""),
-        headers: new Headers(),
-      } as unknown as Response);
-
-    vi.stubGlobal("fetch", fetchFn);
+  it("addTracksToPlaylist sends PATCH /playlist-tracks directly", async () => {
+    const fetchFn = mockFetch(undefined, { status: 204 });
 
     await svc.addTracksToPlaylist("1", ["30", "40"]);
 
-    // Second call should be the PATCH
-    const [putUrl, putOpts] = fetchFn.mock.calls[1];
-    expect(putUrl).toContain("/playlist");
-    expect(putOpts.method).toBe("PATCH");
-    const putBody = JSON.parse(putOpts.body);
-    expect(putBody.id).toBe(1);
-    expect(putBody.trackIds).toEqual([10, 20, 30, 40]);
+    const [url, opts] = fetchFn.mock.calls[0];
+    expect(url).toContain("/playlist-tracks");
+    expect(opts.method).toBe("PATCH");
+    const body = JSON.parse(opts.body);
+    expect(body.id).toBe(1);
+    expect(body.trackIds).toEqual([30, 40]);
   });
 
-  it("addTracksToPlaylist does not duplicate existing track IDs", async () => {
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            id: "1",
-            name: "PL",
-            trackIds: ["10", "20"],
-          }),
-        text: () => Promise.resolve(""),
-        headers: new Headers({ "content-type": "application/json" }),
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 204,
-        json: () => Promise.resolve(undefined),
-        text: () => Promise.resolve(""),
-        headers: new Headers(),
-      } as unknown as Response);
+  it("addTracksToPlaylist does nothing for empty trackIds", async () => {
+    const fetchFn = mockFetch(undefined);
 
-    vi.stubGlobal("fetch", fetchFn);
+    await svc.addTracksToPlaylist("1", []);
 
-    await svc.addTracksToPlaylist("1", ["10", "30"]);
-
-    const putBody = JSON.parse(fetchFn.mock.calls[1][1].body);
-    expect(putBody.trackIds).toEqual([10, 20, 30]);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   // --- error handling ---

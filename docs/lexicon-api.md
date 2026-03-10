@@ -119,12 +119,12 @@ Create a new playlist.
 
 ### PATCH /playlist
 
-Update a playlist.
+Update playlist metadata (name, position, etc.). Does **NOT** accept `trackIds` — use `PATCH /playlist-tracks` instead.
 
 | Parameter | Type    | Required | Description |
 |-----------|---------|----------|-------------|
 | `id`      | integer | yes      | Playlist ID |
-| ...       |         |          | Any writable Playlist fields |
+| `name`    | string  | no       | New name |
 
 ### GET /playlists
 
@@ -174,12 +174,14 @@ Delete playlists by ID.
 
 ### PATCH /playlist-tracks
 
-Add tracks to a playlist.
+Add tracks to a playlist (appends). To replace all tracks, DELETE existing first then PATCH new ones.
 
 | Parameter | Type      | Required | Description |
 |-----------|-----------|----------|-------------|
 | `id`      | integer   | yes      | Playlist ID |
-| `trackIds`| integer[] | yes (likely) | Track IDs to add |
+| `trackIds`| integer[] | yes      | Track IDs to add |
+
+**Note:** Does not support `positions` parameter.
 
 ### DELETE /playlist-tracks
 
@@ -188,7 +190,7 @@ Remove tracks from a playlist.
 | Parameter | Type      | Required | Description |
 |-----------|-----------|----------|-------------|
 | `id`      | integer   | yes      | Playlist ID |
-| `trackIds`| integer[] | yes (likely) | Track IDs to remove |
+| `trackIds`| integer[] | yes      | Track IDs to remove |
 
 ---
 

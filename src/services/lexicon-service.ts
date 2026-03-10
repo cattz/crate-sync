@@ -179,68 +179,64 @@ export class LexiconService {
     return found ? normalizeLexiconPlaylist(found) : null;
   }
 
-  /** Create a new playlist */
+  /** Create a new playlist, then add tracks to it */
   async createPlaylist(
     name: string,
     trackIds: string[],
   ): Promise<LexiconPlaylist> {
     const raw = await this.request<unknown>("/playlist", {
       method: "POST",
-      body: JSON.stringify({ name, trackIds: trackIds.map(Number) }),
+      body: JSON.stringify({ name }),
     });
     const playlist = unwrapResponse<Record<string, unknown>>(raw, "playlist");
-    return normalizeLexiconPlaylist(playlist);
+    const result = normalizeLexiconPlaylist(playlist);
+
+    if (trackIds.length > 0) {
+      await this.request("/playlist-tracks", {
+        method: "PATCH",
+        body: JSON.stringify({ id: Number(result.id), trackIds: trackIds.map(Number) }),
+      });
+    }
+
+    return result;
   }
 
-  /**
-   * Add tracks to a playlist (REPLACE semantics handled internally).
-   * Fetches the current playlist, merges new trackIds, then sends the
-   * full list back via PUT.
-   *
-   * @param positions - optional array of insertion indices (one per trackId).
-   *   If omitted, new tracks are appended at the end.
-   */
+  /** Add tracks to a playlist (appends via PATCH /playlist-tracks) */
   async addTracksToPlaylist(
     playlistId: string,
     trackIds: string[],
-    positions?: number[],
   ): Promise<void> {
-    // Fetch current state
-    const raw = await this.request<unknown>(`/playlist?id=${playlistId}`);
-    const current = unwrapResponse<Record<string, unknown>>(raw, "playlist");
-    const playlist = normalizeLexiconPlaylist(current);
-    const merged = [...playlist.trackIds];
-
-    if (positions && positions.length === trackIds.length) {
-      // Insert at specified positions (process in reverse to keep indices stable)
-      const insertions = trackIds
-        .map((id, i) => ({ id, pos: positions[i] }))
-        .sort((a, b) => b.pos - a.pos);
-      for (const { id, pos } of insertions) {
-        const clampedPos = Math.min(Math.max(0, pos), merged.length);
-        merged.splice(clampedPos, 0, id);
-      }
-    } else {
-      // Append new tracks that aren't already present
-      const existingSet = new Set(merged);
-      for (const id of trackIds) {
-        if (!existingSet.has(id)) {
-          merged.push(id);
-        }
-      }
-    }
-
-    await this.setPlaylistTracks(playlistId, merged);
+    if (trackIds.length === 0) return;
+    await this.request("/playlist-tracks", {
+      method: "PATCH",
+      body: JSON.stringify({ id: Number(playlistId), trackIds: trackIds.map(Number) }),
+    });
   }
 
-  /** Set the full track list for a playlist (for reordering or full replace) */
+  /** Set the full track list for a playlist (delete existing, then add new) */
   async setPlaylistTracks(
     playlistId: string,
     trackIds: string[],
   ): Promise<void> {
-    await this.request("/playlist", {
-      method: "PATCH",
-      body: JSON.stringify({ id: Number(playlistId), trackIds: trackIds.map(Number) }),
-    });
+    const id = Number(playlistId);
+
+    // Get current tracks to delete them
+    const raw = await this.request<unknown>(`/playlist?id=${playlistId}`);
+    const current = unwrapResponse<Record<string, unknown>>(raw, "playlist");
+    const existing = normalizeLexiconPlaylist(current);
+
+    if (existing.trackIds.length > 0) {
+      await this.request("/playlist-tracks", {
+        method: "DELETE",
+        body: JSON.stringify({ id, trackIds: existing.trackIds.map(Number) }),
+      });
+    }
+
+    if (trackIds.length > 0) {
+      await this.request("/playlist-tracks", {
+        method: "PATCH",
+        body: JSON.stringify({ id, trackIds: trackIds.map(Number) }),
+      });
+    }
   }
 }
