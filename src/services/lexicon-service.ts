@@ -9,15 +9,20 @@ function normalizeId(id: unknown): string {
 
 /** Unwrap Lexicon API responses which may be wrapped in various ways */
 function unwrapResponse<T>(body: unknown, key: string): T {
-  if (body && typeof body === "object") {
-    const obj = body as Record<string, unknown>;
-    // { data: { ... } } or { data: [...] }
-    if ("data" in obj) return obj.data as T;
-    // { tracks: [...] } or { playlists: [...] }
+  let current = body;
+
+  // Peel off up to 2 layers of wrapping (e.g. { data: { tracks: [...] } })
+  for (let i = 0; i < 2; i++) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) break;
+    const obj = current as Record<string, unknown>;
+
     if (key in obj) return obj[key] as T;
+    if ("content" in obj && Array.isArray(obj.content)) return obj.content as T;
+    if ("data" in obj) { current = obj.data; continue; }
+    break;
   }
-  // bare array or object
-  return body as T;
+
+  return current as T;
 }
 
 function normalizeLexiconTrack(raw: Record<string, unknown>): LexiconTrack {
