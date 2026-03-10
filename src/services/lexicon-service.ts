@@ -123,7 +123,7 @@ export class LexiconService {
   /** Get a single track by ID */
   async getTrack(id: string): Promise<LexiconTrack | null> {
     try {
-      const raw = await this.request<unknown>(`/tracks/${id}`);
+      const raw = await this.request<unknown>(`/track?id=${id}`);
       const track = unwrapResponse<Record<string, unknown>>(raw, "track");
       return normalizeLexiconTrack(track);
     } catch (err) {
@@ -153,9 +153,9 @@ export class LexiconService {
     name: string,
     trackIds: string[],
   ): Promise<LexiconPlaylist> {
-    const raw = await this.request<unknown>("/playlists", {
+    const raw = await this.request<unknown>("/playlist", {
       method: "POST",
-      body: JSON.stringify({ name, trackIds }),
+      body: JSON.stringify({ name, trackIds: trackIds.map(Number) }),
     });
     const playlist = unwrapResponse<Record<string, unknown>>(raw, "playlist");
     return normalizeLexiconPlaylist(playlist);
@@ -175,7 +175,7 @@ export class LexiconService {
     positions?: number[],
   ): Promise<void> {
     // Fetch current state
-    const raw = await this.request<unknown>(`/playlists/${playlistId}`);
+    const raw = await this.request<unknown>(`/playlist?id=${playlistId}`);
     const current = unwrapResponse<Record<string, unknown>>(raw, "playlist");
     const playlist = normalizeLexiconPlaylist(current);
     const merged = [...playlist.trackIds];
@@ -207,9 +207,9 @@ export class LexiconService {
     playlistId: string,
     trackIds: string[],
   ): Promise<void> {
-    await this.request(`/playlists/${playlistId}`, {
-      method: "PUT",
-      body: JSON.stringify({ trackIds }),
+    await this.request("/playlist", {
+      method: "PATCH",
+      body: JSON.stringify({ id: Number(playlistId), trackIds: trackIds.map(Number) }),
     });
   }
 }
