@@ -27,18 +27,20 @@ export function registerPlaylistCommands(program: Command): void {
         return;
       }
 
+      const idW = 8;
       const nameW = 40;
       const tracksW = 8;
       const syncedW = 20;
 
       console.log(
         chalk.bold(
-          `${"Name".padEnd(nameW)}  ${"Tracks".padEnd(tracksW)}  ${"Last Synced".padEnd(syncedW)}`,
+          `${"ID".padEnd(idW)}  ${"Name".padEnd(nameW)}  ${"Tracks".padEnd(tracksW)}  ${"Last Synced".padEnd(syncedW)}`,
         ),
       );
-      console.log(chalk.dim("─".repeat(nameW + tracksW + syncedW + 4)));
+      console.log(chalk.dim("─".repeat(idW + nameW + tracksW + syncedW + 6)));
 
       for (const row of rows) {
+        const shortId = row.id.slice(0, 8);
         const name = (row.name ?? "").slice(0, nameW);
         const trackCount = service.getPlaylistTracks(row.id).length;
         const synced = row.lastSynced
@@ -46,7 +48,7 @@ export function registerPlaylistCommands(program: Command): void {
           : chalk.dim("never");
 
         console.log(
-          `${name.padEnd(nameW)}  ${chalk.cyan(String(trackCount).padStart(tracksW))}  ${synced}`,
+          `${chalk.dim(shortId.padEnd(idW))}  ${name.padEnd(nameW)}  ${chalk.cyan(String(trackCount).padStart(tracksW))}  ${synced}`,
         );
       }
 
