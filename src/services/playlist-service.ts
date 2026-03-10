@@ -9,6 +9,7 @@ import {
   type PlaylistTrack,
 } from "../db/schema.js";
 import type { SpotifyTrack } from "../types/spotify.js";
+import { extractPlaylistId } from "../utils/spotify-url.js";
 
 export class PlaylistService {
   private db: ReturnType<typeof getDb>;
@@ -22,13 +23,15 @@ export class PlaylistService {
     return this.db.select().from(playlists).all();
   }
 
-  /** Get playlist by local DB id or spotify_id. */
+  /** Get playlist by local DB id, spotify_id, or Spotify URL. */
   getPlaylist(id: string): Playlist | null {
+    const normalizedId = extractPlaylistId(id);
+
     // Try local id first
     const byId = this.db
       .select()
       .from(playlists)
-      .where(eq(playlists.id, id))
+      .where(eq(playlists.id, normalizedId))
       .get();
 
     if (byId) return byId;
@@ -37,7 +40,7 @@ export class PlaylistService {
     const bySpotifyId = this.db
       .select()
       .from(playlists)
-      .where(eq(playlists.spotifyId, id))
+      .where(eq(playlists.spotifyId, normalizedId))
       .get();
 
     if (bySpotifyId) return bySpotifyId;
@@ -46,7 +49,7 @@ export class PlaylistService {
     const byName = this.db
       .select()
       .from(playlists)
-      .where(eq(playlists.name, id))
+      .where(eq(playlists.name, normalizedId))
       .get();
 
     return byName ?? null;
