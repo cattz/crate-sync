@@ -36,6 +36,12 @@ Create `~/.config/crate-sync/config.json`:
 }
 ```
 
+### Spotify Developer App
+
+1. Create an app at https://developer.spotify.com/dashboard
+2. Add `http://127.0.0.1:8888/callback` as a Redirect URI in the app settings
+3. Copy the Client ID and Client Secret into your config
+
 ### Authenticate with Spotify
 
 ```bash

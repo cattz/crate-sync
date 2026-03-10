@@ -46,7 +46,7 @@ const defaults: Config = {
   spotify: {
     clientId: "",
     clientSecret: "",
-    redirectUri: "http://localhost:8888/callback",
+    redirectUri: "http://127.0.0.1:8888/callback",
   },
   lexicon: {
     url: "http://localhost:48624",
