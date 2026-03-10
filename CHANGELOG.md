@@ -4,6 +4,9 @@
 
 ### Fixed
 - **Lexicon API endpoints** — corrected `getTrack`, `createPlaylist`, `addTracksToPlaylist`, and `setPlaylistTracks` to use proper paths (`/track?id=`, `/playlist`), methods (`PATCH` instead of `PUT`), and integer track IDs
+- **Lexicon track field mapping** — read `location`, `albumTitle`, `duration` (seconds) instead of wrong field names
+- **Lexicon `searchTracks`** — use client-side filtering (API has no search endpoint)
+- **Lexicon `getPlaylistByName`** — recursively traverse playlist tree instead of only checking top level
 
 ### Added
 - **`playlists repair <id>`** — re-match playlist tracks against Lexicon, optionally download missing via `--download`

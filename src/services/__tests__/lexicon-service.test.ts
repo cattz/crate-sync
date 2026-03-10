@@ -118,20 +118,24 @@ describe("LexiconService", () => {
 
   // --- searchTracks ---
 
-  it("searchTracks sends bracket filter params in URL", async () => {
-    const fetchFn = mockFetch([]);
-    await svc.searchTracks({ artist: "Moby", title: "Porcelain" });
-
-    const url: string = fetchFn.mock.calls[0][0];
-    expect(url).toContain("filter%5Bartist%5D=Moby");
-    expect(url).toContain("filter%5Btitle%5D=Porcelain");
+  it("searchTracks filters client-side by artist and title", async () => {
+    mockFetch([
+      { id: 1, title: "Porcelain", artist: "Moby", filePath: "/a.mp3" },
+      { id: 2, title: "Honey", artist: "Moby", filePath: "/b.mp3" },
+      { id: 3, title: "Porcelain", artist: "Other", filePath: "/c.mp3" },
+    ]);
+    const tracks = await svc.searchTracks({ artist: "Moby", title: "Porcelain" });
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].id).toBe("1");
   });
 
-  it("searchTracks with no params hits /tracks", async () => {
-    const fetchFn = mockFetch([]);
-    await svc.searchTracks({});
-    const url: string = fetchFn.mock.calls[0][0];
-    expect(url).toMatch(/\/v1\/tracks$/);
+  it("searchTracks with no params returns all tracks", async () => {
+    mockFetch([
+      { id: 1, title: "A", artist: "B", filePath: "/a.mp3" },
+      { id: 2, title: "C", artist: "D", filePath: "/b.mp3" },
+    ]);
+    const tracks = await svc.searchTracks({});
+    expect(tracks).toHaveLength(2);
   });
 
   // --- getTrack ---

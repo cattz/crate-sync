@@ -54,6 +54,22 @@ function normalizeLexiconPlaylist(
   };
 }
 
+/** Recursively search the playlist tree for a playlist by name */
+function findPlaylistInTree(
+  nodes: Record<string, unknown>[],
+  name: string,
+): Record<string, unknown> | null {
+  for (const node of nodes) {
+    if (String(node.name ?? "") === name) return node;
+    const children = node.playlists;
+    if (Array.isArray(children)) {
+      const found = findPlaylistInTree(children as Record<string, unknown>[], name);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 export class LexiconService {
   private baseUrl: string;
 
@@ -109,20 +125,21 @@ export class LexiconService {
     return tracks.map(normalizeLexiconTrack);
   }
 
-  /** Search tracks by artist and/or title using bracket filter syntax */
+  /** Search tracks by artist and/or title (client-side filtering since API has no search endpoint) */
   async searchTracks(query: {
     artist?: string;
     title?: string;
   }): Promise<LexiconTrack[]> {
-    const params = new URLSearchParams();
-    if (query.artist) params.set("filter[artist]", query.artist);
-    if (query.title) params.set("filter[title]", query.title);
-
-    const qs = params.toString();
-    const path = qs ? `/tracks?${qs}` : "/tracks";
-    const raw = await this.request<unknown>(path);
-    const tracks = unwrapResponse<Record<string, unknown>[]>(raw, "tracks");
-    return tracks.map(normalizeLexiconTrack);
+    const all = await this.getTracks();
+    return all.filter((t) => {
+      if (query.artist && !t.artist.toLowerCase().includes(query.artist.toLowerCase())) {
+        return false;
+      }
+      if (query.title && !t.title.toLowerCase().includes(query.title.toLowerCase())) {
+        return false;
+      }
+      return true;
+    });
   }
 
   /** Get a single track by ID */
@@ -147,10 +164,14 @@ export class LexiconService {
     return playlists.map(normalizeLexiconPlaylist);
   }
 
-  /** Get a playlist by name */
+  /** Get a playlist by name (searches recursively through the tree) */
   async getPlaylistByName(name: string): Promise<LexiconPlaylist | null> {
-    const all = await this.getPlaylists();
-    return all.find((p) => p.name === name) ?? null;
+    const raw = await this.request<unknown>("/playlists");
+    const tree = unwrapResponse<Record<string, unknown>[]>(raw, "playlists");
+    if (!Array.isArray(tree)) return null;
+
+    const found = findPlaylistInTree(tree, name);
+    return found ? normalizeLexiconPlaylist(found) : null;
   }
 
   /** Create a new playlist */
