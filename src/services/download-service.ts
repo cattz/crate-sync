@@ -17,6 +17,7 @@ import type { TrackInfo } from "../types/common.js";
 import type { SlskdFile } from "../types/soulseek.js";
 import { SoulseekService } from "./soulseek-service.js";
 import { FuzzyMatchStrategy } from "../matching/fuzzy.js";
+import { isShutdownRequested } from "../utils/shutdown.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -247,6 +248,10 @@ export class DownloadService {
     const pending = new Set<Promise<void>>();
 
     for (const item of tracks) {
+      if (isShutdownRequested()) {
+        break;
+      }
+
       const task = this.downloadTrack(
         item.track,
         item.playlistName,

@@ -5,6 +5,8 @@ import { getDb } from "../db/client.js";
 import { count } from "drizzle-orm";
 import * as schema from "../db/schema.js";
 import { SpotifyService } from "../services/spotify-service.js";
+import { Progress } from "../utils/progress.js";
+import { isShutdownRequested } from "../utils/shutdown.js";
 
 export function registerDbCommands(program: Command): void {
   const db = program
@@ -38,25 +40,27 @@ export function registerDbCommands(program: Command): void {
         const database = getDb();
         const allPlaylists = database.select().from(schema.playlists).all();
 
+        const syncable = allPlaylists.filter((pl) => pl.spotifyId);
         console.log();
-        console.log(chalk.dim(`Syncing tracks for ${allPlaylists.length} playlist(s)...`));
+        console.log(chalk.dim(`Syncing tracks for ${syncable.length} playlist(s)...`));
         console.log();
 
-        for (const pl of allPlaylists) {
-          if (!pl.spotifyId) continue;
+        const progress = new Progress(syncable.length, "Playlists");
 
-          process.stdout.write(`  ${pl.name.slice(0, 40).padEnd(40)}  `);
+        for (const pl of syncable) {
+          if (isShutdownRequested()) {
+            console.log(chalk.yellow("\nShutdown requested, stopping playlist sync."));
+            break;
+          }
 
           try {
-            const trackResult = await spotify.syncPlaylistTracks(pl.spotifyId);
-            console.log(
-              chalk.green(`+${trackResult.added}`) +
-              chalk.dim(" / ") +
-              chalk.yellow(`~${trackResult.updated}`),
+            const trackResult = await spotify.syncPlaylistTracks(pl.spotifyId!);
+            progress.tick(
+              `${pl.name.slice(0, 30)}  ${chalk.green(`+${trackResult.added}`)}${chalk.dim("/")}${chalk.yellow(`~${trackResult.updated}`)}`,
             );
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            console.log(chalk.red(`error: ${message}`));
+            progress.tick(`${pl.name.slice(0, 30)}  ${chalk.red(`error: ${message}`)}`);
           }
         }
 

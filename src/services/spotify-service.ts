@@ -6,6 +6,7 @@ import type { SpotifyConfig } from "../config.js";
 import type { SpotifyPlaylist, SpotifyTrack } from "../types/spotify.js";
 import { getDb } from "../db/client.js";
 import { playlists, tracks, playlistTracks } from "../db/schema.js";
+import { isShutdownRequested } from "../utils/shutdown.js";
 
 const API_BASE = "https://api.spotify.com/v1";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -375,6 +376,10 @@ export class SpotifyService {
     let unchanged = 0;
 
     for (const pl of apiPlaylists) {
+      if (isShutdownRequested()) {
+        break;
+      }
+
       const existing = await db
         .select()
         .from(playlists)

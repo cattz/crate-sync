@@ -7,6 +7,11 @@ import { registerLexiconCommands } from "./commands/lexicon.js";
 import { registerDownloadCommands } from "./commands/download.js";
 import { registerMatchCommands } from "./commands/matches.js";
 import { registerSyncCommand } from "./commands/sync.js";
+import { setupShutdownHandler, onShutdown } from "./utils/shutdown.js";
+import { closeDb } from "./db/client.js";
+
+setupShutdownHandler();
+onShutdown(closeDb);
 
 const program = new Command();
 
