@@ -167,15 +167,15 @@ describe("LexiconService", () => {
     expect(opts.method).toBe("POST");
     expect(JSON.parse(opts.body)).toEqual({
       name: "My Playlist",
-      trackIds: ["1", "2", "3"],
+      trackIds: [1, 2, 3],
     });
   });
 
   // --- addTracksToPlaylist ---
 
-  it("addTracksToPlaylist fetches current, merges, and PUTs", async () => {
+  it("addTracksToPlaylist fetches current, merges, and PATCHes", async () => {
     // First call: GET current playlist
-    // Second call: PUT merged list
+    // Second call: PATCH merged list
     const fetchFn = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -184,7 +184,7 @@ describe("LexiconService", () => {
           Promise.resolve({
             id: "1",
             name: "PL",
-            trackIds: ["a", "b"],
+            trackIds: ["10", "20"],
           }),
         text: () => Promise.resolve(""),
         headers: new Headers({ "content-type": "application/json" }),
@@ -199,14 +199,15 @@ describe("LexiconService", () => {
 
     vi.stubGlobal("fetch", fetchFn);
 
-    await svc.addTracksToPlaylist("1", ["c", "d"]);
+    await svc.addTracksToPlaylist("1", ["30", "40"]);
 
-    // Second call should be the PUT
+    // Second call should be the PATCH
     const [putUrl, putOpts] = fetchFn.mock.calls[1];
-    expect(putUrl).toContain("/playlists/1");
-    expect(putOpts.method).toBe("PUT");
+    expect(putUrl).toContain("/playlist");
+    expect(putOpts.method).toBe("PATCH");
     const putBody = JSON.parse(putOpts.body);
-    expect(putBody.trackIds).toEqual(["a", "b", "c", "d"]);
+    expect(putBody.id).toBe(1);
+    expect(putBody.trackIds).toEqual([10, 20, 30, 40]);
   });
 
   it("addTracksToPlaylist does not duplicate existing track IDs", async () => {
@@ -218,7 +219,7 @@ describe("LexiconService", () => {
           Promise.resolve({
             id: "1",
             name: "PL",
-            trackIds: ["a", "b"],
+            trackIds: ["10", "20"],
           }),
         text: () => Promise.resolve(""),
         headers: new Headers({ "content-type": "application/json" }),
@@ -233,10 +234,10 @@ describe("LexiconService", () => {
 
     vi.stubGlobal("fetch", fetchFn);
 
-    await svc.addTracksToPlaylist("1", ["a", "c"]);
+    await svc.addTracksToPlaylist("1", ["10", "30"]);
 
     const putBody = JSON.parse(fetchFn.mock.calls[1][1].body);
-    expect(putBody.trackIds).toEqual(["a", "b", "c"]);
+    expect(putBody.trackIds).toEqual([10, 20, 30]);
   });
 
   // --- error handling ---

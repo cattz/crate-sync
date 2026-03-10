@@ -2,6 +2,9 @@
 
 ## 0.2.0 — 2026-03-10
 
+### Fixed
+- **Lexicon API endpoints** — corrected `getTrack`, `createPlaylist`, `addTracksToPlaylist`, and `setPlaylistTracks` to use proper paths (`/track?id=`, `/playlist`), methods (`PATCH` instead of `PUT`), and integer track IDs
+
 ### Added
 - **`playlists repair <id>`** — re-match playlist tracks against Lexicon, optionally download missing via `--download`
 - **`playlists push [id]`** — push local changes back to Spotify API, with `--all` for bulk
