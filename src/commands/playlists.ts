@@ -121,11 +121,90 @@ export function registerPlaylistCommands(program: Command): void {
   playlists
     .command("merge <ids...>")
     .description("Merge multiple playlists into one")
-    .action((ids: string[]) => {
-      console.log(chalk.yellow("Not yet implemented."));
-      console.log(
-        chalk.dim(`Will merge playlists ${ids.join(", ")} into a single playlist.`),
-      );
+    .option("--target <id>", "Playlist to merge into (default: first one)")
+    .option("--name <name>", "Create a new playlist with this name instead")
+    .action((ids: string[], options: { target?: string; name?: string }) => {
+      try {
+        if (ids.length < 2) {
+          console.log(chalk.red("Need at least 2 playlist IDs to merge."));
+          return;
+        }
+
+        const db = getDb();
+        const service = new PlaylistService(db);
+
+        // Resolve all playlists
+        const resolved: Array<{ playlist: schema.Playlist; tracks: Array<schema.Track & { position: number }> }> = [];
+        for (const id of ids) {
+          const playlist = service.getPlaylist(id);
+          if (!playlist) {
+            console.log(chalk.red(`Playlist not found: ${id}`));
+            return;
+          }
+          const tracks = service.getPlaylistTracks(playlist.id);
+          resolved.push({ playlist, tracks });
+        }
+
+        // Compute totals
+        const totalTracks = resolved.reduce((sum, r) => sum + r.tracks.length, 0);
+        const uniqueTrackIds = new Set(resolved.flatMap((r) => r.tracks.map((t) => t.id)));
+        const uniqueCount = uniqueTrackIds.size;
+
+        console.log(
+          chalk.bold(`Merging ${resolved.length} playlists`) +
+          chalk.dim(` (${totalTracks} total tracks, ${uniqueCount} unique)`),
+        );
+        console.log();
+
+        for (const r of resolved) {
+          console.log(`  ${chalk.cyan(r.playlist.name)} — ${r.tracks.length} tracks`);
+        }
+        console.log();
+
+        let targetPlaylist: schema.Playlist;
+        let sourcePlaylistIds: string[];
+
+        if (options.name) {
+          // Create a new playlist
+          targetPlaylist = service.createPlaylist(options.name);
+          sourcePlaylistIds = resolved.map((r) => r.playlist.id);
+          console.log(chalk.dim(`Creating new playlist: "${options.name}"`));
+        } else {
+          // Determine target
+          const targetId = options.target;
+          if (targetId) {
+            const found = resolved.find(
+              (r) => r.playlist.id === targetId || r.playlist.spotifyId === targetId || r.playlist.name === targetId,
+            );
+            if (!found) {
+              console.log(chalk.red(`Target playlist "${targetId}" is not among the playlists being merged.`));
+              return;
+            }
+            targetPlaylist = found.playlist;
+          } else {
+            targetPlaylist = resolved[0].playlist;
+          }
+
+          sourcePlaylistIds = resolved
+            .filter((r) => r.playlist.id !== targetPlaylist.id)
+            .map((r) => r.playlist.id);
+
+          console.log(chalk.dim(`Merging into: "${targetPlaylist.name}"`));
+        }
+
+        const result = service.mergePlaylistTracks(targetPlaylist.id, sourcePlaylistIds);
+
+        console.log();
+        console.log(chalk.green(`Done.`));
+        console.log(`  ${chalk.cyan(String(result.added))} tracks added`);
+        console.log(`  ${chalk.dim(String(result.duplicatesSkipped))} duplicates skipped`);
+
+        const finalTracks = service.getPlaylistTracks(targetPlaylist.id);
+        console.log(`  ${chalk.bold(String(finalTracks.length))} total tracks in "${targetPlaylist.name}"`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
     });
 
   playlists

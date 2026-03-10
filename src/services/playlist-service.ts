@@ -1,4 +1,4 @@
-import { eq, and, sql, count, desc } from "drizzle-orm";
+import { eq, and, sql, count, desc, like } from "drizzle-orm";
 import { getDb } from "../db/client.js";
 import {
   playlists,
@@ -39,7 +39,16 @@ export class PlaylistService {
       .where(eq(playlists.spotifyId, id))
       .get();
 
-    return bySpotifyId ?? null;
+    if (bySpotifyId) return bySpotifyId;
+
+    // Fall back to name (case-insensitive)
+    const byName = this.db
+      .select()
+      .from(playlists)
+      .where(eq(playlists.name, id))
+      .get();
+
+    return byName ?? null;
   }
 
   /** Get tracks for a playlist, ordered by position. */
@@ -170,6 +179,17 @@ export class PlaylistService {
     return result;
   }
 
+  /** Create a new local-only playlist (no spotify_id). */
+  createPlaylist(name: string): Playlist {
+    const row = this.db
+      .insert(playlists)
+      .values({ name })
+      .returning()
+      .get();
+
+    return row;
+  }
+
   /** Upsert a playlist (insert or update by spotify_id). */
   upsertPlaylist(data: {
     spotifyId: string;
@@ -263,6 +283,46 @@ export class PlaylistService {
         })
         .run();
     }
+  }
+
+  /**
+   * Merge tracks from source playlists into target.
+   * Deduplicates by track_id, preserving order from target first, then sources.
+   */
+  mergePlaylistTracks(
+    targetPlaylistId: string,
+    sourcePlaylistIds: string[],
+  ): { added: number; duplicatesSkipped: number } {
+    // Get target tracks — these keep their positions
+    const targetTracks = this.getPlaylistTracks(targetPlaylistId);
+    const seenTrackIds = new Set(targetTracks.map((t) => t.id));
+
+    const newTrackIds: string[] = [];
+    let duplicatesSkipped = 0;
+
+    // Collect unique tracks from each source in order
+    for (const sourceId of sourcePlaylistIds) {
+      const sourceTracks = this.getPlaylistTracks(sourceId);
+      for (const track of sourceTracks) {
+        if (seenTrackIds.has(track.id)) {
+          duplicatesSkipped++;
+        } else {
+          seenTrackIds.add(track.id);
+          newTrackIds.push(track.id);
+        }
+      }
+    }
+
+    // Build full track list: target tracks first, then new ones
+    const allTrackIds = [
+      ...targetTracks.map((t) => t.id),
+      ...newTrackIds,
+    ];
+
+    // Replace target playlist tracks
+    this.setPlaylistTracks(targetPlaylistId, allTrackIds);
+
+    return { added: newTrackIds.length, duplicatesSkipped };
   }
 
   /** Remove a playlist and its playlist_tracks entries. */
