@@ -7,6 +7,7 @@ import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SyncPipeline, type PhaseOneResult, type ReviewDecision } from "../services/sync-pipeline.js";
+import { Progress } from "../utils/progress.js";
 
 export function registerSyncCommand(program: Command): void {
   program
@@ -150,12 +151,13 @@ export function registerSyncCommand(program: Command): void {
             console.log(chalk.dim(`  ${phaseTwo.missing.length} track(s) to download`));
             console.log();
 
+            const dlProgress = new Progress(phaseTwo.missing.length, "Downloading");
             const downloadResult = await pipeline.downloadMissing(
               phaseTwo,
               pl.name,
-              (done, total, title, success) => {
+              (_done, _total, title, success) => {
                 const status = success ? chalk.green("done") : chalk.red("fail");
-                console.log(`  [${done}/${total}] ${status}  ${title}`);
+                dlProgress.tick(`${status}  ${title}`);
               },
             );
 

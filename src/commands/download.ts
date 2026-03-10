@@ -9,6 +9,7 @@ import { SoulseekService } from "../services/soulseek-service.js";
 import { DownloadService } from "../services/download-service.js";
 import { SyncPipeline } from "../services/sync-pipeline.js";
 import type { TrackInfo } from "../types/common.js";
+import { Progress } from "../utils/progress.js";
 
 export function registerDownloadCommands(program: Command): void {
   const download = program
@@ -163,11 +164,12 @@ export function registerDownloadCommands(program: Command): void {
 
         let succeeded = 0;
         let failed = 0;
+        const dlProgress = new Progress(missingTracks.length, "Downloading");
 
         // 7. Download with progress
         const results = await downloadService.downloadBatch(
           batchItems,
-          (done, total, result) => {
+          (_done, _total, result) => {
             const item = batchItems.find((b) => b.dbTrackId === result.trackId);
             const title = item
               ? `${item.track.artist} - ${item.track.title}`
@@ -175,10 +177,10 @@ export function registerDownloadCommands(program: Command): void {
 
             if (result.success) {
               succeeded++;
-              console.log(`  ${chalk.green("\u2713")} [${done}/${total}] ${title}`);
+              dlProgress.tick(`${chalk.green("done")}  ${title}`);
             } else {
               failed++;
-              console.log(`  ${chalk.red("\u2717")} [${done}/${total}] ${title}  ${chalk.dim(result.error ?? "")}`);
+              dlProgress.tick(`${chalk.red("fail")}  ${title}`);
             }
           },
         );
@@ -314,6 +316,7 @@ export function registerDownloadCommands(program: Command): void {
 
         let succeeded = 0;
         let failed = 0;
+        const resumeProgress = new Progress(batchItems.length, "Resuming");
 
         const results = await downloadService.downloadBatch(
           batchItems.map((b) => ({
@@ -321,7 +324,7 @@ export function registerDownloadCommands(program: Command): void {
             dbTrackId: b.dbTrackId,
             playlistName: b.playlistName,
           })),
-          (done, total, result) => {
+          (_done, _total, result) => {
             const item = batchItems.find((b) => b.dbTrackId === result.trackId);
             const title = item
               ? `${item.track.artist} - ${item.track.title}`
@@ -329,10 +332,10 @@ export function registerDownloadCommands(program: Command): void {
 
             if (result.success) {
               succeeded++;
-              console.log(`  ${chalk.green("\u2713")} [${done}/${total}] ${title}`);
+              resumeProgress.tick(`${chalk.green("done")}  ${title}`);
             } else {
               failed++;
-              console.log(`  ${chalk.red("\u2717")} [${done}/${total}] ${title}  ${chalk.dim(result.error ?? "")}`);
+              resumeProgress.tick(`${chalk.red("fail")}  ${title}`);
             }
           },
         );
