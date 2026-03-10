@@ -8,6 +8,7 @@ import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SyncPipeline, type PhaseOneResult, type ReviewDecision } from "../services/sync-pipeline.js";
 import { Progress } from "../utils/progress.js";
+import { checkHealth } from "../utils/health.js";
 
 export function registerSyncCommand(program: Command): void {
   program
@@ -26,6 +27,15 @@ export function registerSyncCommand(program: Command): void {
         const db = getDb();
         const playlistService = new PlaylistService(db);
         const pipeline = new SyncPipeline(config);
+
+        // Pre-flight health checks
+        const health = await checkHealth(config);
+        if (!health.lexicon.ok) {
+          console.log(chalk.yellow(`Warning: Lexicon not available — ${health.lexicon.error}`));
+        }
+        if (!health.soulseek.ok) {
+          console.log(chalk.yellow(`Warning: Soulseek not available — ${health.soulseek.error}`));
+        }
 
         // Resolve which playlists to sync
         let playlistsToSync: schema.Playlist[] = [];

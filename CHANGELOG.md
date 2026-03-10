@@ -3,10 +3,13 @@
 ## 0.2.0 — 2026-03-10
 
 ### Added
-- **`playlists repair <id>`** — re-match playlist tracks against Lexicon library, report status, optionally download missing tracks via `--download`
-- **`playlists push [id]`** — push local playlist changes (renames, track additions/removals) back to Spotify API, with `--all` flag for bulk push
-- **`PlaylistService.getPlaylistDiff()`** — compare local tracks against Spotify state to detect additions/removals
-- **`PlaylistService.updateSnapshotId()`** — update Spotify snapshot_id after push
+- **`playlists repair <id>`** — re-match playlist tracks against Lexicon, optionally download missing via `--download`
+- **`playlists push [id]`** — push local changes back to Spotify API, with `--all` for bulk
+- **`crate-sync status`** — show service connectivity and database stats
+- **Retry utility** — exponential backoff with jitter for transient network failures
+- **Health checks** — pre-flight connectivity checks in sync, download, and lexicon commands
+- **Progress bars** — visual progress indicators for sync and download operations
+- **Graceful shutdown** — Ctrl+C handling with cleanup during long operations
 
 ## 0.1.0 — 2026-03-09
 

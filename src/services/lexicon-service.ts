@@ -1,5 +1,6 @@
 import type { LexiconTrack, LexiconPlaylist } from "../types/lexicon.js";
 import type { LexiconConfig } from "../config.js";
+import { withRetry } from "../utils/retry.js";
 
 /** Normalize an ID (int or string) to string */
 function normalizeId(id: unknown): string {
@@ -60,28 +61,30 @@ export class LexiconService {
     path: string,
     options: RequestInit = {},
   ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
+    return withRetry(async () => {
+      const url = `${this.baseUrl}${path}`;
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "<no body>");
+        throw new Error(
+          `Lexicon API error: ${response.status} ${response.statusText} — ${body}`,
+        );
+      }
+
+      // Handle 204 No Content
+      if (response.status === 204) {
+        return undefined as T;
+      }
+
+      return response.json() as Promise<T>;
     });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "<no body>");
-      throw new Error(
-        `Lexicon API error: ${response.status} ${response.statusText} — ${body}`,
-      );
-    }
-
-    // Handle 204 No Content
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    return response.json() as Promise<T>;
   }
 
   /** Test connection to Lexicon */

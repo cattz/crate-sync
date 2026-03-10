@@ -4,6 +4,7 @@ import type {
   SlskdSearchResult,
   SlskdTransfer,
 } from "../types/soulseek.js";
+import { withRetry } from "../utils/retry.js";
 
 const DEFAULT_SEARCH_TIMEOUT_MS = 30_000;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 300_000;
@@ -54,31 +55,33 @@ export class SoulseekService {
     path: string,
     body?: unknown,
   ): Promise<T> {
-    const url = `${this.baseUrl}/api/v0${path}`;
-    const headers: Record<string, string> = {
-      "X-API-Key": this.apiKey,
-      "Content-Type": "application/json",
-    };
+    return withRetry(async () => {
+      const url = `${this.baseUrl}/api/v0${path}`;
+      const headers: Record<string, string> = {
+        "X-API-Key": this.apiKey,
+        "Content-Type": "application/json",
+      };
 
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      const response = await fetch(url, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(
+          `slskd API error: ${response.status} ${response.statusText} — ${method} ${path}${text ? ` — ${text}` : ""}`,
+        );
+      }
+
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        return (await response.json()) as T;
+      }
+
+      return undefined as T;
     });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(
-        `slskd API error: ${response.status} ${response.statusText} — ${method} ${path}${text ? ` — ${text}` : ""}`,
-      );
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
-      return (await response.json()) as T;
-    }
-
-    return undefined as T;
   }
 
   /** Test connection to slskd. */

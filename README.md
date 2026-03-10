@@ -45,6 +45,9 @@ pnpm dev auth login
 ## Usage
 
 ```bash
+# Check service connectivity
+pnpm dev status
+
 # Sync Spotify playlists to local database
 pnpm dev db sync
 

@@ -10,6 +10,7 @@ import { DownloadService } from "../services/download-service.js";
 import { SyncPipeline } from "../services/sync-pipeline.js";
 import type { TrackInfo } from "../types/common.js";
 import { Progress } from "../utils/progress.js";
+import { checkHealth } from "../utils/health.js";
 
 export function registerDownloadCommands(program: Command): void {
   const download = program
@@ -129,19 +130,10 @@ export function registerDownloadCommands(program: Command): void {
           return;
         }
 
-        // 5. Check slskd reachability
-        if (!config.soulseek.slskdApiKey) {
-          console.log(chalk.red("Missing slskd API key."));
-          console.log(chalk.dim("Set soulseek.slskdApiKey in your config."));
-          return;
-        }
-
-        const soulseek = new SoulseekService(config.soulseek);
-        const reachable = await soulseek.ping();
-
-        if (!reachable) {
-          console.log(chalk.red("Cannot reach slskd."));
-          console.log(chalk.dim(`Tried: ${config.soulseek.slskdUrl}`));
+        // 5. Check slskd reachability via health check
+        const health = await checkHealth(config);
+        if (!health.soulseek.ok) {
+          console.log(chalk.red(`Soulseek not available — ${health.soulseek.error}`));
           console.log(chalk.dim("Make sure slskd is running and the URL/API key are correct."));
           return;
         }
