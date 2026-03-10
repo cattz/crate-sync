@@ -2,6 +2,10 @@
 
 ## 0.2.0 — 2026-03-10
 
+### Fixed
+- **Lexicon `searchTracks`** — use client-side filtering (API has no search endpoint)
+- **Lexicon `getPlaylistByName`** — recursively traverse playlist tree instead of only checking top level
+
 ### Added
 - **`playlists repair <id>`** — re-match playlist tracks against Lexicon, optionally download missing via `--download`
 - **`playlists push [id]`** — push local changes back to Spotify API, with `--all` for bulk
