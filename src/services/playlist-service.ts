@@ -1,4 +1,4 @@
-import { eq, and, sql, count, desc } from "drizzle-orm";
+import { eq, and, sql, count, desc, like } from "drizzle-orm";
 import { getDb } from "../db/client.js";
 import {
   playlists,
@@ -39,7 +39,16 @@ export class PlaylistService {
       .where(eq(playlists.spotifyId, id))
       .get();
 
-    return bySpotifyId ?? null;
+    if (bySpotifyId) return bySpotifyId;
+
+    // Fall back to name (exact match)
+    const byName = this.db
+      .select()
+      .from(playlists)
+      .where(eq(playlists.name, id))
+      .get();
+
+    return byName ?? null;
   }
 
   /** Get tracks for a playlist, ordered by position. */
@@ -263,6 +272,15 @@ export class PlaylistService {
         })
         .run();
     }
+  }
+
+  /** Rename a playlist in the local DB. */
+  renamePlaylist(playlistId: string, newName: string): void {
+    this.db
+      .update(playlists)
+      .set({ name: newName, updatedAt: Date.now() })
+      .where(eq(playlists.id, playlistId))
+      .run();
   }
 
   /** Remove a playlist and its playlist_tracks entries. */

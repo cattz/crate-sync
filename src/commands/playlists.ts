@@ -1,8 +1,12 @@
 import { Command } from "commander";
 import chalk from "chalk";
+import * as readline from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
 import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
+import { SpotifyService } from "../services/spotify-service.js";
+import { loadConfig } from "../config.js";
 
 export function registerPlaylistCommands(program: Command): void {
   const playlists = program
@@ -113,9 +117,44 @@ export function registerPlaylistCommands(program: Command): void {
   playlists
     .command("rename <id> <name>")
     .description("Rename a playlist")
-    .action((id: string, name: string) => {
-      console.log(chalk.yellow("Not yet implemented."));
-      console.log(chalk.dim(`Will rename playlist ${id} to "${name}".`));
+    .option("--push", "Also rename on Spotify")
+    .action(async (id: string, name: string, opts: { push?: boolean }) => {
+      try {
+        const db = getDb();
+        const service = new PlaylistService(db);
+
+        const playlist = service.getPlaylist(id);
+        if (!playlist) {
+          console.log(chalk.red(`Playlist not found: ${id}`));
+          console.log(chalk.dim("Use `crate-sync playlists list` to see available playlists."));
+          return;
+        }
+
+        const oldName = playlist.name;
+        service.renamePlaylist(playlist.id, name);
+        console.log(chalk.green(`Renamed "${oldName}" → "${name}" in local DB.`));
+
+        if (opts.push) {
+          if (!playlist.spotifyId) {
+            console.log(chalk.yellow("No Spotify ID for this playlist — skipping Spotify update."));
+            return;
+          }
+
+          const config = loadConfig();
+          const spotify = new SpotifyService(config.spotify);
+
+          if (!(await spotify.isAuthenticated())) {
+            console.log(chalk.red("Not authenticated with Spotify. Run `crate-sync auth login` first."));
+            return;
+          }
+
+          await spotify.renamePlaylist(playlist.spotifyId, name);
+          console.log(chalk.green(`Renamed on Spotify.`));
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
     });
 
   playlists
@@ -197,8 +236,55 @@ export function registerPlaylistCommands(program: Command): void {
   playlists
     .command("delete <id>")
     .description("Delete a playlist")
-    .action((id: string) => {
-      console.log(chalk.yellow("Not yet implemented."));
-      console.log(chalk.dim(`Will delete playlist ${id} from the local database.`));
+    .option("--spotify", "Also delete (unfollow) on Spotify")
+    .action(async (id: string, opts: { spotify?: boolean }) => {
+      try {
+        const db = getDb();
+        const service = new PlaylistService(db);
+
+        const playlist = service.getPlaylist(id);
+        if (!playlist) {
+          console.log(chalk.red(`Playlist not found: ${id}`));
+          console.log(chalk.dim("Use `crate-sync playlists list` to see available playlists."));
+          return;
+        }
+
+        const trackCount = service.getPlaylistTracks(playlist.id).length;
+
+        const rl = readline.createInterface({ input, output });
+        const answer = await rl.question(
+          chalk.yellow(`Delete playlist "${playlist.name}" with ${trackCount} tracks? [y/N] `),
+        );
+        rl.close();
+
+        if (answer.toLowerCase() !== "y") {
+          console.log(chalk.dim("Cancelled."));
+          return;
+        }
+
+        service.removePlaylist(playlist.id);
+        console.log(chalk.green(`Deleted "${playlist.name}" from local DB.`));
+
+        if (opts.spotify) {
+          if (!playlist.spotifyId) {
+            console.log(chalk.yellow("No Spotify ID for this playlist — skipping Spotify delete."));
+            return;
+          }
+
+          const config = loadConfig();
+          const spotify = new SpotifyService(config.spotify);
+
+          if (!(await spotify.isAuthenticated())) {
+            console.log(chalk.red("Not authenticated with Spotify. Run `crate-sync auth login` first."));
+            return;
+          }
+
+          await spotify.deletePlaylist(playlist.spotifyId);
+          console.log(chalk.green(`Unfollowed on Spotify.`));
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
     });
 }
