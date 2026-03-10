@@ -179,6 +179,17 @@ export class PlaylistService {
     return result;
   }
 
+  /** Create a new local-only playlist (no spotify_id). */
+  createPlaylist(name: string): Playlist {
+    const row = this.db
+      .insert(playlists)
+      .values({ name })
+      .returning()
+      .get();
+
+    return row;
+  }
+
   /** Upsert a playlist (insert or update by spotify_id). */
   upsertPlaylist(data: {
     spotifyId: string;
@@ -281,6 +292,42 @@ export class PlaylistService {
       .set({ name: newName, updatedAt: Date.now() })
       .where(eq(playlists.id, playlistId))
       .run();
+  }
+
+  /**
+   * Merge tracks from source playlists into target.
+   * Deduplicates by track_id, preserving order from target first, then sources.
+   */
+  mergePlaylistTracks(
+    targetPlaylistId: string,
+    sourcePlaylistIds: string[],
+  ): { added: number; duplicatesSkipped: number } {
+    const targetTracks = this.getPlaylistTracks(targetPlaylistId);
+    const seenTrackIds = new Set(targetTracks.map((t) => t.id));
+
+    const newTrackIds: string[] = [];
+    let duplicatesSkipped = 0;
+
+    for (const sourceId of sourcePlaylistIds) {
+      const sourceTracks = this.getPlaylistTracks(sourceId);
+      for (const track of sourceTracks) {
+        if (seenTrackIds.has(track.id)) {
+          duplicatesSkipped++;
+        } else {
+          seenTrackIds.add(track.id);
+          newTrackIds.push(track.id);
+        }
+      }
+    }
+
+    const allTrackIds = [
+      ...targetTracks.map((t) => t.id),
+      ...newTrackIds,
+    ];
+
+    this.setPlaylistTracks(targetPlaylistId, allTrackIds);
+
+    return { added: newTrackIds.length, duplicatesSkipped };
   }
 
   /** Remove a playlist and its playlist_tracks entries. */
