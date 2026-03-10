@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 — 2026-03-10
+
+### Added
+- **Retry utility** (`src/utils/retry.ts`) — exponential backoff with jitter for transient network failures
+- **Health check utility** (`src/utils/health.ts`) — check Spotify, Lexicon, and Soulseek connectivity
+- **`crate-sync status` command** — show service connectivity and database stats at a glance
+- Pre-flight health checks in `sync`, `download playlist`, and `lexicon match/sync` commands
+- Retry wrapping on all external API calls (Spotify, Lexicon, Soulseek)
+
 ## 0.1.0 — 2026-03-09
 
 Initial implementation of the unified crate-sync CLI.

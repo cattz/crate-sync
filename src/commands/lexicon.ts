@@ -6,6 +6,7 @@ import * as schema from "../db/schema.js";
 import { LexiconService } from "../services/lexicon-service.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SyncPipeline } from "../services/sync-pipeline.js";
+import { checkHealth } from "../utils/health.js";
 
 export function registerLexiconCommands(program: Command): void {
   const lexicon = program
@@ -42,6 +43,14 @@ export function registerLexiconCommands(program: Command): void {
     .action(async (playlist: string) => {
       try {
         const config = loadConfig();
+
+        // Check Lexicon reachability before matching
+        const health = await checkHealth(config);
+        if (!health.lexicon.ok) {
+          console.log(chalk.red(`Lexicon not available — ${health.lexicon.error}`));
+          return;
+        }
+
         const db = getDb();
         const playlistService = new PlaylistService(db);
 
@@ -103,12 +112,24 @@ export function registerLexiconCommands(program: Command): void {
   lexicon
     .command("sync <playlist>")
     .description("Sync matched tracks to a Lexicon playlist")
-    .action((playlist: string) => {
-      console.log(chalk.yellow("Not yet implemented."));
-      console.log(
-        chalk.dim(
-          `Will create/update a Lexicon playlist with confirmed matches for "${playlist}".`,
-        ),
-      );
+    .action(async (playlist: string) => {
+      try {
+        const config = loadConfig();
+        const health = await checkHealth(config);
+        if (!health.lexicon.ok) {
+          console.log(chalk.red(`Lexicon not available — ${health.lexicon.error}`));
+          return;
+        }
+
+        console.log(chalk.yellow("Not yet implemented."));
+        console.log(
+          chalk.dim(
+            `Will create/update a Lexicon playlist with confirmed matches for "${playlist}".`,
+          ),
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Sync failed: ${message}`));
+      }
     });
 }

@@ -6,6 +6,7 @@ import type { SpotifyConfig } from "../config.js";
 import type { SpotifyPlaylist, SpotifyTrack } from "../types/spotify.js";
 import { getDb } from "../db/client.js";
 import { playlists, tracks, playlistTracks } from "../db/schema.js";
+import { withRetry } from "../utils/retry.js";
 
 const API_BASE = "https://api.spotify.com/v1";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -237,44 +238,46 @@ export class SpotifyService {
     path: string,
     options: RequestInit = {},
   ): Promise<unknown> {
-    const token = await this.ensureToken();
-    const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+    return withRetry(async () => {
+      const token = await this.ensureToken();
+      const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+      });
+
+      // Handle rate limiting
+      if (response.status === 429) {
+        const retryAfter = Number(response.headers.get("Retry-After") ?? "1");
+        await new Promise((r) => setTimeout(r, retryAfter * 1000));
+        return this.fetchApi(path, options);
+      }
+
+      // Handle expired token — try refresh once
+      if (response.status === 401) {
+        await this.refreshAccessToken();
+        return this.fetchApi(path, options);
+      }
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "<no body>");
+        throw new Error(
+          `Spotify API error: ${response.status} ${response.statusText} — ${body}`,
+        );
+      }
+
+      // 204 No Content
+      if (response.status === 204) {
+        return undefined;
+      }
+
+      return response.json();
     });
-
-    // Handle rate limiting
-    if (response.status === 429) {
-      const retryAfter = Number(response.headers.get("Retry-After") ?? "1");
-      await new Promise((r) => setTimeout(r, retryAfter * 1000));
-      return this.fetchApi(path, options);
-    }
-
-    // Handle expired token — try refresh once
-    if (response.status === 401) {
-      await this.refreshAccessToken();
-      return this.fetchApi(path, options);
-    }
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "<no body>");
-      throw new Error(
-        `Spotify API error: ${response.status} ${response.statusText} — ${body}`,
-      );
-    }
-
-    // 204 No Content
-    if (response.status === 204) {
-      return undefined;
-    }
-
-    return response.json();
   }
 
   // ---------------------------------------------------------------------------
