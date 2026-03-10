@@ -9,6 +9,19 @@ import { LexiconService } from "./lexicon-service.js";
 import { DownloadService } from "./download-service.js";
 
 // ---------------------------------------------------------------------------
+// Dependency injection types
+// ---------------------------------------------------------------------------
+
+export interface SyncPipelineDeps {
+  /** Override the DB instance (useful for tests). */
+  db?: ReturnType<typeof getDb>;
+  /** Override the LexiconService factory (useful for tests). */
+  lexiconService?: LexiconService;
+  /** Override the DownloadService factory (useful for tests). */
+  downloadService?: DownloadService;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -44,14 +57,40 @@ export interface PhaseTwoResult {
 // ---------------------------------------------------------------------------
 
 export class SyncPipeline {
-  constructor(private config: Config) {}
+  private deps: SyncPipelineDeps;
+
+  constructor(
+    private config: Config,
+    deps?: SyncPipelineDeps,
+  ) {
+    this.deps = deps ?? {};
+  }
+
+  private getDb() {
+    return this.deps.db ?? getDb();
+  }
+
+  private getLexiconService() {
+    return this.deps.lexiconService ?? new LexiconService(this.config.lexicon);
+  }
+
+  private getDownloadService() {
+    return (
+      this.deps.downloadService ??
+      new DownloadService(
+        this.config.soulseek,
+        this.config.download,
+        this.config.lexicon,
+      )
+    );
+  }
 
   // -------------------------------------------------------------------------
   // Phase 1 — Match all tracks in a playlist against Lexicon
   // -------------------------------------------------------------------------
 
   async matchPlaylist(playlistId: string): Promise<PhaseOneResult> {
-    const db = getDb();
+    const db = this.getDb();
 
     // 1. Fetch playlist metadata
     const playlist = await db.query.playlists.findFirst({
@@ -79,7 +118,7 @@ export class SyncPipeline {
     const trackMap = new Map(trackRows.map((t) => [t.id, t]));
 
     // 3. Get Lexicon tracks via service
-    const lexicon = new LexiconService(this.config.lexicon);
+    const lexicon = this.getLexiconService();
     const lexiconTracks = await lexicon.getTracks();
 
     // Convert Lexicon tracks to TrackInfo candidates (with an ID index)
@@ -232,7 +271,7 @@ export class SyncPipeline {
     phaseOne: PhaseOneResult,
     decisions: ReviewDecision[],
   ): PhaseTwoResult {
-    const db = getDb();
+    const db = this.getDb();
     const decisionMap = new Map(decisions.map((d) => [d.dbTrackId, d.accepted]));
 
     const confirmed: MatchedTrack[] = [...phaseOne.found];
@@ -297,11 +336,7 @@ export class SyncPipeline {
       success: boolean,
     ) => void,
   ): Promise<{ succeeded: number; failed: number }> {
-    const downloadService = new DownloadService(
-      this.config.soulseek,
-      this.config.download,
-      this.config.lexicon,
-    );
+    const downloadService = this.getDownloadService();
 
     const batchItems = phaseTwo.missing.map((m) => ({
       track: m.track,
@@ -326,7 +361,7 @@ export class SyncPipeline {
     );
 
     // Update download records in DB
-    const db = getDb();
+    const db = this.getDb();
     for (const result of results) {
       await db.insert(schema.downloads).values({
         trackId: result.trackId,
@@ -350,7 +385,7 @@ export class SyncPipeline {
     playlistName: string,
     allMatchedTrackIds: string[],
   ): Promise<void> {
-    const lexicon = new LexiconService(this.config.lexicon);
+    const lexicon = this.getLexiconService();
 
     // Check if the playlist already exists in Lexicon
     const existing = await lexicon.getPlaylistByName(playlistName);
@@ -364,7 +399,7 @@ export class SyncPipeline {
     }
 
     // Log the sync action
-    const db = getDb();
+    const db = this.getDb();
     await db.insert(schema.syncLog).values({
       playlistId,
       action: "sync_to_lexicon",
