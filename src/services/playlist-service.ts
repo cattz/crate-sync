@@ -8,6 +8,7 @@ import {
   type Track,
   type PlaylistTrack,
 } from "../db/schema.js";
+import type { SpotifyTrack } from "../types/spotify.js";
 
 export class PlaylistService {
   private db: ReturnType<typeof getDb>;
@@ -341,6 +342,55 @@ export class PlaylistService {
     // Delete the playlist
     this.db
       .delete(playlists)
+      .where(eq(playlists.id, playlistId))
+      .run();
+  }
+
+  /**
+   * Get tracks that differ between local DB and Spotify.
+   * Compares local playlist tracks (by spotifyUri) against Spotify's current state.
+   */
+  getPlaylistDiff(
+    playlistId: string,
+    spotifyTracks: SpotifyTrack[],
+  ): {
+    toAdd: string[];
+    toRemove: string[];
+    renamed: boolean;
+  } {
+    const playlist = this.getPlaylist(playlistId);
+    if (!playlist) {
+      throw new Error(`Playlist not found: ${playlistId}`);
+    }
+
+    const localTracks = this.getPlaylistTracks(playlistId);
+
+    // Build sets of Spotify URIs
+    const localUris = new Set(
+      localTracks
+        .map((t) => t.spotifyUri)
+        .filter((uri): uri is string => uri != null),
+    );
+    const spotifyUris = new Set(spotifyTracks.map((t) => t.uri));
+
+    // URIs in local but not in Spotify → need to add
+    const toAdd = [...localUris].filter((uri) => !spotifyUris.has(uri));
+
+    // URIs in Spotify but not in local → need to remove
+    const toRemove = [...spotifyUris].filter((uri) => !localUris.has(uri));
+
+    // Check if name differs (we can't know the Spotify name here, so
+    // the caller is responsible for comparing names separately)
+    const renamed = false;
+
+    return { toAdd, toRemove, renamed };
+  }
+
+  /** Update the snapshot_id for a playlist. */
+  updateSnapshotId(playlistId: string, snapshotId: string): void {
+    this.db
+      .update(playlists)
+      .set({ snapshotId, updatedAt: Date.now() })
       .where(eq(playlists.id, playlistId))
       .run();
   }

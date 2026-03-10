@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — 2026-03-10
+
+### Added
+- **`playlists repair <id>`** — re-match playlist tracks against Lexicon library, report status, optionally download missing tracks via `--download`
+- **`playlists push [id]`** — push local playlist changes (renames, track additions/removals) back to Spotify API, with `--all` flag for bulk push
+- **`PlaylistService.getPlaylistDiff()`** — compare local tracks against Spotify state to detect additions/removals
+- **`PlaylistService.updateSnapshotId()`** — update Spotify snapshot_id after push
+
 ## 0.1.0 — 2026-03-09
 
 Initial implementation of the unified crate-sync CLI.

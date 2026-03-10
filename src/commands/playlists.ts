@@ -6,6 +6,7 @@ import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SpotifyService } from "../services/spotify-service.js";
+import { SyncPipeline } from "../services/sync-pipeline.js";
 import { loadConfig } from "../config.js";
 
 export function registerPlaylistCommands(program: Command): void {
@@ -361,6 +362,216 @@ export function registerPlaylistCommands(program: Command): void {
           await spotify.deletePlaylist(playlist.spotifyId);
           console.log(chalk.green(`Unfollowed on Spotify.`));
         }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // playlists repair <id>
+  // ---------------------------------------------------------------------------
+
+  playlists
+    .command("repair <id>")
+    .description("Fix broken/unplayable tracks by re-matching against Lexicon")
+    .option("--download", "Download missing tracks via Soulseek")
+    .action(async (id: string, opts: { download?: boolean }) => {
+      try {
+        const db = getDb();
+        const service = new PlaylistService(db);
+
+        const playlist = service.getPlaylist(id);
+        if (!playlist) {
+          console.log(chalk.red(`Playlist not found: ${id}`));
+          console.log(chalk.dim("Use `crate-sync playlists list` to see available playlists."));
+          return;
+        }
+
+        const config = loadConfig();
+        const pipeline = new SyncPipeline(config, { db });
+
+        console.log(chalk.bold(`Repairing "${playlist.name}"...`));
+        console.log();
+
+        // Phase 1: match all tracks against Lexicon
+        const result = await pipeline.matchPlaylist(playlist.id);
+
+        // Print report
+        const okCount = result.found.length;
+        const reviewCount = result.needsReview.length;
+        const missingCount = result.notFound.length;
+
+        console.log(chalk.green(`  ${okCount} tracks OK`) + chalk.dim(" (matched in Lexicon)"));
+        if (reviewCount > 0) {
+          console.log(chalk.yellow(`  ${reviewCount} tracks need review`) + chalk.dim(" (uncertain match)"));
+        }
+        console.log(chalk.red(`  ${missingCount} tracks need repair`) + chalk.dim(" (not found in Lexicon)"));
+        console.log(chalk.dim(`  ${result.total} total`));
+
+        // List tracks needing review
+        if (result.needsReview.length > 0) {
+          console.log();
+          console.log(chalk.bold("Needs review:"));
+          for (const item of result.needsReview) {
+            console.log(
+              `  ${chalk.yellow("?")} ${item.track.title} — ${chalk.dim(item.track.artist)}` +
+              chalk.dim(` (score: ${item.score.toFixed(2)})`),
+            );
+          }
+        }
+
+        // List tracks not found
+        if (result.notFound.length > 0) {
+          console.log();
+          console.log(chalk.bold("Not found in Lexicon:"));
+          for (const item of result.notFound) {
+            console.log(
+              `  ${chalk.red("x")} ${item.track.title} — ${chalk.dim(item.track.artist)}`,
+            );
+          }
+        }
+
+        // Optionally download missing tracks
+        if (opts.download && missingCount > 0) {
+          console.log();
+          console.log(chalk.bold(`Downloading ${missingCount} missing tracks...`));
+
+          // Build a PhaseTwoResult treating all review items as missing
+          const phaseTwo = pipeline.applyReviewDecisions(result, []);
+
+          const downloadResult = await pipeline.downloadMissing(
+            phaseTwo,
+            result.playlistName,
+            (completed, total, title, success) => {
+              const icon = success ? chalk.green("v") : chalk.red("x");
+              console.log(`  ${icon} [${completed}/${total}] ${title}`);
+            },
+          );
+
+          console.log();
+          console.log(
+            chalk.green(`  ${downloadResult.succeeded} downloaded`) +
+            (downloadResult.failed > 0 ? chalk.red(` / ${downloadResult.failed} failed`) : ""),
+          );
+        } else if (missingCount > 0 && !opts.download) {
+          console.log();
+          console.log(chalk.dim("Use --download to attempt downloading missing tracks via Soulseek."));
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // playlists push [id]
+  // ---------------------------------------------------------------------------
+
+  playlists
+    .command("push [id]")
+    .description("Push local playlist changes back to Spotify")
+    .option("--all", "Push all playlists")
+    .action(async (id: string | undefined, opts: { all?: boolean }) => {
+      try {
+        if (!id && !opts.all) {
+          console.log(chalk.red("Provide a playlist ID or use --all."));
+          return;
+        }
+
+        const config = loadConfig();
+        const spotify = new SpotifyService(config.spotify);
+
+        if (!(await spotify.isAuthenticated())) {
+          console.log(chalk.red("Not authenticated with Spotify. Run `crate-sync auth login` first."));
+          return;
+        }
+
+        const db = getDb();
+        const service = new PlaylistService(db);
+
+        // Resolve which playlists to push
+        let playlistsToPush: schema.Playlist[];
+
+        if (opts.all) {
+          playlistsToPush = service.getPlaylists().filter((p) => p.spotifyId != null);
+          if (playlistsToPush.length === 0) {
+            console.log(chalk.dim("No playlists with Spotify IDs found."));
+            return;
+          }
+        } else {
+          const playlist = service.getPlaylist(id!);
+          if (!playlist) {
+            console.log(chalk.red(`Playlist not found: ${id}`));
+            console.log(chalk.dim("Use `crate-sync playlists list` to see available playlists."));
+            return;
+          }
+          if (!playlist.spotifyId) {
+            console.log(chalk.red(`Playlist "${playlist.name}" has no Spotify ID — cannot push.`));
+            return;
+          }
+          playlistsToPush = [playlist];
+        }
+
+        console.log(chalk.bold(`Pushing ${playlistsToPush.length} playlist(s) to Spotify...`));
+        console.log();
+
+        for (const playlist of playlistsToPush) {
+          const spotifyId = playlist.spotifyId!;
+
+          try {
+            // Get current Spotify state
+            const spotifyTracks = await spotify.getPlaylistTracks(spotifyId);
+
+            // Compare local vs Spotify
+            const diff = service.getPlaylistDiff(playlist.id, spotifyTracks);
+
+            // Check if name was changed by fetching Spotify playlist metadata
+            const spotifyPlaylists = await spotify.getPlaylists();
+            const spotifyPlaylist = spotifyPlaylists.find((p) => p.id === spotifyId);
+            const nameChanged = spotifyPlaylist ? spotifyPlaylist.name !== playlist.name : false;
+
+            const hasChanges = nameChanged || diff.toAdd.length > 0 || diff.toRemove.length > 0;
+
+            if (!hasChanges) {
+              console.log(chalk.dim(`  ${playlist.name} — no changes`));
+              continue;
+            }
+
+            console.log(chalk.cyan(`  ${playlist.name}`));
+
+            // Apply rename
+            if (nameChanged) {
+              await spotify.renamePlaylist(spotifyId, playlist.name);
+              console.log(chalk.green(`    Renamed to "${playlist.name}"`));
+            }
+
+            // Remove tracks
+            if (diff.toRemove.length > 0) {
+              await spotify.removeTracksFromPlaylist(spotifyId, diff.toRemove);
+              console.log(chalk.yellow(`    Removed ${diff.toRemove.length} track(s)`));
+            }
+
+            // Add tracks
+            if (diff.toAdd.length > 0) {
+              await spotify.addTracksToPlaylist(spotifyId, diff.toAdd);
+              console.log(chalk.green(`    Added ${diff.toAdd.length} track(s)`));
+            }
+
+            // Refresh snapshot_id from Spotify
+            const updatedPlaylists = await spotify.getPlaylists();
+            const updated = updatedPlaylists.find((p) => p.id === spotifyId);
+            if (updated) {
+              service.updateSnapshotId(playlist.id, updated.snapshotId);
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.log(chalk.red(`  ${playlist.name} — failed: ${message}`));
+          }
+        }
+
+        console.log();
+        console.log(chalk.green("Done."));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.log(chalk.red(`Error: ${message}`));
