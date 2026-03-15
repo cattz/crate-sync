@@ -7,6 +7,7 @@ import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SyncPipeline, type PhaseOneResult, type ReviewDecision } from "../services/sync-pipeline.js";
+import type { DownloadCandidate, DownloadReviewFn } from "../services/download-service.js";
 import { Progress } from "../utils/progress.js";
 import { checkHealth } from "../utils/health.js";
 
@@ -91,51 +92,58 @@ export function registerSyncCommand(program: Command): void {
 
           if (phaseOne.needsReview.length > 0) {
             console.log(chalk.cyan("Phase 2 — Review"));
-            console.log();
-            console.log("The following tracks need manual review:");
-            console.log();
-
-            for (let i = 0; i < phaseOne.needsReview.length; i++) {
-              const item = phaseOne.needsReview[i];
-              const score = (item.score * 100).toFixed(0);
-              console.log(
-                `  ${chalk.cyan(String(i + 1).padStart(3))}. ${item.track.title} — ${chalk.dim(item.track.artist)}  ${chalk.yellow(`${score}%`)}`,
-              );
-            }
-
+            console.log(chalk.dim(`  ${phaseOne.needsReview.length} track(s) need manual review`));
             console.log();
 
             const rl = createInterface({ input: stdin, output: stdout });
 
             try {
-              const answer = await rl.question(
-                chalk.bold('Accept which? (e.g. "1,3,5", "all", "none"): '),
-              );
+              for (let i = 0; i < phaseOne.needsReview.length; i++) {
+                const item = phaseOne.needsReview[i];
+                const score = (item.score * 100).toFixed(0);
+                const src = item.track;
+                const lex = item.lexiconTrack;
 
-              const trimmed = answer.trim().toLowerCase();
+                console.log(chalk.bold(`  [${i + 1}/${phaseOne.needsReview.length}] Match at ${chalk.yellow(`${score}%`)}`));
+                console.log();
+                console.log(`    ${chalk.cyan("Spotify:")}  ${src.artist} — ${src.title}`);
+                if (src.album) console.log(`               ${chalk.dim(`Album: ${src.album}`)}`);
+                if (src.durationMs) console.log(`               ${chalk.dim(`Duration: ${formatDuration(src.durationMs)}`)}`);
+                console.log();
+                if (lex) {
+                  console.log(`    ${chalk.magenta("Lexicon:")}  ${lex.artist} — ${lex.title}`);
+                  if (lex.album) console.log(`               ${chalk.dim(`Album: ${lex.album}`)}`);
+                  if (lex.durationMs) console.log(`               ${chalk.dim(`Duration: ${formatDuration(lex.durationMs)}`)}`);
+                } else {
+                  console.log(`    ${chalk.magenta("Lexicon:")}  ${chalk.dim("(details unavailable)")}`);
+                }
+                console.log();
 
-              if (trimmed === "all") {
-                decisions = phaseOne.needsReview.map((item) => ({
-                  dbTrackId: item.dbTrackId,
-                  accepted: true,
-                }));
-              } else if (trimmed === "none" || trimmed === "") {
-                decisions = phaseOne.needsReview.map((item) => ({
-                  dbTrackId: item.dbTrackId,
-                  accepted: false,
-                }));
-              } else {
-                const accepted = new Set(
-                  trimmed
-                    .split(",")
-                    .map((s) => parseInt(s.trim(), 10))
-                    .filter((n) => !isNaN(n)),
+                const answer = await rl.question(
+                  chalk.bold("  Accept? (y/n/a=all/q=quit): "),
                 );
+                const choice = answer.trim().toLowerCase();
 
-                decisions = phaseOne.needsReview.map((item, i) => ({
-                  dbTrackId: item.dbTrackId,
-                  accepted: accepted.has(i + 1),
-                }));
+                if (choice === "a") {
+                  // Accept this and all remaining
+                  for (let j = i; j < phaseOne.needsReview.length; j++) {
+                    decisions.push({ dbTrackId: phaseOne.needsReview[j].dbTrackId, accepted: true });
+                  }
+                  break;
+                } else if (choice === "q") {
+                  // Reject this and all remaining
+                  for (let j = i; j < phaseOne.needsReview.length; j++) {
+                    decisions.push({ dbTrackId: phaseOne.needsReview[j].dbTrackId, accepted: false });
+                  }
+                  break;
+                } else {
+                  decisions.push({
+                    dbTrackId: item.dbTrackId,
+                    accepted: choice === "y" || choice === "yes",
+                  });
+                }
+
+                console.log();
               }
             } finally {
               rl.close();
@@ -161,18 +169,50 @@ export function registerSyncCommand(program: Command): void {
             console.log(chalk.dim(`  ${phaseTwo.missing.length} track(s) to download`));
             console.log();
 
+            // Interactive download review
+            const dlReviewRl = createInterface({ input: stdin, output: stdout });
+            const downloadReview: DownloadReviewFn = async (candidate, index, reviewTotal) => {
+              const score = (candidate.score * 100).toFixed(0);
+              const src = candidate.track;
+              const cand = candidate.parsedTrack;
+              const file = candidate.file;
+
+              console.log(chalk.bold(`  [${index + 1}/${reviewTotal}] Download match at ${chalk.yellow(`${score}%`)}`));
+              console.log();
+              console.log(`    ${chalk.cyan("Looking for:")}  ${src.artist} — ${src.title}`);
+              if (src.durationMs) console.log(`                   ${chalk.dim(`Duration: ${formatDuration(src.durationMs)}`)}`);
+              console.log();
+              console.log(`    ${chalk.magenta("Found:")}        ${cand.artist || chalk.dim("(unknown)")} — ${cand.title || chalk.dim("(unknown)")}`);
+              console.log(`                   ${chalk.dim(`File: ${file.filename}`)}`);
+              if (file.bitRate) console.log(`                   ${chalk.dim(`Bitrate: ${file.bitRate} kbps`)}`);
+              if (file.length) console.log(`                   ${chalk.dim(`Duration: ${formatDuration(file.length * 1000)}`)}`);
+              console.log();
+
+              const answer = await dlReviewRl.question(
+                chalk.bold("  Download? (y/n/a=all/q=quit): "),
+              );
+              const choice = answer.trim().toLowerCase();
+              console.log();
+
+              if (choice === "a") return "all";
+              if (choice === "q") return false;
+              return choice === "y" || choice === "yes";
+            };
+
             const downloadResult = await pipeline.downloadMissing(
               phaseTwo,
               pl.name,
               (done, total, title, success, error) => {
                 const status = success ? chalk.green("✓") : chalk.red("✗");
-                const pct = Math.round((done / total) * 100);
                 console.log(`  ${status} [${done}/${total}] ${title}`);
                 if (!success && error) {
                   console.log(`    ${chalk.dim(error)}`);
                 }
               },
+              downloadReview,
             );
+
+            dlReviewRl.close();
 
             console.log();
             console.log(
@@ -207,6 +247,13 @@ export function registerSyncCommand(program: Command): void {
         console.log(chalk.red(`Sync failed: ${message}`));
       }
     });
+}
+
+function formatDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}:${String(sec).padStart(2, "0")}`;
 }
 
 function printPhaseOneSummary(result: PhaseOneResult): void {

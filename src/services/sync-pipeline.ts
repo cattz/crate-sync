@@ -29,6 +29,8 @@ export interface MatchedTrack {
   dbTrackId: string;
   track: TrackInfo;
   lexiconTrackId?: string;
+  /** The Lexicon candidate's details (for review UI comparison). */
+  lexiconTrack?: TrackInfo;
   score: number;
   confidence: "high" | "review" | "low";
   method: string;
@@ -129,6 +131,12 @@ export class SyncPipeline {
       durationMs: lt.durationMs ?? undefined,
     }));
 
+    // Lexicon ID → TrackInfo for review UI
+    const lexiconById = new Map<string, TrackInfo>();
+    for (let i = 0; i < lexiconTracks.length; i++) {
+      lexiconById.set(lexiconTracks[i].id, lexiconCandidates[i]);
+    }
+
     // 4. Build the matcher
     const matcher = createMatcher(this.config.matching, "lexicon");
 
@@ -189,6 +197,7 @@ export class SyncPipeline {
           dbTrackId,
           track: trackInfo,
           lexiconTrackId: prev.targetId,
+          lexiconTrack: lexiconById.get(prev.targetId),
           score: prev.score,
           confidence: prev.confidence,
           method: prev.method,
@@ -225,6 +234,7 @@ export class SyncPipeline {
         dbTrackId,
         track: trackInfo,
         lexiconTrackId,
+        lexiconTrack: lexiconTrackId ? lexiconById.get(lexiconTrackId) : undefined,
         score: best.score,
         confidence: best.confidence,
         method: best.method,
@@ -352,6 +362,7 @@ export class SyncPipeline {
       success: boolean,
       error?: string,
     ) => void,
+    onReview?: import("./download-service.js").DownloadReviewFn,
   ): Promise<{ succeeded: number; failed: number }> {
     const downloadService = this.getDownloadService();
 
@@ -375,6 +386,7 @@ export class SyncPipeline {
         const title = item?.track.title ?? "Unknown";
         onProgress?.(done, total, title, result.success, result.error);
       },
+      onReview,
     );
 
     // Update download records in DB

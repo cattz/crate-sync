@@ -40,6 +40,27 @@ export interface DownloadResult {
   error?: string;
 }
 
+/** Info passed to the download review callback. */
+export interface DownloadCandidate {
+  track: TrackInfo;
+  file: SlskdFile;
+  /** Parsed artist/title from the Soulseek filename. */
+  parsedTrack: TrackInfo;
+  score: number;
+  diagnostics: string;
+}
+
+/**
+ * Review callback for download candidates.
+ * Return true to accept, false to skip.
+ * Returning "all" accepts this and all remaining without further prompts.
+ */
+export type DownloadReviewFn = (
+  candidate: DownloadCandidate,
+  index: number,
+  total: number,
+) => Promise<boolean | "all">;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -264,47 +285,7 @@ export class DownloadService {
         };
       }
 
-      const { username, filename, size } = best.file;
-
-      await this.soulseek.download(username, filename, size);
-
-      // 3. Wait for download to complete
-      await this.soulseek.waitForDownload(username, filename);
-
-      // Build temp path where slskd stores the downloaded file
-      const tempPath = this.findDownloadedFile(username, filename);
-      if (!tempPath) {
-        return {
-          trackId: dbTrackId,
-          success: false,
-          error: `Downloaded file not found in slskd download dir for: ${filename}`,
-        };
-      }
-
-      // 4. Validate downloaded file metadata
-      const valid = await this.validateDownload(tempPath, track);
-
-      if (!valid) {
-        return {
-          trackId: dbTrackId,
-          success: false,
-          filePath: tempPath,
-          error: "Downloaded file failed metadata validation",
-        };
-      }
-
-      // 5. Move to playlist folder
-      const finalPath = this.moveToPlaylistFolder(
-        tempPath,
-        playlistName,
-        track,
-      );
-
-      return {
-        trackId: dbTrackId,
-        success: true,
-        filePath: finalPath,
-      };
+      return this.acquireAndMove(best.file, track, playlistName, dbTrackId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -329,6 +310,7 @@ export class DownloadService {
       total: number,
       result: DownloadResult,
     ) => void,
+    onReview?: DownloadReviewFn,
   ): Promise<DownloadResult[]> {
     const total = tracks.length;
     const results: DownloadResult[] = [];
@@ -345,12 +327,69 @@ export class DownloadService {
     }));
     const searchResults = await this.searchAndRankBatch(batchInput);
 
-    // 2. Download best matches concurrently
+    // 2. Review candidates if callback provided
+    const approved = new Set<string>(); // dbTrackIds approved for download
+    const rejected = new Set<string>(); // dbTrackIds rejected by user
+    let autoAcceptAll = false;
+
+    if (onReview) {
+      const reviewable = tracks.filter((item) => {
+        const sr = searchResults.get(item.dbTrackId);
+        return sr && sr.ranked.length > 0 && sr.ranked[0].score >= 0.3;
+      });
+
+      for (let i = 0; i < reviewable.length; i++) {
+        const item = reviewable[i];
+        const sr = searchResults.get(item.dbTrackId)!;
+        const best = sr.ranked[0];
+
+        if (autoAcceptAll) {
+          approved.add(item.dbTrackId);
+          continue;
+        }
+
+        const decision = await onReview(
+          {
+            track: item.track,
+            file: best.file,
+            parsedTrack: trackInfoFromFilename(best.file.filename),
+            score: best.score,
+            diagnostics: sr.diagnostics,
+          },
+          i,
+          reviewable.length,
+        );
+
+        if (decision === "all") {
+          autoAcceptAll = true;
+          approved.add(item.dbTrackId);
+        } else if (decision) {
+          approved.add(item.dbTrackId);
+        } else {
+          rejected.add(item.dbTrackId);
+        }
+      }
+    }
+
+    // 3. Download approved matches concurrently
     const pending = new Set<Promise<void>>();
 
     for (const item of tracks) {
       if (isShutdownRequested()) {
         break;
+      }
+
+      // If review was used, skip non-approved tracks
+      if (onReview && rejected.has(item.dbTrackId)) {
+        const result: DownloadResult = {
+          trackId: item.dbTrackId,
+          success: false,
+          error: "Rejected during review",
+        };
+        results.push(result);
+        completed++;
+        onProgress?.(completed, total, result);
+        continue;
       }
 
       const task = this.downloadFromSearchResults(
@@ -409,37 +448,7 @@ export class DownloadService {
         };
       }
 
-      const { username, filename, size } = best.file;
-
-      await this.soulseek.download(username, filename, size);
-      await this.soulseek.waitForDownload(username, filename);
-
-      const tempPath = this.findDownloadedFile(username, filename);
-      if (!tempPath) {
-        return {
-          trackId: dbTrackId,
-          success: false,
-          error: `Downloaded file not found in slskd download dir for: ${filename}`,
-        };
-      }
-      const valid = await this.validateDownload(tempPath, track);
-
-      if (!valid) {
-        return {
-          trackId: dbTrackId,
-          success: false,
-          filePath: tempPath,
-          error: "Downloaded file failed metadata validation",
-        };
-      }
-
-      const finalPath = this.moveToPlaylistFolder(tempPath, playlistName, track);
-
-      return {
-        trackId: dbTrackId,
-        success: true,
-        filePath: finalPath,
-      };
+      return this.acquireAndMove(best.file, track, playlistName, dbTrackId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -455,6 +464,55 @@ export class DownloadService {
    * Uses music-metadata to parse tags, then fuzzy-matches artist + title.
    * Returns true if score > 0.5 (lenient — tags are often messy).
    */
+  /**
+   * Check if file already exists in slskd downloads, otherwise download it.
+   * Then validate and move to playlist folder.
+   */
+  private async acquireAndMove(
+    file: SlskdFile,
+    track: TrackInfo,
+    playlistName: string,
+    dbTrackId: string,
+  ): Promise<DownloadResult> {
+    const { username, filename, size } = file;
+
+    // Check if the file already exists from a previous run
+    let tempPath = this.findDownloadedFile(username, filename);
+
+    if (tempPath) {
+      log.debug(`File already in downloads, skipping download`, { filename, tempPath });
+    } else {
+      await this.soulseek.download(username, filename, size);
+      await this.soulseek.waitForDownload(username, filename);
+
+      tempPath = this.findDownloadedFile(username, filename);
+      if (!tempPath) {
+        return {
+          trackId: dbTrackId,
+          success: false,
+          error: `Downloaded file not found in slskd download dir for: ${filename}`,
+        };
+      }
+    }
+
+    const valid = await this.validateDownload(tempPath, track);
+    if (!valid) {
+      return {
+        trackId: dbTrackId,
+        success: false,
+        filePath: tempPath,
+        error: "Downloaded file failed metadata validation",
+      };
+    }
+
+    const finalPath = this.moveToPlaylistFolder(tempPath, playlistName, track);
+    return {
+      trackId: dbTrackId,
+      success: true,
+      filePath: finalPath,
+    };
+  }
+
   async validateDownload(
     filePath: string,
     expected: TrackInfo,

@@ -31,12 +31,19 @@ Get one track by ID.
 
 ### PATCH /track
 
-Update one track.
+Update one track. Fields must be wrapped in an `edits` object.
 
 | Parameter | Type    | Required | Description |
 |-----------|---------|----------|-------------|
 | `id`      | integer | yes      | Track ID    |
-| ...       |         |          | Any writable Track fields |
+| `edits`   | object  | yes      | Object with writable Track fields |
+
+**Example:**
+```json
+{ "id": 3326, "edits": { "title": "New Title", "tags": [23, 78] } }
+```
+
+**Response:** `{}` (empty on success)
 
 ### GET /tracks
 
@@ -228,25 +235,77 @@ Get all custom tags and tag categories.
 
 Create a new custom tag.
 
+| Parameter    | Type    | Required | Description |
+|--------------|---------|----------|-------------|
+| `categoryId` | integer | yes      | Parent category ID |
+| `label`      | string  | yes      | Tag label |
+
+**Response:** `{ id, categoryId, label, position }` (not wrapped in `data`)
+
 ### PATCH /tag
 
 Update an existing custom tag.
+
+| Parameter    | Type    | Required | Description |
+|--------------|---------|----------|-------------|
+| `id`         | integer | yes      | Tag ID |
+| `label`      | string  | no       | New label |
+| `categoryId` | integer | no       | Move to different category |
+
+**Response:** `{ id, categoryId, label, position }` (not wrapped in `data`)
 
 ### DELETE /tag
 
 Delete a custom tag by ID.
 
+| Parameter | Type    | Required | Description |
+|-----------|---------|----------|-------------|
+| `id`      | integer | yes      | Tag ID |
+
+**Response:** `{}`
+
 ### POST /tag-category
 
 Create a new tag category.
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `label`   | string | yes      | Category label |
+| `color`   | string | no       | Hex color (e.g. `"#9B59B6"`) |
+
+**Response:** `{ id, label, position, color, tags: [] }` (not wrapped in `data`)
 
 ### PATCH /tag-category
 
 Update an existing tag category.
 
+| Parameter | Type    | Required | Description |
+|-----------|---------|----------|-------------|
+| `id`      | integer | yes      | Category ID |
+| `label`   | string  | no       | New label |
+| `color`   | string  | no       | New hex color |
+
+**Response:** `{}`
+
 ### DELETE /tag-category
 
-Delete a tag category and all tags in it.
+Delete a tag category **and all tags in it**.
+
+| Parameter | Type    | Required | Description |
+|-----------|---------|----------|-------------|
+| `id`      | integer | yes      | Category ID |
+
+**Response:** `{}`
+
+### Assigning Tags to Tracks
+
+Tags are set via `PATCH /track` using the **`edits` wrapper**:
+
+```json
+{ "id": 3326, "edits": { "tags": [23, 78, 80] } }
+```
+
+**Important**: This **replaces** the entire tags array — it is NOT additive. To add a tag, read the track's current tags first, append the new ID(s), then write back the full array.
 
 ---
 

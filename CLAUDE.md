@@ -23,3 +23,7 @@ Some design notes:
 - Since manual intervention to confirm/deny matches will be unavoidable, I want to keep a *central* location to list all the known false matches.
 
 I want to complete the list of features and high level architecture design and choice of stack before starting any implementation.
+
+## Workflow
+
+- Use Claude Code native tasks to track work items organically during conversations.

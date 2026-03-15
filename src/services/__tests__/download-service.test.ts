@@ -246,7 +246,7 @@ describe("DownloadService", () => {
   // downloadTrack
   // -----------------------------------------------------------------------
   describe("downloadTrack", () => {
-    it("succeeds with full flow: search -> download -> validate -> move", async () => {
+    it("skips download when file already exists in slskd downloads", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
@@ -255,17 +255,12 @@ describe("DownloadService", () => {
       });
       vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
 
-      // Validation: parseFile returns matching metadata
       vi.mocked(parseFile).mockResolvedValueOnce({
-        common: {
-          title: "Test Song",
-          artist: "Test Artist",
-          album: "Album",
-        },
+        common: { title: "Test Song", artist: "Test Artist", album: "Album" },
         format: { duration: 240 },
       } as any);
 
-      // findDownloadedFile: exact path exists; moveToPlaylistFolder: dest dir doesn't
+      // File already exists in slskd downloads dir
       vi.mocked(existsSync).mockImplementation((p) => {
         return String(p).includes("slskd-downloads");
       });
@@ -279,6 +274,44 @@ describe("DownloadService", () => {
       expect(result.success).toBe(true);
       expect(result.trackId).toBe("db-track-1");
       expect(result.filePath).toBeDefined();
+      // Should NOT have called download — file was already there
+      expect(mock.download).not.toHaveBeenCalled();
+      expect(mock.waitForDownload).not.toHaveBeenCalled();
+    });
+
+    it("downloads when file not in slskd downloads", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      const file = makeFile({
+        filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Song.flac",
+      });
+      vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
+
+      vi.mocked(parseFile).mockResolvedValueOnce({
+        common: { title: "Test Song", artist: "Test Artist", album: "Album" },
+        format: { duration: 240 },
+      } as any);
+
+      // First call (findDownloadedFile before download): not found
+      // Second call (findDownloadedFile after download): found
+      // Remaining calls (moveToPlaylistFolder dir check): false
+      let findCalls = 0;
+      vi.mocked(existsSync).mockImplementation((p) => {
+        if (String(p).includes("slskd-downloads")) {
+          findCalls++;
+          return findCalls > 1; // not found first time, found after download
+        }
+        return false;
+      });
+
+      const result = await service.downloadTrack(
+        { title: "Test Song", artist: "Test Artist" },
+        "My Playlist",
+        "db-track-1",
+      );
+
+      expect(result.success).toBe(true);
       expect(mock.download).toHaveBeenCalledWith("user1", file.filename, file.size);
       expect(mock.waitForDownload).toHaveBeenCalledWith("user1", file.filename);
     });
