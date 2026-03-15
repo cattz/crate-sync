@@ -7,10 +7,21 @@ vi.mock("../../utils/retry.js", () => ({
   withRetry: <T>(fn: () => Promise<T>) => fn(),
 }));
 
+// Silence logger in tests
+vi.mock("../../utils/logger.js", () => ({
+  createLogger: () => ({
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  }),
+}));
+
 const config: SoulseekConfig = {
   slskdUrl: "http://localhost:5030",
   slskdApiKey: "test-api-key",
   searchDelayMs: 100,
+  downloadDir: "/tmp/slskd-downloads",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -130,7 +141,7 @@ describe("SoulseekService", () => {
 
   // --- waitForSearch ---
 
-  it("waitForSearch polls until Completed", async () => {
+  it("waitForSearch polls until Completed and stabilized", async () => {
     const pending = {
       id: "s1",
       searchText: "q",
@@ -149,19 +160,24 @@ describe("SoulseekService", () => {
       ],
     };
 
+    // Poll 1: InProgress, Poll 2: Completed with results, Poll 3: same (stabilized)
     const fetchFn = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(pending))
+      .mockResolvedValueOnce(jsonResponse(completed))
       .mockResolvedValueOnce(jsonResponse(completed));
     vi.stubGlobal("fetch", fetchFn);
 
-    // Override sleep to be instant
-    vi.spyOn(svc as never, "sleep").mockResolvedValue(undefined as never);
+    // Advance fake time by 5s on each sleep (past STABILIZE_MS of 4s)
+    let fakeTime = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+    vi.spyOn(svc as never, "sleep").mockImplementation(async () => {
+      fakeTime += 5_000;
+    });
 
-    const files = await svc.waitForSearch("s1", 10_000);
+    const files = await svc.waitForSearch("s1", 60_000);
     expect(files).toHaveLength(1);
     expect(files[0].filename).toBe("f.mp3");
-    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   // --- search timeout ---
@@ -218,8 +234,7 @@ describe("SoulseekService", () => {
     expect(url).toContain("/transfers/downloads/cooluser");
     expect(opts.method).toBe("POST");
     const body = JSON.parse(opts.body);
-    expect(body.filename).toBe("Music/track.mp3");
-    expect(body.size).toBe(5000);
+    expect(body).toEqual([{ filename: "Music/track.mp3", size: 5000 }]);
   });
 
   it("download without size omits size from body", async () => {
@@ -229,37 +244,43 @@ describe("SoulseekService", () => {
     await svc.download("user", "file.flac");
 
     const body = JSON.parse(fetchFn.mock.calls[0][1].body);
-    expect(body).toEqual({ filename: "file.flac" });
+    expect(body).toEqual([{ filename: "file.flac" }]);
   });
 
   // --- rateLimitedSearch ---
 
   it("rateLimitedSearch respects delay between searches", async () => {
-    // First search: start + getResults(pending) + getResults(completed)
-    // Second search: start + getResults(completed)
     const completedResponse = {
       id: "s1",
       searchText: "q",
       state: "Completed",
-      responses: [],
+      responses: [{ username: "u", files: [{ filename: "f.mp3", size: 1, code: "0" }] }],
     };
 
     const fetchFn = vi.fn()
       // First search: startSearch
       .mockResolvedValueOnce(jsonResponse({ id: "s1" }))
-      // First search: getSearchResults (completed immediately)
+      // First search: poll 1 (results appear)
+      .mockResolvedValueOnce(jsonResponse(completedResponse))
+      // First search: poll 2 (stabilized after sleep advances time)
       .mockResolvedValueOnce(jsonResponse(completedResponse))
       // Second search: startSearch
       .mockResolvedValueOnce(jsonResponse({ id: "s2" }))
-      // Second search: getSearchResults
+      // Second search: poll 1 (results appear)
+      .mockResolvedValueOnce(
+        jsonResponse({ ...completedResponse, id: "s2" }),
+      )
+      // Second search: poll 2 (stabilized)
       .mockResolvedValueOnce(
         jsonResponse({ ...completedResponse, id: "s2" }),
       );
     vi.stubGlobal("fetch", fetchFn);
 
-    const sleepSpy = vi
-      .spyOn(svc as never, "sleep")
-      .mockResolvedValue(undefined as never);
+    let fakeTime = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+    const sleepSpy = vi.spyOn(svc as never, "sleep").mockImplementation(async () => {
+      fakeTime += 5_000;
+    });
 
     await svc.rateLimitedSearch("query1");
     await svc.rateLimitedSearch("query2");
@@ -270,6 +291,131 @@ describe("SoulseekService", () => {
       ([ms]: [number]) => ms > 0,
     );
     expect(hasDelayCall).toBe(true);
+  });
+
+  // --- startSearchBatch ---
+
+  it("startSearchBatch POSTs all queries with rate-limit delays", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: "s1" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "s2" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "s3" }));
+    vi.stubGlobal("fetch", fetchFn);
+
+    const sleepSpy = vi
+      .spyOn(svc as never, "sleep")
+      .mockResolvedValue(undefined as never);
+
+    const result = await svc.startSearchBatch(["query1", "query2", "query3"]);
+
+    expect(result.size).toBe(3);
+    expect(result.get("query1")!.searchId).toBe("s1");
+    expect(result.get("query2")!.searchId).toBe("s2");
+    expect(result.get("query3")!.searchId).toBe("s3");
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+
+    // Each entry should have a startedAt timestamp
+    for (const [, entry] of result) {
+      expect(entry.startedAt).toBeGreaterThan(0);
+    }
+
+    // Rate-limit delays should have been applied between searches
+    const delayCalls = sleepSpy.mock.calls.filter(([ms]: [number]) => ms > 0);
+    expect(delayCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // --- waitForSearchBatch ---
+
+  it("waitForSearchBatch polls until all searches complete", async () => {
+    const completedS1 = {
+      id: "s1",
+      searchText: "q1",
+      state: "Completed",
+      responses: [
+        { username: "u1", files: [{ filename: "a.mp3", size: 100, code: "OK" }] },
+      ],
+    };
+    const completedS2 = {
+      id: "s2",
+      searchText: "q2",
+      state: "Completed",
+      responses: [
+        { username: "u2", files: [{ filename: "b.flac", size: 200, code: "OK" }] },
+      ],
+    };
+
+    // Stabilization needs multiple polls with same count.
+    // Poll 1: s1 has results, s2 in progress
+    // Poll 2: s1 still same count (stabilized after STABILIZE_MS), s2 has results
+    // Poll 3: s2 still same count (stabilized)
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(completedS1))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "s2", searchText: "q2", state: "InProgress", responses: [] }),
+      )
+      .mockResolvedValueOnce(jsonResponse(completedS1))
+      .mockResolvedValueOnce(jsonResponse(completedS2))
+      .mockResolvedValueOnce(jsonResponse(completedS2));
+    vi.stubGlobal("fetch", fetchFn);
+
+    // Advance time enough for stabilization on each sleep call
+    let fakeTime = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+    vi.spyOn(svc as never, "sleep").mockImplementation(async () => {
+      fakeTime += 5_000; // jump past STABILIZE_MS
+    });
+
+    const now = fakeTime;
+    const searchEntries = new Map([
+      ["q1", { searchId: "s1", startedAt: now }],
+      ["q2", { searchId: "s2", startedAt: now }],
+    ]);
+
+    const results = await svc.waitForSearchBatch(searchEntries, 60_000);
+
+    expect(results.size).toBe(2);
+    expect(results.get("q1")).toHaveLength(1);
+    expect(results.get("q2")).toHaveLength(1);
+    expect(results.get("q1")![0].filename).toBe("a.mp3");
+    expect(results.get("q2")![0].filename).toBe("b.flac");
+  });
+
+  it("waitForSearchBatch returns partial results on timeout", async () => {
+    const inProgress = {
+      id: "s1",
+      searchText: "q1",
+      state: "InProgress",
+      responses: [
+        { username: "u1", files: [{ filename: "partial.mp3", size: 50, code: "OK" }] },
+      ],
+    };
+
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(inProgress));
+    vi.stubGlobal("fetch", fetchFn);
+
+    let callCount = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      callCount++;
+      return callCount > 3 ? Number.MAX_SAFE_INTEGER : 0;
+    });
+    vi.spyOn(svc as never, "sleep").mockResolvedValue(undefined as never);
+
+    const searchEntries = new Map([
+      ["q1", { searchId: "s1", startedAt: 0 }],
+    ]);
+    const results = await svc.waitForSearchBatch(searchEntries, 100);
+
+    expect(results.size).toBe(1);
+    expect(results.get("q1")).toHaveLength(1);
+
+    // Should have attempted DELETE (cancel)
+    const deleteCall = fetchFn.mock.calls.find(
+      ([url, opts]: [string, RequestInit]) =>
+        url.includes("/searches/s1") && opts?.method === "DELETE",
+    );
+    expect(deleteCall).toBeDefined();
   });
 
   // --- error handling ---

@@ -5,10 +5,16 @@ import type {
   SlskdTransfer,
 } from "../types/soulseek.js";
 import { withRetry } from "../utils/retry.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("soulseek");
 
 const DEFAULT_SEARCH_TIMEOUT_MS = 30_000;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 300_000;
 const POLL_INTERVAL_MS = 2_000;
+const MIN_SEARCH_WAIT_MS = 10_000;
+/** After results appear, wait for count to stabilize for this long. */
+const STABILIZE_MS = 4_000;
 
 interface SlskdSearchResponse {
   id: string;
@@ -28,7 +34,7 @@ interface SlskdSearchResponse {
   }>;
 }
 
-interface SlskdTransferResponse {
+interface SlskdTransferFile {
   id: string;
   username: string;
   filename: string;
@@ -36,6 +42,15 @@ interface SlskdTransferResponse {
   bytesTransferred: number;
   size: number;
   percentComplete: number;
+}
+
+/** Per-user response: { username, directories: [{ directory, files: [...] }] } */
+interface SlskdUserTransfers {
+  username: string;
+  directories: Array<{
+    directory: string;
+    files: SlskdTransferFile[];
+  }>;
 }
 
 export class SoulseekService {
@@ -117,7 +132,7 @@ export class SoulseekService {
   async getSearchResults(searchId: string): Promise<SlskdSearchResult> {
     const raw = await this.request<SlskdSearchResponse>(
       "GET",
-      `/searches/${searchId}`,
+      `/searches/${searchId}?includeResponses=true`,
     );
     const files = this.flattenSearchResponse(raw);
     return {
@@ -131,21 +146,57 @@ export class SoulseekService {
 
   /**
    * Wait for a search to complete by polling.
-   * Returns the flat list of files once the search reaches "Completed" state.
+   * Uses result stabilization: after results appear, waits for the file count
+   * to stop changing before accepting. Never accepts 0 results before MIN_SEARCH_WAIT_MS.
    */
   async waitForSearch(
     searchId: string,
     timeoutMs: number = DEFAULT_SEARCH_TIMEOUT_MS,
   ): Promise<SlskdFile[]> {
-    const deadline = Date.now() + timeoutMs;
+    const startTime = Date.now();
+    const deadline = startTime + timeoutMs;
+    let lastFileCount = 0;
+    let lastChangeTime = startTime;
 
     while (Date.now() < deadline) {
       const result = await this.getSearchResults(searchId);
+      const now = Date.now();
+      const elapsed = now - startTime;
 
-      if (
-        result.state === "Completed" ||
-        result.state.toLowerCase().includes("completed")
-      ) {
+      log.debug(`Poll search`, {
+        searchId,
+        state: result.state,
+        fileCount: result.files.length,
+        elapsedMs: elapsed,
+      });
+
+      // Track when file count last changed
+      if (result.files.length !== lastFileCount) {
+        lastFileCount = result.files.length;
+        lastChangeTime = now;
+      }
+
+      const isCompleted = (result.state ?? "")
+        .toLowerCase()
+        .includes("completed");
+      const stableMs = now - lastChangeTime;
+
+      // Accept when: completed AND has results AND results have stabilized
+      if (isCompleted && result.files.length > 0 && stableMs >= STABILIZE_MS) {
+        log.debug(`Search done (stabilized)`, {
+          searchId,
+          fileCount: result.files.length,
+          stableMs,
+        });
+        return result.files;
+      }
+
+      // Accept 0 results only after MIN_SEARCH_WAIT_MS (P2P results trickle in)
+      if (isCompleted && result.files.length === 0 && elapsed >= MIN_SEARCH_WAIT_MS) {
+        log.debug(`Search done (no results after min wait)`, {
+          searchId,
+          elapsedMs: elapsed,
+        });
         return result.files;
       }
 
@@ -154,6 +205,10 @@ export class SoulseekService {
 
     // Timeout — clean up and return whatever we have
     const finalResult = await this.getSearchResults(searchId);
+    log.debug(`Search timeout`, {
+      searchId,
+      fileCount: finalResult.files.length,
+    });
     await this.cancelSearch(searchId);
     return finalResult.files;
   }
@@ -164,25 +219,24 @@ export class SoulseekService {
     filename: string,
     size?: number,
   ): Promise<void> {
-    const body: Record<string, unknown> = { filename };
+    const item: Record<string, unknown> = { filename };
     if (size !== undefined) {
-      body.size = size;
+      item.size = size;
     }
     await this.request(
       "POST",
       `/transfers/downloads/${encodeURIComponent(username)}`,
-      body,
+      [item],
     );
   }
 
   /** Get all current transfers. */
   async getTransfers(): Promise<SlskdTransfer[]> {
-    const raw =
-      await this.request<SlskdTransferResponse[]>(
-        "GET",
-        "/transfers/downloads",
-      );
-    return raw.map((t) => this.mapTransfer(t));
+    const raw = await this.request<SlskdUserTransfers[]>(
+      "GET",
+      "/transfers/downloads",
+    );
+    return this.flattenTransfers(raw);
   }
 
   /** Get transfer status for a specific file. Returns null if not found. */
@@ -191,12 +245,13 @@ export class SoulseekService {
     filename: string,
   ): Promise<SlskdTransfer | null> {
     try {
-      const raw = await this.request<SlskdTransferResponse[]>(
+      const raw = await this.request<SlskdUserTransfers>(
         "GET",
         `/transfers/downloads/${encodeURIComponent(username)}`,
       );
-      const match = raw.find((t) => t.filename === filename);
-      return match ? this.mapTransfer(match) : null;
+      const files = this.flattenUserTransfers(raw);
+      const match = files.find((t) => t.filename === filename);
+      return match ?? null;
     } catch {
       return null;
     }
@@ -263,6 +318,129 @@ export class SoulseekService {
     return this.search(query);
   }
 
+  /**
+   * Start multiple searches with rate-limit delays between POSTs.
+   * Returns a map of query → { searchId, startedAt } so the batch poller
+   * can track per-search elapsed time.
+   */
+  async startSearchBatch(
+    queries: string[],
+  ): Promise<Map<string, { searchId: string; startedAt: number }>> {
+    const result = new Map<string, { searchId: string; startedAt: number }>();
+
+    for (const query of queries) {
+      const now = Date.now();
+      const elapsed = now - this.lastSearchTime;
+      const remaining = this.searchDelayMs - elapsed;
+
+      if (remaining > 0) {
+        await this.sleep(remaining);
+      }
+
+      this.lastSearchTime = Date.now();
+      const searchId = await this.startSearch(query);
+      log.debug(`Batch: posted search`, { query, searchId });
+      result.set(query, { searchId, startedAt: Date.now() });
+    }
+
+    return result;
+  }
+
+  /**
+   * Poll all searches in a single loop until all are done or timeout.
+   * Uses per-search elapsed time (not batch-level) so later searches
+   * get their full MIN_SEARCH_WAIT_MS. Also uses result stabilization.
+   */
+  async waitForSearchBatch(
+    searchEntries: Map<string, { searchId: string; startedAt: number }>,
+    timeoutMs: number = DEFAULT_SEARCH_TIMEOUT_MS,
+  ): Promise<Map<string, SlskdFile[]>> {
+    const batchStart = Date.now();
+    const deadline = batchStart + timeoutMs;
+    const results = new Map<string, SlskdFile[]>();
+
+    // Per-search tracking: last known file count and when it last changed
+    const tracking = new Map<
+      string,
+      { lastFileCount: number; lastChangeTime: number }
+    >();
+    const pending = new Map(searchEntries);
+
+    for (const [query] of pending) {
+      tracking.set(query, { lastFileCount: 0, lastChangeTime: Date.now() });
+    }
+
+    while (pending.size > 0 && Date.now() < deadline) {
+      for (const [query, { searchId, startedAt }] of pending) {
+        const result = await this.getSearchResults(searchId);
+        const now = Date.now();
+        const searchElapsed = now - startedAt;
+        const track = tracking.get(query)!;
+
+        log.debug(`Batch poll`, {
+          query,
+          searchId,
+          state: result.state,
+          fileCount: result.files.length,
+          searchElapsedMs: searchElapsed,
+        });
+
+        // Track file count changes
+        if (result.files.length !== track.lastFileCount) {
+          track.lastFileCount = result.files.length;
+          track.lastChangeTime = now;
+        }
+
+        const isCompleted = (result.state ?? "")
+          .toLowerCase()
+          .includes("completed");
+        const stableMs = now - track.lastChangeTime;
+
+        // Accept: completed + has results + stabilized
+        if (isCompleted && result.files.length > 0 && stableMs >= STABILIZE_MS) {
+          log.debug(`Batch search done (stabilized)`, {
+            query,
+            fileCount: result.files.length,
+          });
+          results.set(query, result.files);
+          pending.delete(query);
+          continue;
+        }
+
+        // Accept 0 results only after per-search MIN_SEARCH_WAIT_MS
+        if (
+          isCompleted &&
+          result.files.length === 0 &&
+          searchElapsed >= MIN_SEARCH_WAIT_MS
+        ) {
+          log.debug(`Batch search done (no results after min wait)`, {
+            query,
+            searchElapsedMs: searchElapsed,
+          });
+          results.set(query, result.files);
+          pending.delete(query);
+        }
+      }
+
+      if (pending.size > 0 && Date.now() < deadline) {
+        await this.sleep(POLL_INTERVAL_MS);
+      }
+    }
+
+    // Timeout: collect partial results and cancel remaining
+    for (const [query, { searchId }] of pending) {
+      const finalResult = await this.getSearchResults(searchId);
+      log.debug(`Batch search timeout`, {
+        query,
+        fileCount: finalResult.files.length,
+      });
+      results.set(query, finalResult.files);
+      await this.cancelSearch(searchId);
+    }
+
+    return results;
+  }
+
   // --- Private helpers ---
 
   private async cancelSearch(searchId: string): Promise<void> {
@@ -292,16 +470,26 @@ export class SoulseekService {
     return files;
   }
 
-  private mapTransfer(raw: SlskdTransferResponse): SlskdTransfer {
-    return {
-      id: raw.id,
-      username: raw.username,
-      filename: raw.filename,
-      state: raw.state,
-      bytesTransferred: raw.bytesTransferred,
-      size: raw.size,
-      percentComplete: raw.percentComplete,
-    };
+  private flattenUserTransfers(raw: SlskdUserTransfers): SlskdTransfer[] {
+    const result: SlskdTransfer[] = [];
+    for (const dir of raw.directories ?? []) {
+      for (const file of dir.files ?? []) {
+        result.push({
+          id: file.id,
+          username: file.username ?? raw.username,
+          filename: file.filename,
+          state: file.state,
+          bytesTransferred: file.bytesTransferred,
+          size: file.size,
+          percentComplete: file.percentComplete,
+        });
+      }
+    }
+    return result;
+  }
+
+  private flattenTransfers(raw: SlskdUserTransfers[]): SlskdTransfer[] {
+    return raw.flatMap((u) => this.flattenUserTransfers(u));
   }
 
   private sleep(ms: number): Promise<void> {

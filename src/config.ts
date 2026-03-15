@@ -17,6 +17,8 @@ export interface SoulseekConfig {
   slskdUrl: string;
   slskdApiKey: string;
   searchDelayMs: number;
+  /** Host path where slskd stores completed downloads (maps to slskd's /app/downloads). */
+  downloadDir: string;
 }
 
 export interface MatchingConfig {
@@ -56,6 +58,7 @@ const defaults: Config = {
     slskdUrl: "http://localhost:5030",
     slskdApiKey: "",
     searchDelayMs: 5000,
+    downloadDir: "",
   },
   matching: {
     autoAcceptThreshold: 0.9,
@@ -72,11 +75,19 @@ export function getConfigPath(): string {
   return join(homedir(), ".config", "crate-sync", "config.json");
 }
 
+/** Expand leading ~ to the user's home directory. */
+function expandHome(p: string): string {
+  if (p.startsWith("~/") || p === "~") {
+    return join(homedir(), p.slice(1));
+  }
+  return p;
+}
+
 function mergeDefaults(
   partial: DeepPartial<Config>,
   base: Config,
 ): Config {
-  return {
+  const merged = {
     spotify: { ...base.spotify, ...partial.spotify },
     lexicon: { ...base.lexicon, ...partial.lexicon },
     soulseek: { ...base.soulseek, ...partial.soulseek },
@@ -87,6 +98,12 @@ function mergeDefaults(
       formats: partial.download?.formats?.filter((f): f is string => f != null) ?? base.download.formats,
     },
   };
+
+  // Expand ~ in path-like config values
+  merged.lexicon.downloadRoot = expandHome(merged.lexicon.downloadRoot);
+  merged.soulseek.downloadDir = expandHome(merged.soulseek.downloadDir);
+
+  return merged;
 }
 
 export function loadConfig(): Config {

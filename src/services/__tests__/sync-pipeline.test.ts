@@ -36,7 +36,7 @@ function createTestDb() {
 const TEST_CONFIG: Config = {
   spotify: { clientId: "", clientSecret: "", redirectUri: "" },
   lexicon: { url: "http://localhost:48624", downloadRoot: "/tmp/test-dl" },
-  soulseek: { slskdUrl: "http://localhost:5030", slskdApiKey: "test", searchDelayMs: 0 },
+  soulseek: { slskdUrl: "http://localhost:5030", slskdApiKey: "test", searchDelayMs: 0, downloadDir: "/tmp/slskd-downloads" },
   matching: { autoAcceptThreshold: 0.9, reviewThreshold: 0.7 },
   download: { formats: ["flac", "mp3"], minBitrate: 320, concurrency: 2 },
 };

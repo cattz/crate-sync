@@ -132,7 +132,10 @@ export class SyncPipeline {
     // 4. Build the matcher
     const matcher = createMatcher(this.config.matching);
 
-    // 5. Load existing matches from DB so we skip already-confirmed/rejected pairs
+    // 5. Load existing matches from DB
+    //    - Confirmed matches: reuse directly (skip re-matching)
+    //    - Rejected matches: pair-specific — only block that specific
+    //      source↔target pair, not all future matching for the source
     const existingMatches = await db
       .select()
       .from(schema.matches)
@@ -143,12 +146,19 @@ export class SyncPipeline {
         ),
       );
 
-    const matchBySourceId = new Map<string, schema.Match>();
+    // Confirmed: most recent confirmed match per source
+    const confirmedBySource = new Map<string, schema.Match>();
+    // Rejected pairs: Set of "sourceId:targetId" strings
+    const rejectedPairs = new Set<string>();
+
     for (const m of existingMatches) {
-      // Keep the most recent match per source track
-      const existing = matchBySourceId.get(m.sourceId);
-      if (!existing || m.updatedAt > existing.updatedAt) {
-        matchBySourceId.set(m.sourceId, m);
+      if (m.status === "confirmed") {
+        const existing = confirmedBySource.get(m.sourceId);
+        if (!existing || m.updatedAt > existing.updatedAt) {
+          confirmedBySource.set(m.sourceId, m);
+        }
+      } else if (m.status === "rejected") {
+        rejectedPairs.add(`${m.sourceId}:${m.targetId}`);
       }
     }
 
@@ -171,10 +181,10 @@ export class SyncPipeline {
         uri: row.spotifyUri ?? undefined,
       };
 
-      // Check for an existing confirmed/rejected match first
-      const prev = matchBySourceId.get(dbTrackId);
+      // Reuse existing confirmed match
+      const prev = confirmedBySource.get(dbTrackId);
 
-      if (prev && prev.status === "confirmed") {
+      if (prev) {
         found.push({
           dbTrackId,
           track: trackInfo,
@@ -186,24 +196,30 @@ export class SyncPipeline {
         continue;
       }
 
-      if (prev && prev.status === "rejected") {
-        // Previously rejected — treat as not found
-        notFound.push({ dbTrackId, track: trackInfo });
-        continue;
-      }
-
       // Run matcher against all Lexicon candidates
       const results = matcher.match(trackInfo, lexiconCandidates);
 
-      if (results.length === 0) {
+      // Find the best result that isn't in a rejected pair
+      let best: (typeof results)[0] | undefined;
+      let lexiconTrackId: string | undefined;
+
+      for (const candidate of results) {
+        const lexIdx = lexiconCandidates.indexOf(candidate.candidate);
+        const candidateId = lexIdx >= 0 ? lexiconTracks[lexIdx].id : undefined;
+
+        if (candidateId && rejectedPairs.has(`${dbTrackId}:${candidateId}`)) {
+          continue; // This specific pair was rejected, try next
+        }
+
+        best = candidate;
+        lexiconTrackId = candidateId;
+        break;
+      }
+
+      if (!best) {
         notFound.push({ dbTrackId, track: trackInfo });
         continue;
       }
-
-      const best = results[0];
-      // Find the Lexicon track that corresponds to the best candidate
-      const lexIdx = lexiconCandidates.indexOf(best.candidate);
-      const lexiconTrackId = lexIdx >= 0 ? lexiconTracks[lexIdx].id : undefined;
 
       const matched: MatchedTrack = {
         dbTrackId,

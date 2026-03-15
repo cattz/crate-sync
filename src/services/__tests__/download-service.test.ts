@@ -13,6 +13,9 @@ import type {
 
 const mockSoulseekInstance = {
   rateLimitedSearch: vi.fn().mockResolvedValue([]),
+  startSearchBatch: vi.fn().mockResolvedValue(new Map()),
+  waitForSearchBatch: vi.fn().mockResolvedValue(new Map()),
+  startSearch: vi.fn().mockResolvedValue("mock-id"),
   download: vi.fn().mockResolvedValue(undefined),
   waitForDownload: vi.fn().mockResolvedValue({
     id: "t1",
@@ -44,6 +47,8 @@ vi.mock("node:fs", () => ({
   copyFileSync: vi.fn(),
   unlinkSync: vi.fn(),
   existsSync: vi.fn().mockReturnValue(false),
+  readdirSync: vi.fn().mockReturnValue([]),
+  statSync: vi.fn().mockReturnValue({ mtimeMs: 0 }),
 }));
 
 vi.mock("../../utils/shutdown.js", () => ({
@@ -63,6 +68,8 @@ import {
   existsSync,
   copyFileSync,
   unlinkSync,
+  readdirSync,
+  statSync,
 } from "node:fs";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +80,7 @@ const soulseekConfig: SoulseekConfig = {
   slskdUrl: "http://localhost:5030",
   slskdApiKey: "test-key",
   searchDelayMs: 0,
+  downloadDir: "/tmp/slskd-downloads",
 };
 
 const downloadConfig: DownloadConfig = {
@@ -257,8 +265,10 @@ describe("DownloadService", () => {
         format: { duration: 240 },
       } as any);
 
-      // existsSync returns false so mkdirSync is called
-      vi.mocked(existsSync).mockReturnValue(false);
+      // findDownloadedFile: exact path exists; moveToPlaylistFolder: dest dir doesn't
+      vi.mocked(existsSync).mockImplementation((p) => {
+        return String(p).includes("slskd-downloads");
+      });
 
       const result = await service.downloadTrack(
         { title: "Test Song", artist: "Test Artist" },
@@ -298,6 +308,11 @@ describe("DownloadService", () => {
       const file = makeFile({ filename: "@@user1\\music\\Expected Artist\\Album\\01 - Expected Song.flac" });
       vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
 
+      // findDownloadedFile: exact path exists
+      vi.mocked(existsSync).mockImplementation((p) => {
+        return String(p).includes("slskd-downloads");
+      });
+
       // Validation fails: completely different metadata
       vi.mocked(parseFile).mockResolvedValueOnce({
         common: {
@@ -322,11 +337,10 @@ describe("DownloadService", () => {
   // downloadBatch
   // -----------------------------------------------------------------------
   describe("downloadBatch", () => {
-    it("processes multiple tracks and returns results", async () => {
+    it("processes multiple tracks using batch search and returns results", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
-      // Both searches return files
       const file1 = makeFile({
         filename: "@@u1\\music\\Artist A\\01 - Song A.flac",
       });
@@ -335,9 +349,21 @@ describe("DownloadService", () => {
         username: "user2",
       });
 
-      vi.mocked(mock.rateLimitedSearch)
-        .mockResolvedValueOnce([file1])
-        .mockResolvedValueOnce([file2]);
+      // Batch search: startSearchBatch returns query→{searchId, startedAt} map
+      vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(
+        new Map([
+          ["Artist A Song A", { searchId: "s1", startedAt: Date.now() }],
+          ["Artist B Song B", { searchId: "s2", startedAt: Date.now() }],
+        ]),
+      );
+
+      // waitForSearchBatch returns query→files map
+      vi.mocked(mock.waitForSearchBatch).mockResolvedValueOnce(
+        new Map([
+          ["Artist A Song A", [file1]],
+          ["Artist B Song B", [file2]],
+        ]),
+      );
 
       // Both validations pass
       vi.mocked(parseFile)
@@ -350,7 +376,10 @@ describe("DownloadService", () => {
           format: { duration: 180 },
         } as any);
 
-      vi.mocked(existsSync).mockReturnValue(false);
+      // findDownloadedFile: exact path exists; moveToPlaylistFolder: dest dir doesn't
+      vi.mocked(existsSync).mockImplementation((p) => {
+        return String(p).includes("slskd-downloads");
+      });
 
       const tracks = [
         {
@@ -368,16 +397,27 @@ describe("DownloadService", () => {
       const results = await service.downloadBatch(tracks);
 
       expect(results.length).toBe(2);
+      expect(mock.startSearchBatch).toHaveBeenCalledOnce();
+      expect(mock.waitForSearchBatch).toHaveBeenCalledOnce();
     });
 
     it("calls progress callback for each track", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
-      // Both searches return no results (simplest path)
-      vi.mocked(mock.rateLimitedSearch)
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
+      // Batch search returns empty results for both
+      vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(
+        new Map([
+          ["A A", { searchId: "s1", startedAt: Date.now() }],
+          ["B B", { searchId: "s2", startedAt: Date.now() }],
+        ]),
+      );
+      vi.mocked(mock.waitForSearchBatch).mockResolvedValueOnce(
+        new Map([
+          ["A A", []],
+          ["B B", []],
+        ]),
+      );
 
       const onProgress = vi.fn();
 
@@ -397,7 +437,6 @@ describe("DownloadService", () => {
       await service.downloadBatch(tracks, onProgress);
 
       expect(onProgress).toHaveBeenCalledTimes(2);
-      // Check it receives (completed, total, result)
       expect(onProgress).toHaveBeenCalledWith(
         expect.any(Number),
         2,

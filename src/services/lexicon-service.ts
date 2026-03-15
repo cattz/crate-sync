@@ -123,11 +123,24 @@ export class LexiconService {
     }
   }
 
-  /** Get all tracks from the Lexicon library */
+  /** Get all tracks from the Lexicon library (paginated, max 1000 per page) */
   async getTracks(): Promise<LexiconTrack[]> {
-    const raw = await this.request<unknown>("/tracks");
-    const tracks = unwrapResponse<Record<string, unknown>[]>(raw, "tracks");
-    return tracks.map(normalizeLexiconTrack);
+    const PAGE_SIZE = 1000;
+    const allTracks: LexiconTrack[] = [];
+    let offset = 0;
+
+    while (true) {
+      const raw = await this.request<unknown>(
+        `/tracks?limit=${PAGE_SIZE}&offset=${offset}`,
+      );
+      const page = unwrapResponse<Record<string, unknown>[]>(raw, "tracks");
+      allTracks.push(...page.map(normalizeLexiconTrack));
+
+      if (page.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
+
+    return allTracks;
   }
 
   /** Search tracks by artist and/or title (client-side filtering since API has no search endpoint) */
