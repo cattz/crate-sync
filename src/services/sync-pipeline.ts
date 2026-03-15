@@ -130,7 +130,7 @@ export class SyncPipeline {
     }));
 
     // 4. Build the matcher
-    const matcher = createMatcher(this.config.matching);
+    const matcher = createMatcher(this.config.matching, "lexicon");
 
     // 5. Load existing matches from DB so we skip already-confirmed/rejected pairs
     const existingMatches = await db
