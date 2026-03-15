@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0 — 2026-03-15
+
+### Added
+- **Web UI** — Hono API server (`crate-sync serve`) + React/Vite frontend
+  - Dashboard with service status and stats
+  - Playlist browsing with track listings
+  - Interactive match review (confirm/reject)
+  - Download monitoring with status filters
+  - Settings editor for matching thresholds and download config
+  - SSE-based real-time sync progress streaming
+- **Improved track matching** — ported techniques from slsk-batchdl
+  - Damerau-Levenshtein edit distance (handles transpositions)
+  - Unicode/diacritics normalization, artist normalization ("the", "&")
+  - Stopword removal for Jaccard similarity
+  - Artist containment floor for "feat." cases
+  - Remix suffix stripping with fallback matching
+  - Context-aware weight profiles (lexicon, soulseek, post-download)
+  - Album dimension with proportional weight redistribution
+  - Configurable artist reject gate for Soulseek
+
 ## 0.2.0 — 2026-03-10
 
 ### Fixed
