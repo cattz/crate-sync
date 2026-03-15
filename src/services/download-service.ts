@@ -18,6 +18,9 @@ import type { SlskdFile } from "../types/soulseek.js";
 import { SoulseekService } from "./soulseek-service.js";
 import { FuzzyMatchStrategy } from "../matching/fuzzy.js";
 import { isShutdownRequested } from "../utils/shutdown.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("download");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,9 +114,11 @@ export class DownloadService {
    * Search Soulseek for a track, filter by format/bitrate, and rank results
    * using fuzzy matching against the expected artist + title.
    */
-  async searchAndRank(track: TrackInfo): Promise<RankedResult[]> {
+  async searchAndRank(track: TrackInfo): Promise<{ ranked: RankedResult[]; diagnostics: string }> {
     const query = `${track.artist} ${track.title}`;
+    log.debug(`Searching Soulseek`, { query });
     const files = await this.soulseek.rateLimitedSearch(query);
+    log.debug(`Search returned ${files.length} files`, { query });
 
     // Filter by allowed formats
     const formatFiltered = files.filter((f) =>
@@ -124,6 +129,10 @@ export class DownloadService {
     const bitrateFiltered = formatFiltered.filter(
       (f) => f.bitRate == null || f.bitRate >= this.minBitrate,
     );
+
+    // Build diagnostics
+    const diag = `${files.length} results, ${files.length - formatFiltered.length} filtered by format, ${formatFiltered.length - bitrateFiltered.length} filtered by bitrate (<${this.minBitrate}kbps), ${bitrateFiltered.length} candidates`;
+    log.debug(`Filter results`, { query, total: files.length, afterFormat: formatFiltered.length, afterBitrate: bitrateFiltered.length });
 
     // Rank using fuzzy matching: build TrackInfo from each filename and compare
     const expected: TrackInfo = {
@@ -151,7 +160,20 @@ export class DownloadService {
     // Sort by score descending
     ranked.sort((a, b) => b.score - a.score);
 
-    return ranked;
+    // Log top candidates for debugging
+    for (const r of ranked.slice(0, 5)) {
+      const cand = trackInfoFromFilename(r.file.filename);
+      log.debug(`Candidate`, {
+        score: r.score,
+        filename: r.file.filename,
+        parsedTitle: cand.title,
+        parsedArtist: cand.artist,
+        bitrate: r.file.bitRate,
+        username: r.file.username,
+      });
+    }
+
+    return { ranked, diagnostics: diag };
   }
 
   /**
@@ -164,18 +186,27 @@ export class DownloadService {
   ): Promise<DownloadResult> {
     try {
       // 1. Search and rank
-      const ranked = await this.searchAndRank(track);
+      const { ranked, diagnostics } = await this.searchAndRank(track);
 
       if (ranked.length === 0) {
         return {
           trackId: dbTrackId,
           success: false,
-          error: "No matching files found on Soulseek",
+          error: `No matching files on Soulseek (${diagnostics})`,
         };
       }
 
       // 2. Download best match
       const best = ranked[0];
+
+      if (best.score < 0.3) {
+        return {
+          trackId: dbTrackId,
+          success: false,
+          error: `Best match score too low: ${(best.score * 100).toFixed(0)}% — "${best.file.filename}" (${diagnostics})`,
+        };
+      }
+
       const { username, filename, size } = best.file;
 
       await this.soulseek.download(username, filename, size);

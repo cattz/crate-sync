@@ -143,12 +143,12 @@ describe("DownloadService", () => {
         artist: "Test Artist",
       };
 
-      const results = await service.searchAndRank(track);
+      const { ranked } = await service.searchAndRank(track);
 
-      expect(results.length).toBe(2);
+      expect(ranked.length).toBe(2);
       // Best match should be first
-      expect(results[0].file.filename).toContain("Test Title");
-      expect(results[0].score).toBeGreaterThanOrEqual(results[1].score);
+      expect(ranked[0].file.filename).toContain("Test Title");
+      expect(ranked[0].score).toBeGreaterThanOrEqual(ranked[1].score);
     });
 
     it("filters disallowed formats", async () => {
@@ -166,16 +166,16 @@ describe("DownloadService", () => {
         wavFile,
       ]);
 
-      const results = await service.searchAndRank({
+      const { ranked } = await service.searchAndRank({
         title: "Track",
         artist: "Artist",
       });
 
       // wav is not in allowed formats (flac, mp3), so should be filtered
-      expect(results.every((r) => !r.file.filename.endsWith(".wav"))).toBe(
+      expect(ranked.every((r) => !r.file.filename.endsWith(".wav"))).toBe(
         true,
       );
-      expect(results.length).toBe(1);
+      expect(ranked.length).toBe(1);
     });
 
     it("filters low bitrate files", async () => {
@@ -194,13 +194,13 @@ describe("DownloadService", () => {
         lowBitrate,
       ]);
 
-      const results = await service.searchAndRank({
+      const { ranked } = await service.searchAndRank({
         title: "Test Title",
         artist: "Artist",
       });
 
       // Low bitrate (128 < 320) should be filtered
-      expect(results.every((r) => (r.file.bitRate ?? 0) >= 320)).toBe(true);
+      expect(ranked.every((r) => (r.file.bitRate ?? 0) >= 320)).toBe(true);
     });
 
     it("keeps files without bitrate info (null bitrate)", async () => {
@@ -211,12 +211,12 @@ describe("DownloadService", () => {
 
       vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([noBitrate]);
 
-      const results = await service.searchAndRank({
+      const { ranked } = await service.searchAndRank({
         title: "Test Title",
         artist: "Artist",
       });
 
-      expect(results.length).toBe(1);
+      expect(ranked.length).toBe(1);
     });
 
     it("returns empty array when no matches", async () => {
@@ -225,12 +225,12 @@ describe("DownloadService", () => {
 
       vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([]);
 
-      const results = await service.searchAndRank({
+      const { ranked } = await service.searchAndRank({
         title: "Nonexistent",
         artist: "Nobody",
       });
 
-      expect(results).toEqual([]);
+      expect(ranked).toEqual([]);
     });
   });
 
@@ -286,7 +286,7 @@ describe("DownloadService", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("No matching files found");
+      expect(result.error).toContain("No matching files on Soulseek");
       expect(result.trackId).toBe("db-track-2");
     });
 
@@ -294,7 +294,8 @@ describe("DownloadService", () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
-      const file = makeFile();
+      // Filename matches the expected track well enough to pass score threshold
+      const file = makeFile({ filename: "@@user1\\music\\Expected Artist\\Album\\01 - Expected Song.flac" });
       vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
 
       // Validation fails: completely different metadata

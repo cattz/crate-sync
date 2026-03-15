@@ -77,6 +77,9 @@ pnpm dev sync <playlist-id>
 pnpm dev sync --all
 pnpm dev sync <playlist-id> --dry-run
 
+# Spotify URLs work anywhere a playlist ID is accepted
+pnpm dev sync https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
+
 # Manage match registry
 pnpm dev matches list
 pnpm dev matches confirm <id>
@@ -85,6 +88,16 @@ pnpm dev matches reject <id>
 # Database status
 pnpm dev db status
 ```
+
+## Debugging
+
+Pass `--debug` to write detailed logs to `./data/crate-sync.log`:
+
+```bash
+pnpm dev --debug sync <playlist-id>
+```
+
+The log includes Soulseek search queries, filter/ranking steps, and candidate scores — useful for diagnosing why a track download failed.
 
 ## Development
 

@@ -14,16 +14,26 @@ import { closeDb, getDb } from "./db/client.js";
 import { loadConfig } from "./config.js";
 import { checkHealth } from "./utils/health.js";
 import { playlists, tracks } from "./db/schema.js";
+import { setLogLevel, setLogFile, closeLog } from "./utils/logger.js";
 
 setupShutdownHandler();
 onShutdown(closeDb);
+onShutdown(closeLog);
 
 const program = new Command();
 
 program
   .name("crate-sync")
   .description("Manage Spotify playlists and sync them with Lexicon DJ")
-  .version("0.1.0");
+  .version("0.1.0")
+  .option("--debug", "Enable debug logging to ./data/crate-sync.log")
+  .hook("preAction", () => {
+    const opts = program.opts();
+    if (opts.debug) {
+      setLogLevel("debug");
+      setLogFile("./data/crate-sync.log");
+    }
+  });
 
 program
   .command("status")

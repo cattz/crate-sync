@@ -161,13 +161,16 @@ export function registerSyncCommand(program: Command): void {
             console.log(chalk.dim(`  ${phaseTwo.missing.length} track(s) to download`));
             console.log();
 
-            const dlProgress = new Progress(phaseTwo.missing.length, "Downloading");
             const downloadResult = await pipeline.downloadMissing(
               phaseTwo,
               pl.name,
-              (_done, _total, title, success) => {
-                const status = success ? chalk.green("done") : chalk.red("fail");
-                dlProgress.tick(`${status}  ${title}`);
+              (done, total, title, success, error) => {
+                const status = success ? chalk.green("✓") : chalk.red("✗");
+                const pct = Math.round((done / total) * 100);
+                console.log(`  ${status} [${done}/${total}] ${title}`);
+                if (!success && error) {
+                  console.log(`    ${chalk.dim(error)}`);
+                }
               },
             );
 

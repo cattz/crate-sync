@@ -334,6 +334,7 @@ export class SyncPipeline {
       total: number,
       trackTitle: string,
       success: boolean,
+      error?: string,
     ) => void,
   ): Promise<{ succeeded: number; failed: number }> {
     const downloadService = this.getDownloadService();
@@ -356,7 +357,7 @@ export class SyncPipeline {
         // Find the original track for the title
         const item = batchItems.find((b) => b.dbTrackId === result.trackId);
         const title = item?.track.title ?? "Unknown";
-        onProgress?.(done, total, title, result.success);
+        onProgress?.(done, total, title, result.success, result.error);
       },
     );
 
