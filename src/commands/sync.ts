@@ -234,6 +234,11 @@ export function registerSyncCommand(program: Command): void {
             console.log(chalk.cyan("Syncing to Lexicon..."));
             await pipeline.syncToLexicon(pl.id, pl.name, allMatchedIds);
             console.log(chalk.green(`  Synced ${allMatchedIds.length} track(s) to Lexicon playlist "${pl.name}"`));
+
+            // --- Tag sync ---
+            console.log(chalk.cyan("Syncing tags..."));
+            const tagResult = await pipeline.syncTags(pl.name, phaseTwo.confirmed);
+            console.log(chalk.green(`  Tagged ${tagResult.tagged} track(s), skipped ${tagResult.skipped}`));
           } else {
             console.log(chalk.dim("No matched tracks to sync to Lexicon."));
           }

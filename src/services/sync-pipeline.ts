@@ -437,6 +437,75 @@ export class SyncPipeline {
   }
 
   // -------------------------------------------------------------------------
+  // Tag sync — assign Spotify playlist name segments as Lexicon custom tags
+  // -------------------------------------------------------------------------
+
+  async syncTags(
+    playlistName: string,
+    confirmedTracks: MatchedTrack[],
+  ): Promise<{ tagged: number; skipped: number }> {
+    const segments = playlistName
+      .split("/")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (segments.length === 0) {
+      return { tagged: 0, skipped: 0 };
+    }
+
+    const lexicon = this.getLexiconService();
+
+    // Fetch all categories and tags
+    const { categories, tags } = await lexicon.getTags();
+
+    // Find or create the "Spotify" category
+    let spotifyCategory = categories.find((c) => c.label === "Spotify");
+    if (!spotifyCategory) {
+      spotifyCategory = await lexicon.createTagCategory("Spotify", "#1DB954");
+    }
+
+    // Find or create tags for each segment
+    const segmentTagIds: string[] = [];
+    for (const segment of segments) {
+      let tag = tags.find(
+        (t) => t.categoryId === spotifyCategory!.id && t.label === segment,
+      );
+      if (!tag) {
+        tag = await lexicon.createTag(spotifyCategory.id, segment);
+      }
+      segmentTagIds.push(tag.id);
+    }
+
+    const newTagSet = new Set(segmentTagIds);
+
+    let tagged = 0;
+    let skipped = 0;
+
+    for (const track of confirmedTracks) {
+      if (!track.lexiconTrackId) {
+        skipped++;
+        continue;
+      }
+
+      const existingTags = await lexicon.getTrackTags(track.lexiconTrackId);
+      const existingSet = new Set(existingTags);
+
+      // Merge: union of existing + new
+      const merged = new Set([...existingTags, ...segmentTagIds]);
+
+      // Only update if there are new tags to add
+      if (merged.size !== existingSet.size) {
+        await lexicon.updateTrackTags(track.lexiconTrackId, [...merged]);
+        tagged++;
+      } else {
+        skipped++;
+      }
+    }
+
+    return { tagged, skipped };
+  }
+
+  // -------------------------------------------------------------------------
   // Dry run — Phase 1 only, no side-effects
   // -------------------------------------------------------------------------
 

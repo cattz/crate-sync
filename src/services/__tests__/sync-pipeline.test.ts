@@ -151,6 +151,16 @@ function mockLexiconService(lexiconTracks: LexiconTrack[], playlists: LexiconPla
     getTrack: vi.fn().mockResolvedValue(null),
     getPlaylists: vi.fn().mockResolvedValue(playlists),
     addTracksToPlaylist: vi.fn().mockResolvedValue(undefined),
+    // Tag methods
+    getTags: vi.fn().mockResolvedValue({ categories: [], tags: [] }),
+    createTagCategory: vi.fn().mockImplementation(async (label: string, color: string) => ({
+      id: "cat-new", label, color,
+    })),
+    createTag: vi.fn().mockImplementation(async (categoryId: string, label: string) => ({
+      id: `tag-${label.toLowerCase()}`, categoryId, label,
+    })),
+    updateTrackTags: vi.fn().mockResolvedValue(undefined),
+    getTrackTags: vi.fn().mockResolvedValue([]),
   } as any;
 }
 
@@ -640,6 +650,151 @@ describe("SyncPipeline", () => {
       expect(lexicon.createPlaylist).toHaveBeenCalledWith("Ordered", orderedIds);
       const callArgs = lexicon.createPlaylist.mock.calls[0];
       expect(callArgs[1]).toEqual(orderedIds);
+    });
+  });
+
+  // =========================================================================
+  // syncTags
+  // =========================================================================
+  describe("syncTags", () => {
+    function makeConfirmedTrack(
+      dbTrackId: string,
+      lexiconTrackId: string,
+    ): MatchedTrack {
+      return {
+        dbTrackId,
+        track: { title: "Track", artist: "Artist" },
+        lexiconTrackId,
+        score: 0.95,
+        confidence: "high",
+        method: "fuzzy",
+      };
+    }
+
+    it("should parse playlist name segments and create tags", async () => {
+      const lexicon = mockLexiconService([]);
+      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+
+      const tracks = [makeConfirmedTrack("t1", "lex-1")];
+      const result = await pipeline.syncTags("DJP/26/MT/Indie", tracks);
+
+      // Should create Spotify category
+      expect(lexicon.createTagCategory).toHaveBeenCalledWith("Spotify", "#1DB954");
+      // Should create 4 tags
+      expect(lexicon.createTag).toHaveBeenCalledTimes(4);
+      expect(lexicon.createTag).toHaveBeenCalledWith("cat-new", "DJP");
+      expect(lexicon.createTag).toHaveBeenCalledWith("cat-new", "26");
+      expect(lexicon.createTag).toHaveBeenCalledWith("cat-new", "MT");
+      expect(lexicon.createTag).toHaveBeenCalledWith("cat-new", "Indie");
+
+      expect(result.tagged).toBe(1);
+      expect(result.skipped).toBe(0);
+    });
+
+    it("should reuse existing Spotify category and tags", async () => {
+      const lexicon = mockLexiconService([]);
+      // Pre-populate category and tags
+      lexicon.getTags.mockResolvedValue({
+        categories: [{ id: "cat-1", label: "Spotify", color: "#1DB954" }],
+        tags: [
+          { id: "tag-1", categoryId: "cat-1", label: "DJP" },
+          { id: "tag-2", categoryId: "cat-1", label: "26" },
+        ],
+      });
+
+      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+
+      const tracks = [makeConfirmedTrack("t1", "lex-1")];
+      const result = await pipeline.syncTags("DJP/26", tracks);
+
+      // Should NOT create category
+      expect(lexicon.createTagCategory).not.toHaveBeenCalled();
+      // Should NOT create tags (both exist)
+      expect(lexicon.createTag).not.toHaveBeenCalled();
+
+      expect(result.tagged).toBe(1);
+    });
+
+    it("should merge new tags with existing track tags", async () => {
+      const lexicon = mockLexiconService([]);
+      lexicon.getTags.mockResolvedValue({
+        categories: [{ id: "cat-1", label: "Spotify" }],
+        tags: [{ id: "tag-1", categoryId: "cat-1", label: "House" }],
+      });
+      // Track already has some tags
+      lexicon.getTrackTags.mockResolvedValue(["tag-existing"]);
+
+      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+
+      const tracks = [makeConfirmedTrack("t1", "lex-1")];
+      await pipeline.syncTags("House", tracks);
+
+      // Should update with merged tags (existing + new)
+      expect(lexicon.updateTrackTags).toHaveBeenCalledWith(
+        "lex-1",
+        expect.arrayContaining(["tag-existing", "tag-1"]),
+      );
+    });
+
+    it("should skip tracks that already have all tags", async () => {
+      const lexicon = mockLexiconService([]);
+      lexicon.getTags.mockResolvedValue({
+        categories: [{ id: "cat-1", label: "Spotify" }],
+        tags: [{ id: "tag-1", categoryId: "cat-1", label: "House" }],
+      });
+      // Track already has the tag
+      lexicon.getTrackTags.mockResolvedValue(["tag-1"]);
+
+      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+
+      const tracks = [makeConfirmedTrack("t1", "lex-1")];
+      const result = await pipeline.syncTags("House", tracks);
+
+      expect(lexicon.updateTrackTags).not.toHaveBeenCalled();
+      expect(result.tagged).toBe(0);
+      expect(result.skipped).toBe(1);
+    });
+
+    it("should skip tracks without lexiconTrackId", async () => {
+      const lexicon = mockLexiconService([]);
+      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+
+      const track: MatchedTrack = {
+        dbTrackId: "t1",
+        track: { title: "Track", artist: "Artist" },
+        score: 0.95,
+        confidence: "high",
+        method: "fuzzy",
+      };
+
+      const result = await pipeline.syncTags("House", [track]);
+
+      expect(lexicon.getTrackTags).not.toHaveBeenCalled();
+      expect(result.tagged).toBe(0);
+      expect(result.skipped).toBe(1);
+    });
+
+    it("should return zeros for empty playlist name", async () => {
+      const lexicon = mockLexiconService([]);
+      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+
+      const result = await pipeline.syncTags("", []);
+
+      expect(result.tagged).toBe(0);
+      expect(result.skipped).toBe(0);
+      expect(lexicon.getTags).not.toHaveBeenCalled();
+    });
+
+    it("should tag even for single-segment names (no slash)", async () => {
+      const lexicon = mockLexiconService([]);
+      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+
+      const tracks = [makeConfirmedTrack("t1", "lex-1")];
+      const result = await pipeline.syncTags("Techno", tracks);
+
+      expect(lexicon.createTagCategory).toHaveBeenCalled();
+      expect(lexicon.createTag).toHaveBeenCalledTimes(1);
+      expect(result.tagged).toBe(1);
     });
   });
 });

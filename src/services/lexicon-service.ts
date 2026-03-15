@@ -1,4 +1,4 @@
-import type { LexiconTrack, LexiconPlaylist } from "../types/lexicon.js";
+import type { LexiconTrack, LexiconPlaylist, LexiconTagCategory, LexiconTag } from "../types/lexicon.js";
 import type { LexiconConfig } from "../config.js";
 import { withRetry } from "../utils/retry.js";
 
@@ -224,6 +224,89 @@ export class LexiconService {
       method: "PATCH",
       body: JSON.stringify({ id: Number(playlistId), trackIds: trackIds.map(Number) }),
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Tags
+  // -------------------------------------------------------------------------
+
+  /** Get all tag categories and tags */
+  async getTags(): Promise<{ categories: LexiconTagCategory[]; tags: LexiconTag[] }> {
+    const raw = await this.request<unknown>("/tags");
+    const data = unwrapResponse<Record<string, unknown>>(raw, "categories");
+
+    // unwrapResponse may return the inner data object; we need both categories and tags
+    // The response shape is { data: { categories: [...], tags: [...] } }
+    // After unwrapResponse with key "categories", if it finds "data" first it peels it,
+    // then finds "categories". We need to get the full data object instead.
+    let source: Record<string, unknown>;
+    if (raw && typeof raw === "object" && "data" in (raw as Record<string, unknown>)) {
+      source = (raw as Record<string, unknown>).data as Record<string, unknown>;
+    } else {
+      source = raw as Record<string, unknown>;
+    }
+
+    const rawCategories = (source.categories ?? []) as Record<string, unknown>[];
+    const rawTags = (source.tags ?? []) as Record<string, unknown>[];
+
+    const categories: LexiconTagCategory[] = rawCategories.map((c) => ({
+      id: normalizeId(c.id),
+      label: String(c.label ?? ""),
+      color: c.color != null ? String(c.color) : undefined,
+    }));
+
+    const tags: LexiconTag[] = rawTags.map((t) => ({
+      id: normalizeId(t.id),
+      categoryId: normalizeId(t.categoryId),
+      label: String(t.label ?? ""),
+    }));
+
+    return { categories, tags };
+  }
+
+  /** Create a tag category. Response is NOT wrapped in data. */
+  async createTagCategory(label: string, color: string): Promise<LexiconTagCategory> {
+    const raw = await this.request<Record<string, unknown>>("/tag-category", {
+      method: "POST",
+      body: JSON.stringify({ label, color }),
+    });
+    return {
+      id: normalizeId(raw.id),
+      label: String(raw.label ?? ""),
+      color: raw.color != null ? String(raw.color) : undefined,
+    };
+  }
+
+  /** Create a tag. Response is NOT wrapped in data. */
+  async createTag(categoryId: string, label: string): Promise<LexiconTag> {
+    const raw = await this.request<Record<string, unknown>>("/tag", {
+      method: "POST",
+      body: JSON.stringify({ categoryId: Number(categoryId), label }),
+    });
+    return {
+      id: normalizeId(raw.id),
+      categoryId: normalizeId(raw.categoryId),
+      label: String(raw.label ?? ""),
+    };
+  }
+
+  /** Update tags on a track. tagIds should be string[] (converted to int for API). */
+  async updateTrackTags(trackId: string, tagIds: string[]): Promise<void> {
+    await this.request("/track", {
+      method: "PATCH",
+      body: JSON.stringify({
+        id: Number(trackId),
+        edits: { tags: tagIds.map(Number) },
+      }),
+    });
+  }
+
+  /** Get the current tag IDs for a track */
+  async getTrackTags(trackId: string): Promise<string[]> {
+    const raw = await this.request<unknown>(`/track?id=${trackId}`);
+    const track = unwrapResponse<Record<string, unknown>>(raw, "track");
+    const tags = Array.isArray(track.tags) ? track.tags : [];
+    return tags.map(normalizeId);
   }
 
   /** Set the full track list for a playlist (delete existing, then add new) */
