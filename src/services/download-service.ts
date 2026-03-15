@@ -155,9 +155,6 @@ export class DownloadService {
       (f) => f.bitRate == null || f.bitRate >= this.minBitrate,
     );
 
-    // Build diagnostics
-    const diag = `${files.length} results, ${files.length - formatFiltered.length} filtered by format, ${formatFiltered.length - bitrateFiltered.length} filtered by bitrate (<${this.minBitrate}kbps), ${bitrateFiltered.length} candidates`;
-
     // Rank using fuzzy matching: build TrackInfo from each filename and compare
     const expected: TrackInfo = {
       title: track.title,
@@ -166,6 +163,7 @@ export class DownloadService {
     };
 
     const ranked: RankedResult[] = [];
+    let artistRejected = 0;
 
     for (const file of bitrateFiltered) {
       const candidate = trackInfoFromFilename(file.filename);
@@ -176,13 +174,24 @@ export class DownloadService {
       }
 
       const matches = this.matcher.match(expected, [candidate]);
-      const score = matches.length > 0 ? matches[0].score : 0;
-
-      ranked.push({ file, score });
+      if (matches.length > 0) {
+        ranked.push({ file, score: matches[0].score });
+      } else {
+        artistRejected++;
+      }
     }
 
     // Sort by score descending
     ranked.sort((a, b) => b.score - a.score);
+
+    // Build diagnostics
+    const diag = [
+      `${files.length} results`,
+      files.length - formatFiltered.length > 0 ? `${files.length - formatFiltered.length} filtered by format` : null,
+      formatFiltered.length - bitrateFiltered.length > 0 ? `${formatFiltered.length - bitrateFiltered.length} filtered by bitrate (<${this.minBitrate}kbps)` : null,
+      artistRejected > 0 ? `${artistRejected} rejected by artist mismatch` : null,
+      `${ranked.length} candidates`,
+    ].filter(Boolean).join(", ");
 
     return { ranked, diagnostics: diag };
   }
@@ -474,43 +483,52 @@ export class DownloadService {
     playlistName: string,
     dbTrackId: string,
   ): Promise<DownloadResult> {
-    const { username, filename, size } = file;
+    try {
+      const { username, filename, size } = file;
 
-    // Check if the file already exists from a previous run
-    let tempPath = this.findDownloadedFile(username, filename);
+      // Check if the file already exists from a previous run
+      let tempPath = this.findDownloadedFile(username, filename);
 
-    if (tempPath) {
-      log.debug(`File already in downloads, skipping download`, { filename, tempPath });
-    } else {
-      await this.soulseek.download(username, filename, size);
-      await this.soulseek.waitForDownload(username, filename);
+      if (tempPath) {
+        log.debug(`File already in downloads, skipping download`, { filename, tempPath });
+      } else {
+        await this.soulseek.download(username, filename, size);
+        await this.soulseek.waitForDownload(username, filename);
 
-      tempPath = this.findDownloadedFile(username, filename);
-      if (!tempPath) {
+        tempPath = this.findDownloadedFile(username, filename);
+        if (!tempPath) {
+          return {
+            trackId: dbTrackId,
+            success: false,
+            error: `Downloaded file not found in slskd download dir for: ${filename}`,
+          };
+        }
+      }
+
+      const valid = await this.validateDownload(tempPath, track);
+      if (!valid) {
         return {
           trackId: dbTrackId,
           success: false,
-          error: `Downloaded file not found in slskd download dir for: ${filename}`,
+          filePath: tempPath,
+          error: "Downloaded file failed metadata validation",
         };
       }
-    }
 
-    const valid = await this.validateDownload(tempPath, track);
-    if (!valid) {
+      const finalPath = this.moveToPlaylistFolder(tempPath, playlistName, track);
+      return {
+        trackId: dbTrackId,
+        success: true,
+        filePath: finalPath,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       return {
         trackId: dbTrackId,
         success: false,
-        filePath: tempPath,
-        error: "Downloaded file failed metadata validation",
+        error: message,
       };
     }
-
-    const finalPath = this.moveToPlaylistFolder(tempPath, playlistName, track);
-    return {
-      trackId: dbTrackId,
-      success: true,
-      filePath: finalPath,
-    };
   }
 
   async validateDownload(

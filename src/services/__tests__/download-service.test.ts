@@ -137,7 +137,7 @@ describe("DownloadService", () => {
         filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Title.flac",
       });
       const weakMatch = makeFile({
-        filename: "@@user2\\music\\Other\\Album\\01 - Something Else.flac",
+        filename: "@@user2\\music\\Test Artist\\Album\\01 - Other Song.flac",
         username: "user2",
       });
 
