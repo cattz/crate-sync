@@ -212,6 +212,93 @@ describe("LexiconService", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  // --- getTags ---
+
+  it("getTags unwraps categories and tags from data wrapper", async () => {
+    mockFetch({
+      data: {
+        categories: [{ id: 1, label: "Spotify", color: "#1DB954", tags: [1, 2] }],
+        tags: [
+          { id: 1, categoryId: 1, label: "House" },
+          { id: 2, categoryId: 1, label: "Techno" },
+        ],
+      },
+    });
+
+    const result = await svc.getTags();
+    expect(result.categories).toHaveLength(1);
+    expect(result.categories[0].id).toBe("1");
+    expect(result.categories[0].label).toBe("Spotify");
+    expect(result.tags).toHaveLength(2);
+    expect(result.tags[0].id).toBe("1");
+    expect(result.tags[0].categoryId).toBe("1");
+    expect(result.tags[0].label).toBe("House");
+  });
+
+  // --- createTagCategory ---
+
+  it("createTagCategory sends POST and returns category (not wrapped)", async () => {
+    const fetchFn = mockFetch({ id: 5, label: "Spotify", position: 0, color: "#1DB954", tags: [] });
+
+    const category = await svc.createTagCategory("Spotify", "#1DB954");
+    expect(category.id).toBe("5");
+    expect(category.label).toBe("Spotify");
+    expect(category.color).toBe("#1DB954");
+
+    const [url, opts] = fetchFn.mock.calls[0];
+    expect(url).toContain("/tag-category");
+    expect(opts.method).toBe("POST");
+    expect(JSON.parse(opts.body)).toEqual({ label: "Spotify", color: "#1DB954" });
+  });
+
+  // --- createTag ---
+
+  it("createTag sends POST and returns tag (not wrapped)", async () => {
+    const fetchFn = mockFetch({ id: 10, categoryId: 5, label: "House", position: 0 });
+
+    const tag = await svc.createTag("5", "House");
+    expect(tag.id).toBe("10");
+    expect(tag.categoryId).toBe("5");
+    expect(tag.label).toBe("House");
+
+    const [url, opts] = fetchFn.mock.calls[0];
+    expect(url).toContain("/tag");
+    expect(opts.method).toBe("POST");
+    expect(JSON.parse(opts.body)).toEqual({ categoryId: 5, label: "House" });
+  });
+
+  // --- updateTrackTags ---
+
+  it("updateTrackTags sends PATCH /track with tag IDs as integers", async () => {
+    const fetchFn = mockFetch(undefined, { status: 204 });
+
+    await svc.updateTrackTags("42", ["1", "2", "3"]);
+
+    const [url, opts] = fetchFn.mock.calls[0];
+    expect(url).toContain("/track");
+    expect(opts.method).toBe("PATCH");
+    expect(JSON.parse(opts.body)).toEqual({
+      id: 42,
+      edits: { tags: [1, 2, 3] },
+    });
+  });
+
+  // --- getTrackTags ---
+
+  it("getTrackTags returns tag IDs as strings", async () => {
+    mockFetch({ data: { track: { id: 42, title: "Song", artist: "A", tags: [1, 5, 10] } } });
+
+    const tags = await svc.getTrackTags("42");
+    expect(tags).toEqual(["1", "5", "10"]);
+  });
+
+  it("getTrackTags returns empty array when track has no tags", async () => {
+    mockFetch({ data: { track: { id: 42, title: "Song", artist: "A" } } });
+
+    const tags = await svc.getTrackTags("42");
+    expect(tags).toEqual([]);
+  });
+
   // --- error handling ---
 
   it("throws on non-2xx response", async () => {
