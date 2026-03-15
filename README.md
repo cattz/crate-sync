@@ -89,6 +89,27 @@ pnpm dev matches reject <id>
 pnpm dev db status
 ```
 
+## Web UI
+
+Crate Sync includes a web dashboard for browsing playlists, reviewing matches, monitoring downloads, and managing settings.
+
+```bash
+# Start the API server
+pnpm dev serve
+
+# In another terminal, start the frontend dev server
+cd web && npx vite
+```
+
+The API runs on http://localhost:3100 and the frontend on http://localhost:5173 (proxies API requests automatically).
+
+For production, build the frontend and serve everything from the API:
+
+```bash
+cd web && npm run build
+pnpm dev serve
+```
+
 ## Debugging
 
 Pass `--debug` to write detailed logs to `./data/crate-sync.log`:

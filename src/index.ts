@@ -9,6 +9,7 @@ import { registerLexiconCommands } from "./commands/lexicon.js";
 import { registerDownloadCommands } from "./commands/download.js";
 import { registerMatchCommands } from "./commands/matches.js";
 import { registerSyncCommand } from "./commands/sync.js";
+import { registerServeCommand } from "./commands/serve.js";
 import { setupShutdownHandler, onShutdown } from "./utils/shutdown.js";
 import { closeDb, getDb } from "./db/client.js";
 import { loadConfig } from "./config.js";
@@ -88,5 +89,6 @@ registerLexiconCommands(program);
 registerDownloadCommands(program);
 registerMatchCommands(program);
 registerSyncCommand(program);
+registerServeCommand(program);
 
 program.parse();
