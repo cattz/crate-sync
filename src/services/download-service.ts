@@ -104,6 +104,8 @@ export class DownloadService {
     this.matcher = new FuzzyMatchStrategy({
       autoAcceptThreshold: 0.9,
       reviewThreshold: 0.7,
+      context: "soulseek",
+      artistRejectThreshold: 0.3,
     });
     this.allowedFormats = new Set(
       downloadConfig.formats.map((f) => f.toLowerCase()),
