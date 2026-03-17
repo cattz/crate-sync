@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `match_pair_uniq` ON `matches` (`source_type`,`source_id`,`target_type`,`target_id`);

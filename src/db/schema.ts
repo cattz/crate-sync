@@ -100,7 +100,11 @@ export const matches = sqliteTable("matches", {
   status: text("status", { enum: ["pending", "confirmed", "rejected"] }).notNull(),
   createdAt,
   updatedAt,
-});
+}, (table) => [
+  uniqueIndex("match_pair_uniq").on(
+    table.sourceType, table.sourceId, table.targetType, table.targetId,
+  ),
+]);
 
 // ---------------------------------------------------------------------------
 // downloads

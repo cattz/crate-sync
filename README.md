@@ -98,7 +98,7 @@ Crate Sync includes a web dashboard for browsing playlists, reviewing matches, m
 pnpm dev serve
 
 # In another terminal, start the frontend dev server
-cd web && npx vite
+npx vite
 ```
 
 The API runs on http://localhost:3100 and the frontend on http://localhost:5173 (proxies API requests automatically).

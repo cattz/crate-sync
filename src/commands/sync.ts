@@ -17,7 +17,8 @@ export function registerSyncCommand(program: Command): void {
     .description("Run the full sync pipeline for a playlist")
     .option("--all", "Sync all playlists")
     .option("--dry-run", "Show what would happen without making changes")
-    .action(async (playlist: string | undefined, opts: { all?: boolean; dryRun?: boolean }) => {
+    .option("--tags", "Sync Spotify playlist name segments as Lexicon custom tags (default: off)")
+    .action(async (playlist: string | undefined, opts: { all?: boolean; dryRun?: boolean; tags?: boolean }) => {
       if (!playlist && !opts.all) {
         console.log(chalk.red("Provide a playlist name/ID or use --all."));
         return;
@@ -236,9 +237,11 @@ export function registerSyncCommand(program: Command): void {
             console.log(chalk.green(`  Synced ${allMatchedIds.length} track(s) to Lexicon playlist "${pl.name}"`));
 
             // --- Tag sync ---
-            console.log(chalk.cyan("Syncing tags..."));
-            const tagResult = await pipeline.syncTags(pl.name, phaseTwo.confirmed);
-            console.log(chalk.green(`  Tagged ${tagResult.tagged} track(s), skipped ${tagResult.skipped}`));
+            if (opts.tags) {
+              console.log(chalk.cyan("Syncing tags..."));
+              const tagResult = await pipeline.syncTags(pl.name, phaseTwo.confirmed);
+              console.log(chalk.green(`  Tagged ${tagResult.tagged} track(s), skipped ${tagResult.skipped}`));
+            }
           } else {
             console.log(chalk.dim("No matched tracks to sync to Lexicon."));
           }

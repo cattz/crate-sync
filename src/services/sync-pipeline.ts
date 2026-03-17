@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 import type { Config } from "../config.js";
 import type { TrackInfo } from "../types/common.js";
@@ -270,13 +270,29 @@ export class SyncPipeline {
       }
     }
 
-    // 7. Persist new matches (skip conflicts from previous runs)
+    // 7. Persist new matches — update score/confidence on conflict,
+    //    but never downgrade a confirmed match back to pending/rejected
     if (newMatchRows.length > 0) {
       for (const row of newMatchRows) {
         await db
           .insert(schema.matches)
           .values(row)
-          .onConflictDoNothing();
+          .onConflictDoUpdate({
+            target: [
+              schema.matches.sourceType,
+              schema.matches.sourceId,
+              schema.matches.targetType,
+              schema.matches.targetId,
+            ],
+            set: {
+              score: sql`excluded.score`,
+              confidence: sql`excluded.confidence`,
+              method: sql`excluded.method`,
+              // Only update status if existing is not confirmed
+              status: sql`CASE WHEN ${schema.matches.status} = 'confirmed' THEN 'confirmed' ELSE excluded.status END`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          });
       }
     }
 
