@@ -4,7 +4,7 @@ import { getDb } from "../../db/client.js";
 import { PlaylistService } from "../../services/playlist-service.js";
 import { SpotifyService } from "../../services/spotify-service.js";
 import { SyncPipeline } from "../../services/sync-pipeline.js";
-import { playlistTracks } from "../../db/schema.js";
+import { playlists, playlistTracks, tracks } from "../../db/schema.js";
 import { eq, sql } from "drizzle-orm";
 
 export const playlistRoutes = new Hono();
@@ -12,6 +12,8 @@ export const playlistRoutes = new Hono();
 function getService() {
   return new PlaylistService(getDb());
 }
+
+// ---- Literal routes (before any :id params) ----
 
 // GET /api/playlists
 playlistRoutes.get("/", (c) => {
@@ -59,24 +61,97 @@ playlistRoutes.get("/duplicates", (c) => {
   return c.json(dupes);
 });
 
-// GET /api/playlists/:id
-playlistRoutes.get("/:id", (c) => {
+// GET /api/playlists/stats — library-wide statistics
+playlistRoutes.get("/stats", (c) => {
   const svc = getService();
   const db = getDb();
-  const playlist = svc.getPlaylist(c.req.param("id"));
 
-  if (!playlist) {
-    return c.json({ error: "Playlist not found" }, 404);
-  }
+  const totalPlaylists = svc.getPlaylists().length;
 
-  const countRow = db
-    .select({ count: sql<number>`count(*)` })
+  const row = db
+    .select({
+      totalTracks: sql<number>`count(distinct ${playlistTracks.trackId})`,
+      totalDurationMs: sql<number>`coalesce(sum(${tracks.durationMs}), 0)`,
+    })
     .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, playlist.id))
+    .innerJoin(tracks, eq(playlistTracks.trackId, tracks.id))
     .get();
 
-  return c.json({ ...playlist, trackCount: countRow?.count ?? 0 });
+  return c.json({
+    totalPlaylists,
+    totalTracks: row?.totalTracks ?? 0,
+    totalDurationMs: row?.totalDurationMs ?? 0,
+  });
 });
+
+// POST /api/playlists/bulk-rename
+playlistRoutes.post("/bulk-rename", async (c) => {
+  const svc = getService();
+  const body = await c.req.json<{
+    mode: "find-replace" | "prefix" | "suffix";
+    find?: string;
+    replace?: string;
+    value?: string;
+    action?: "add" | "remove";
+    dryRun: boolean;
+    pushToSpotify?: boolean;
+  }>();
+
+  const { mode, find, replace, value, action, dryRun } = body;
+
+  if (mode === "find-replace" && (!find || find.length === 0)) {
+    return c.json({ error: "find is required for find-replace mode" }, 400);
+  }
+
+  if ((mode === "prefix" || mode === "suffix") && (!value || value.length === 0)) {
+    return c.json({ error: "value is required for prefix/suffix mode" }, 400);
+  }
+
+  if ((mode === "prefix" || mode === "suffix") && !action) {
+    return c.json({ error: "action (add/remove) is required for prefix/suffix mode" }, 400);
+  }
+
+  const all = svc.getPlaylists();
+  const preview: Array<{ id: string; name: string; newName: string }> = [];
+
+  for (const p of all) {
+    let newName = p.name;
+
+    if (mode === "find-replace") {
+      newName = p.name.split(find!).join(replace ?? "");
+    } else if (mode === "prefix") {
+      if (action === "add") {
+        newName = value! + p.name;
+      } else {
+        if (p.name.startsWith(value!)) {
+          newName = p.name.slice(value!.length);
+        }
+      }
+    } else if (mode === "suffix") {
+      if (action === "add") {
+        newName = p.name + value!;
+      } else {
+        if (p.name.endsWith(value!)) {
+          newName = p.name.slice(0, -value!.length);
+        }
+      }
+    }
+
+    if (newName !== p.name) {
+      preview.push({ id: p.id, name: p.name, newName });
+    }
+  }
+
+  if (!dryRun) {
+    for (const item of preview) {
+      svc.renamePlaylist(item.id, item.newName);
+    }
+  }
+
+  return c.json(preview);
+});
+
+// ---- :id/subpath routes (before bare :id) ----
 
 // PUT /api/playlists/:id/rename
 playlistRoutes.put("/:id/rename", async (c) => {
@@ -94,19 +169,6 @@ playlistRoutes.put("/:id/rename", async (c) => {
   }
 
   svc.renamePlaylist(playlist.id, name.trim());
-  return c.json({ ok: true });
-});
-
-// DELETE /api/playlists/:id
-playlistRoutes.delete("/:id", (c) => {
-  const svc = getService();
-  const playlist = svc.getPlaylist(c.req.param("id"));
-
-  if (!playlist) {
-    return c.json({ error: "Playlist not found" }, 404);
-  }
-
-  svc.removePlaylist(playlist.id);
   return c.json({ ok: true });
 });
 
@@ -236,4 +298,78 @@ playlistRoutes.get("/:id/duplicates", (c) => {
 
   const dupes = svc.findDuplicatesInPlaylist(playlist.id);
   return c.json(dupes);
+});
+
+// ---- Bare :id routes (last) ----
+
+// GET /api/playlists/:id
+playlistRoutes.get("/:id", (c) => {
+  const svc = getService();
+  const db = getDb();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) {
+    return c.json({ error: "Playlist not found" }, 404);
+  }
+
+  const statsRow = db
+    .select({
+      count: sql<number>`count(*)`,
+      totalDurationMs: sql<number>`coalesce(sum(${tracks.durationMs}), 0)`,
+    })
+    .from(playlistTracks)
+    .innerJoin(tracks, eq(playlistTracks.trackId, tracks.id))
+    .where(eq(playlistTracks.playlistId, playlist.id))
+    .get();
+
+  return c.json({
+    ...playlist,
+    trackCount: statsRow?.count ?? 0,
+    totalDurationMs: statsRow?.totalDurationMs ?? 0,
+  });
+});
+
+// PATCH /api/playlists/:id — update metadata (tags, notes, pinned)
+playlistRoutes.patch("/:id", async (c) => {
+  const svc = getService();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) {
+    return c.json({ error: "Playlist not found" }, 404);
+  }
+
+  const body = await c.req.json<{ tags?: string[]; notes?: string; pinned?: boolean }>();
+  const updates: Record<string, unknown> = {};
+
+  if (body.tags !== undefined) {
+    updates.tags = JSON.stringify(body.tags);
+  }
+  if (body.notes !== undefined) {
+    updates.notes = body.notes;
+  }
+  if (body.pinned !== undefined) {
+    updates.pinned = body.pinned ? 1 : 0;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return c.json({ ok: true });
+  }
+
+  const db = getDb();
+  db.update(playlists).set(updates).where(eq(playlists.id, playlist.id)).run();
+
+  return c.json({ ok: true });
+});
+
+// DELETE /api/playlists/:id
+playlistRoutes.delete("/:id", (c) => {
+  const svc = getService();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) {
+    return c.json({ error: "Playlist not found" }, 404);
+  }
+
+  svc.removePlaylist(playlist.id);
+  return c.json({ ok: true });
 });

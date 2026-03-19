@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp12
 title: Playlist metadata (tags, notes, pinning)
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-03-19T12:00:00Z

@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp11
 title: Playlist statistics and dashboard
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-03-19T12:00:00Z

@@ -1,16 +1,21 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router";
-import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useCrossPlaylistDuplicates, useMergePlaylists } from "../api/hooks.js";
-import type { Playlist } from "../api/client.js";
+import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useCrossPlaylistDuplicates, useSimilarPlaylists, useMergePlaylists, useBulkRename } from "../api/hooks.js";
+import type { Playlist, BulkRenamePreview, SimilarPair } from "../api/client.js";
 import { useMultiSelect } from "../hooks/useMultiSelect.js";
 import { BulkToolbar } from "../components/BulkToolbar.js";
+
+function parseTags(tags: string | null): string[] {
+  if (!tags) return [];
+  try { return JSON.parse(tags); } catch { return []; }
+}
 
 type SortKey = "name" | "trackCount" | "ownerName" | "lastSynced";
 type SortDir = "asc" | "desc";
 type OwnershipFilter = "all" | "own" | "followed";
 
 function formatDate(ms: number | null) {
-  if (!ms) return "—";
+  if (!ms) return "\u2014";
   return new Date(ms).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -37,7 +42,7 @@ function SortHeader({
       onClick={() => onSort(sortKey)}
       style={{ cursor: "pointer", userSelect: "none" }}
     >
-      {label} {active ? (direction === "asc" ? "▲" : "▼") : ""}
+      {label} {active ? (direction === "asc" ? "\u25B2" : "\u25BC") : ""}
     </th>
   );
 }
@@ -115,6 +120,53 @@ function DeleteModal({
           </button>
         </div>
         {del.isError && <p style={{ color: "var(--danger)", marginTop: "0.3rem" }}>{del.error.message}</p>}
+      </div>
+    </div>
+  );
+}
+
+function MergeConfirmModal({
+  pair,
+  onClose,
+}: {
+  pair: SimilarPair;
+  onClose: () => void;
+}) {
+  const merge = useMergePlaylists();
+  const [target, setTarget] = useState<"a" | "b">("a");
+
+  const targetPlaylist = target === "a" ? pair.a : pair.b;
+  const sourcePlaylist = target === "a" ? pair.b : pair.a;
+
+  const handleMerge = async () => {
+    await merge.mutateAsync({ targetId: targetPlaylist.id, sourceIds: [sourcePlaylist.id] });
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="card modal" onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ marginBottom: "0.5rem" }}>Merge Playlists</h3>
+        <p style={{ marginBottom: "0.5rem" }}>
+          Merge tracks from <strong>{sourcePlaylist.name}</strong> ({sourcePlaylist.trackCount} tracks)
+          into <strong>{targetPlaylist.name}</strong> ({targetPlaylist.trackCount} tracks)?
+        </p>
+        <div style={{ marginBottom: "0.75rem" }}>
+          <label style={{ display: "block", marginBottom: "0.25rem" }} className="text-sm text-muted">
+            Target playlist:
+          </label>
+          <div className="flex gap-1">
+            <button className={target === "a" ? "primary" : ""} onClick={() => setTarget("a")}>{pair.a.name}</button>
+            <button className={target === "b" ? "primary" : ""} onClick={() => setTarget("b")}>{pair.b.name}</button>
+          </div>
+        </div>
+        <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
+          <button onClick={onClose}>Cancel</button>
+          <button className="primary" onClick={handleMerge} disabled={merge.isPending}>
+            {merge.isPending ? "Merging..." : "Merge"}
+          </button>
+        </div>
+        {merge.isError && <p style={{ color: "var(--danger)", marginTop: "0.3rem" }}>{merge.error.message}</p>}
       </div>
     </div>
   );
@@ -235,6 +287,167 @@ function BulkMergeModal({
   );
 }
 
+type BulkRenameMode = "find-replace" | "prefix" | "suffix";
+
+function BulkRenameModal({ onClose }: { onClose: () => void }) {
+  const [mode, setMode] = useState<BulkRenameMode>("find-replace");
+  const [find, setFind] = useState("");
+  const [replace, setReplace] = useState("");
+  const [value, setValue] = useState("");
+  const [action, setAction] = useState<"add" | "remove">("add");
+  const [preview, setPreview] = useState<BulkRenamePreview[] | null>(null);
+  const bulkRename = useBulkRename();
+
+  const canPreview =
+    (mode === "find-replace" && find.length > 0) ||
+    ((mode === "prefix" || mode === "suffix") && value.length > 0);
+
+  const handlePreview = async () => {
+    setPreview(null);
+    const params =
+      mode === "find-replace"
+        ? { mode, find, replace, dryRun: true as const }
+        : { mode, value, action, dryRun: true as const };
+    const result = await bulkRename.mutateAsync(params);
+    setPreview(result);
+  };
+
+  const handleApply = async () => {
+    const params =
+      mode === "find-replace"
+        ? { mode, find, replace, dryRun: false as const }
+        : { mode, value, action, dryRun: false as const };
+    await bulkRename.mutateAsync(params);
+    onClose();
+  };
+
+  const resetPreview = () => setPreview(null);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 480 }}>
+        <h3 style={{ marginBottom: "0.75rem" }}>Bulk Rename Playlists</h3>
+
+        {/* Mode selector */}
+        <div className="flex gap-1" style={{ marginBottom: "0.75rem" }}>
+          {(["find-replace", "prefix", "suffix"] as const).map((m) => (
+            <button
+              key={m}
+              className={mode === m ? "primary" : ""}
+              onClick={() => { setMode(m); resetPreview(); }}
+              style={{ textTransform: "capitalize" }}
+            >
+              {m === "find-replace" ? "Find & Replace" : m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Mode-specific inputs */}
+        {mode === "find-replace" && (
+          <div style={{ marginBottom: "0.75rem" }}>
+            <label className="text-sm text-muted" style={{ display: "block", marginBottom: "0.25rem" }}>Find</label>
+            <input
+              type="text"
+              value={find}
+              onChange={(e) => { setFind(e.target.value); resetPreview(); }}
+              placeholder="Text to find..."
+              style={{ width: "100%", marginBottom: "0.5rem" }}
+              autoFocus
+            />
+            <label className="text-sm text-muted" style={{ display: "block", marginBottom: "0.25rem" }}>Replace with</label>
+            <input
+              type="text"
+              value={replace}
+              onChange={(e) => { setReplace(e.target.value); resetPreview(); }}
+              placeholder="Replacement text (leave empty to delete)"
+              style={{ width: "100%" }}
+            />
+          </div>
+        )}
+
+        {(mode === "prefix" || mode === "suffix") && (
+          <div style={{ marginBottom: "0.75rem" }}>
+            <div className="flex gap-1" style={{ marginBottom: "0.5rem" }}>
+              <button className={action === "add" ? "primary" : ""} onClick={() => { setAction("add"); resetPreview(); }}>
+                Add
+              </button>
+              <button className={action === "remove" ? "primary" : ""} onClick={() => { setAction("remove"); resetPreview(); }}>
+                Remove
+              </button>
+            </div>
+            <label className="text-sm text-muted" style={{ display: "block", marginBottom: "0.25rem" }}>
+              {mode === "prefix" ? "Prefix" : "Suffix"} value
+            </label>
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => { setValue(e.target.value); resetPreview(); }}
+              placeholder={`${mode === "prefix" ? "Prefix" : "Suffix"} text...`}
+              style={{ width: "100%" }}
+              autoFocus
+            />
+          </div>
+        )}
+
+        {/* Preview table */}
+        {preview !== null && preview.length === 0 && (
+          <p className="text-muted text-sm" style={{ marginBottom: "0.75rem" }}>
+            No playlists would be affected.
+          </p>
+        )}
+
+        {preview !== null && preview.length > 0 && (
+          <div style={{ marginBottom: "0.75rem", maxHeight: 300, overflowY: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Current Name</th>
+                  <th>New Name</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.map((p) => (
+                  <tr key={p.id}>
+                    <td className="text-muted">{p.name}</td>
+                    <td>{p.newName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>
+              {preview.length} playlist{preview.length !== 1 ? "s" : ""} will be renamed.
+            </p>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
+          <button type="button" onClick={onClose}>Cancel</button>
+          <button
+            onClick={handlePreview}
+            disabled={!canPreview || bulkRename.isPending}
+          >
+            {bulkRename.isPending && !preview ? "Loading..." : "Preview"}
+          </button>
+          {preview !== null && preview.length > 0 && (
+            <button
+              className="primary"
+              onClick={handleApply}
+              disabled={bulkRename.isPending}
+            >
+              {bulkRename.isPending ? "Applying..." : "Apply"}
+            </button>
+          )}
+        </div>
+
+        {bulkRename.isError && (
+          <p style={{ color: "var(--danger)", marginTop: "0.3rem" }}>{bulkRename.error.message}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Playlists() {
   const { data: playlists, isLoading } = usePlaylists();
   const [search, setSearch] = useState("");
@@ -246,9 +459,24 @@ export function Playlists() {
   const sync = useSyncPlaylists();
   const [showCrossDupes, setShowCrossDupes] = useState(false);
   const crossDupes = useCrossPlaylistDuplicates(showCrossDupes);
+  const [showSimilar, setShowSimilar] = useState(false);
+  const similarPlaylists = useSimilarPlaylists(0.7, showSimilar);
+  const [mergingPair, setMergingPair] = useState<SimilarPair | null>(null);
   const selection = useMultiSelect();
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkMerging, setBulkMerging] = useState(false);
+  const [showBulkRename, setShowBulkRename] = useState(false);
+  const [tagFilter, setTagFilter] = useState("");
+
+  // Collect all unique tags across playlists for autocomplete/filter
+  const allTags = useMemo(() => {
+    if (!playlists) return [];
+    const tagSet = new Set<string>();
+    for (const p of playlists) {
+      for (const t of parseTags(p.tags)) tagSet.add(t);
+    }
+    return [...tagSet].sort();
+  }, [playlists]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -274,7 +502,17 @@ export function Playlists() {
       list = list.filter((p) => p.name.toLowerCase().includes(q));
     }
 
+    if (tagFilter) {
+      const tf = tagFilter.toLowerCase();
+      list = list.filter((p) => parseTags(p.tags).some((t) => t.toLowerCase() === tf));
+    }
+
     return [...list].sort((a, b) => {
+      // Pinned playlists always sort to top
+      const aPinned = a.pinned ? 1 : 0;
+      const bPinned = b.pinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+
       let cmp = 0;
       if (sortKey === "name") {
         cmp = a.name.localeCompare(b.name);
@@ -287,7 +525,7 @@ export function Playlists() {
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [playlists, search, sortKey, sortDir, ownership]);
+  }, [playlists, search, sortKey, sortDir, ownership, tagFilter]);
 
   if (isLoading) return <p className="text-muted">Loading playlists...</p>;
 
@@ -303,8 +541,14 @@ export function Playlists() {
           >
             {sync.isPending ? "Syncing..." : "Sync from Spotify"}
           </button>
+          <button onClick={() => setShowBulkRename(true)}>
+            Bulk Rename
+          </button>
           <button onClick={() => setShowCrossDupes(!showCrossDupes)}>
             {showCrossDupes ? "Hide Dupes" : "Cross-Playlist Dupes"}
+          </button>
+          <button onClick={() => setShowSimilar(!showSimilar)}>
+            {showSimilar ? "Hide Similar" : "Similar Names"}
           </button>
           {(["all", "own", "followed"] as const).map((value) => (
             <button
@@ -316,9 +560,21 @@ export function Playlists() {
               {value === "own" ? "Own" : value === "followed" ? "Followed" : "All"}
             </button>
           ))}
+          {allTags.length > 0 && (
+            <select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              style={{ marginLeft: "0.25rem" }}
+            >
+              <option value="">All Tags</option>
+              {allTags.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          )}
           <input
             type="text"
-            placeholder="Search playlists…"
+            placeholder="Search playlists\u2026"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{ width: 220, marginLeft: "0.25rem" }}
@@ -370,6 +626,50 @@ export function Playlists() {
         </div>
       )}
 
+      {showSimilar && similarPlaylists.isLoading && (
+        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>Scanning for similar playlist names...</p>
+      )}
+      {showSimilar && similarPlaylists.data && similarPlaylists.data.length === 0 && (
+        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
+          No similar playlist names found.
+        </div>
+      )}
+      {showSimilar && similarPlaylists.data && similarPlaylists.data.length > 0 && (
+        <div className="card mb-2">
+          <h3 style={{ marginBottom: "0.3rem" }}>Similar Playlist Names ({similarPlaylists.data.length} pairs)</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Playlist A</th>
+                <th>Playlist B</th>
+                <th>Similarity</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {similarPlaylists.data.map((pair) => (
+                <tr key={`${pair.a.id}-${pair.b.id}`}>
+                  <td>
+                    <Link to={`/playlists/${pair.a.id}`}>{pair.a.name}</Link>
+                    <span className="text-muted text-sm"> ({pair.a.trackCount})</span>
+                  </td>
+                  <td>
+                    <Link to={`/playlists/${pair.b.id}`}>{pair.b.name}</Link>
+                    <span className="text-muted text-sm"> ({pair.b.trackCount})</span>
+                  </td>
+                  <td>{Math.round(pair.score * 100)}%</td>
+                  <td>
+                    <button className="primary" onClick={() => setMergingPair(pair)}>Merge</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {mergingPair && <MergeConfirmModal pair={mergingPair} onClose={() => setMergingPair(null)} />}
+
       <div className="card">
         <table>
           <thead>
@@ -408,12 +708,18 @@ export function Playlists() {
                   />
                 </td>
                 <td>
-                  <Link to={`/playlists/${p.id}`}>{p.name}</Link>
+                  <div className="flex items-center gap-1">
+                    {p.pinned ? <span className="badge badge-green" title="Pinned">pinned</span> : null}
+                    <Link to={`/playlists/${p.id}`}>{p.name}</Link>
+                    {parseTags(p.tags).map((tag) => (
+                      <span key={tag} className="badge badge-blue">{tag}</span>
+                    ))}
+                  </div>
                 </td>
                 <td>{p.trackCount}</td>
                 {ownership !== "own" && (
                   <td className="text-muted text-sm">
-                    {p.isOwned === 1 ? "You" : (p.ownerName ?? "—")}
+                    {p.isOwned === 1 ? "You" : (p.ownerName ?? "\u2014")}
                   </td>
                 )}
                 <td className="text-muted text-sm">{formatDate(p.lastSynced)}</td>
@@ -443,6 +749,7 @@ export function Playlists() {
 
       {renaming && <RenameModal playlist={renaming} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteModal playlist={deleting} onClose={() => setDeleting(null)} />}
+      {showBulkRename && <BulkRenameModal onClose={() => setShowBulkRename(false)} />}
 
       <BulkToolbar count={selection.count} onClear={selection.clear}>
         <button

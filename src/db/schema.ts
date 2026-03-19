@@ -33,6 +33,9 @@ export const playlists = sqliteTable("playlists", {
   isOwned: integer("is_owned"),
   ownerId: text("owner_id"),
   ownerName: text("owner_name"),
+  tags: text("tags"),             // JSON string, e.g. '["techno","house"]'
+  notes: text("notes"),
+  pinned: integer("pinned").default(0),
   lastSynced: integer("last_synced"),
   createdAt,
   updatedAt,

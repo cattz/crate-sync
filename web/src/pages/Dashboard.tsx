@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStatus, usePlaylists, useMatches, useDownloads, useJobStats, useStartSpotifyLogin, useSpotifyAuthStatus, useSpotifyLogout, useConnectSoulseek, useDisconnectSoulseek } from "../api/hooks.js";
+import { useStatus, usePlaylists, usePlaylistStats, useMatches, useDownloads, useJobStats, useStartSpotifyLogin, useSpotifyAuthStatus, useSpotifyLogout, useConnectSoulseek, useDisconnectSoulseek } from "../api/hooks.js";
 
 export function Dashboard() {
   const { data: status, isLoading: statusLoading } = useStatus();
@@ -7,6 +7,7 @@ export function Dashboard() {
   const { data: pendingMatches } = useMatches("pending");
   const { data: recentDownloads } = useDownloads();
   const { data: jobStats } = useJobStats();
+  const { data: libraryStats } = usePlaylistStats();
 
   if (statusLoading) return <p className="text-muted">Loading...</p>;
 
@@ -17,11 +18,15 @@ export function Dashboard() {
       <div className="grid-stats">
         <div className="stat-card">
           <div className="label">Playlists</div>
-          <div className="value">{playlists?.length ?? 0}</div>
+          <div className="value">{libraryStats?.totalPlaylists ?? playlists?.length ?? 0}</div>
         </div>
         <div className="stat-card">
           <div className="label">Total Tracks</div>
-          <div className="value">{status?.database.ok ? status.database.tracks : "—"}</div>
+          <div className="value">{libraryStats?.totalTracks ?? (status?.database.ok ? status.database.tracks : "\u2014")}</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Total Duration</div>
+          <div className="value">{libraryStats ? formatLibraryDuration(libraryStats.totalDurationMs) : "\u2014"}</div>
         </div>
         <div className="stat-card">
           <div className="label">Pending Matches</div>
@@ -75,6 +80,15 @@ export function Dashboard() {
       </div>
     </>
   );
+}
+
+function formatLibraryDuration(ms: number) {
+  const hours = Math.floor(ms / 3600000);
+  const mins = Math.floor((ms % 3600000) / 60000);
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  parts.push(`${mins}m`);
+  return parts.join(" ");
 }
 
 function ServiceRow({

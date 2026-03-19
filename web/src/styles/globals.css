@@ -193,7 +193,7 @@ button:disabled {
 }
 
 /* Forms */
-input, select {
+input, select, textarea {
   font-family: var(--font);
   font-size: 0.8rem;
   padding: 0.3rem 0.6rem;
@@ -203,7 +203,7 @@ input, select {
   color: var(--text);
 }
 
-input:focus, select:focus {
+input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
 }

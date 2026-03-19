@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg05
 title: Merging 2 playlists returns 404
-status: todo
+status: done
 type: bug
 priority: high
 created_at: 2026-03-19T19:00:00Z

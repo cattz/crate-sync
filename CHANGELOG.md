@@ -4,6 +4,9 @@
 
 ### Added
 - **Multi-select and bulk toolbar** in web UI — reusable `useMultiSelect` hook, floating `BulkToolbar` component, checkbox selection in playlist table with select-all toggle, bulk delete and bulk merge actions.
+- **Bulk rename** — `POST /api/playlists/bulk-rename` with find-replace, prefix, and suffix modes. Mandatory dry-run preview before applying. Web UI modal with mode selector and preview table.
+- **Playlist statistics and dashboard** — `GET /api/playlists/stats` for library-wide stats (total playlists, tracks, duration). PlaylistDetail stats section with track count, total duration, unique artists, and top artist. Dashboard library stats cards including total duration.
+- **Playlist metadata (tags, notes, pinning)** — new `tags` (JSON text), `notes` (text), and `pinned` (integer) columns on `playlists` table. `PATCH /api/playlists/:id` endpoint for metadata updates. Pinned playlists sort to top. Tag badges on playlist rows with tag-based filtering. PlaylistDetail: editable notes textarea (saves on blur), tag editor with autocomplete, pin/unpin toggle.
 
 ## 0.4.0 — 2026-03-17
 

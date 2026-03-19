@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router";
-import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useRepairPlaylist, useMergePlaylists, usePlaylistDuplicates } from "../api/hooks.js";
+import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useRepairPlaylist, useMergePlaylists, usePlaylistDuplicates, useUpdatePlaylistMeta } from "../api/hooks.js";
 import { api, type ReviewDecision, type Playlist } from "../api/client.js";
 
 function formatDuration(ms: number) {
@@ -16,6 +16,15 @@ function formatTotalDuration(ms: number, count: number) {
   if (hours > 0) parts.push(`${hours}h`);
   parts.push(`${mins}m`);
   return `${parts.join(" ")} across ${count} tracks`;
+}
+
+function formatDurationShort(ms: number) {
+  const hours = Math.floor(ms / 3600000);
+  const mins = Math.floor((ms % 3600000) / 60000);
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  parts.push(`${mins}m`);
+  return parts.join(" ");
 }
 
 type TrackSortKey = "position" | "title" | "artist" | "album" | "durationMs";
@@ -45,6 +54,8 @@ export function PlaylistDetail() {
     Array<{ dbTrackId: string; title: string; artist: string; score: number }>
   >([]);
   const merge = useMergePlaylists();
+  const updateMeta = useUpdatePlaylistMeta();
+  const { data: allPlaylists } = usePlaylists();
   const [mergeOpen, setMergeOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -54,6 +65,9 @@ export function PlaylistDetail() {
   const [trackSortDir, setTrackSortDir] = useState<SortDir>("asc");
   const [showDupes, setShowDupes] = useState(false);
   const dupes = usePlaylistDuplicates(id!, showDupes);
+  const [notesValue, setNotesValue] = useState<string | null>(null);
+  const [tagInput, setTagInput] = useState("");
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
 
   // SSE listener
   useEffect(() => {
@@ -136,6 +150,76 @@ export function PlaylistDetail() {
     [tracks],
   );
 
+  const { uniqueArtists, topArtist } = useMemo(() => {
+    if (!tracks || tracks.length === 0) return { uniqueArtists: 0, topArtist: "\u2014" };
+    const counts = new Map<string, number>();
+    for (const t of tracks) {
+      counts.set(t.artist, (counts.get(t.artist) ?? 0) + 1);
+    }
+    let best = "";
+    let bestCount = 0;
+    for (const [artist, count] of counts) {
+      if (count > bestCount) {
+        best = artist;
+        bestCount = count;
+      }
+    }
+    return { uniqueArtists: counts.size, topArtist: best || "\u2014" };
+  }, [tracks]);
+
+  // Tag helpers
+  const currentTags: string[] = useMemo(() => {
+    if (!playlist?.tags) return [];
+    try { return JSON.parse(playlist.tags); } catch { return []; }
+  }, [playlist?.tags]);
+
+  const allExistingTags = useMemo(() => {
+    if (!allPlaylists) return [];
+    const tagSet = new Set<string>();
+    for (const p of allPlaylists) {
+      if (p.tags) {
+        try {
+          for (const t of JSON.parse(p.tags)) tagSet.add(t);
+        } catch { /* ignore */ }
+      }
+    }
+    return [...tagSet].sort();
+  }, [allPlaylists]);
+
+  const tagSuggestions = useMemo(() => {
+    if (!tagInput) return [];
+    const q = tagInput.toLowerCase();
+    return allExistingTags.filter(
+      (t) => t.toLowerCase().includes(q) && !currentTags.includes(t),
+    );
+  }, [tagInput, allExistingTags, currentTags]);
+
+  const handleAddTag = useCallback((tag: string) => {
+    if (!id || !tag.trim()) return;
+    const trimmed = tag.trim().toLowerCase();
+    if (currentTags.includes(trimmed)) return;
+    const newTags = [...currentTags, trimmed];
+    updateMeta.mutate({ id, meta: { tags: newTags } });
+    setTagInput("");
+    setShowTagSuggestions(false);
+  }, [id, currentTags, updateMeta]);
+
+  const handleRemoveTag = useCallback((tag: string) => {
+    if (!id) return;
+    const newTags = currentTags.filter((t) => t !== tag);
+    updateMeta.mutate({ id, meta: { tags: newTags } });
+  }, [id, currentTags, updateMeta]);
+
+  const handleTogglePin = useCallback(() => {
+    if (!id || !playlist) return;
+    updateMeta.mutate({ id, meta: { pinned: !playlist.pinned } });
+  }, [id, playlist, updateMeta]);
+
+  const handleSaveNotes = useCallback((value: string) => {
+    if (!id) return;
+    updateMeta.mutate({ id, meta: { notes: value } });
+  }, [id, updateMeta]);
+
   if (playlistLoading || tracksLoading) return <p className="text-muted">Loading...</p>;
   if (!playlist) return <p className="text-muted">Playlist not found</p>;
 
@@ -150,6 +234,12 @@ export function PlaylistDetail() {
           <span className="text-muted text-sm">{playlist.trackCount} tracks</span>
         </div>
         <div className="flex gap-1">
+          <button
+            onClick={handleTogglePin}
+            disabled={updateMeta.isPending}
+          >
+            {playlist.pinned ? "Unpin" : "Pin"}
+          </button>
           <button className="primary" onClick={handleStartSync} disabled={startSync.isPending || !!syncPhase}>
             {syncPhase ? `Syncing (${syncPhase})...` : "Start Sync"}
           </button>
@@ -184,6 +274,25 @@ export function PlaylistDetail() {
           >
             Delete
           </button>
+        </div>
+      </div>
+
+      <div className="grid-stats">
+        <div className="stat-card">
+          <span className="label">Tracks</span>
+          <span className="value">{tracks?.length ?? 0}</span>
+        </div>
+        <div className="stat-card">
+          <span className="label">Duration</span>
+          <span className="value">{formatDurationShort(totalDurationMs)}</span>
+        </div>
+        <div className="stat-card">
+          <span className="label">Artists</span>
+          <span className="value">{uniqueArtists}</span>
+        </div>
+        <div className="stat-card">
+          <span className="label">Top Artist</span>
+          <span className="value">{topArtist}</span>
         </div>
       </div>
 
@@ -223,6 +332,88 @@ export function PlaylistDetail() {
         </div>
       )}
 
+      {/* Tags */}
+      <div className="card mb-2">
+        <h3 style={{ marginBottom: "0.3rem" }}>Tags</h3>
+        <div className="flex items-center gap-1" style={{ flexWrap: "wrap", marginBottom: "0.35rem" }}>
+          {currentTags.map((tag) => (
+            <span key={tag} className="badge badge-blue" style={{ cursor: "pointer" }} onClick={() => handleRemoveTag(tag)} title="Click to remove">
+              {tag} &times;
+            </span>
+          ))}
+          {currentTags.length === 0 && <span className="text-muted text-sm">No tags</span>}
+        </div>
+        <div style={{ position: "relative", maxWidth: 260 }}>
+          <input
+            type="text"
+            placeholder="Add tag\u2026"
+            value={tagInput}
+            onChange={(e) => { setTagInput(e.target.value); setShowTagSuggestions(true); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAddTag(tagInput);
+              }
+            }}
+            onFocus={() => setShowTagSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowTagSuggestions(false), 200)}
+            style={{ width: "100%" }}
+          />
+          {showTagSuggestions && tagSuggestions.length > 0 && (
+            <div style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              right: 0,
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
+              zIndex: 10,
+              maxHeight: 150,
+              overflowY: "auto",
+            }}>
+              {tagSuggestions.map((s) => (
+                <div
+                  key={s}
+                  style={{ padding: "0.25rem 0.5rem", cursor: "pointer" }}
+                  onMouseDown={(e) => { e.preventDefault(); handleAddTag(s); }}
+                >
+                  {s}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div className="card mb-2">
+        <h3 style={{ marginBottom: "0.3rem" }}>Notes</h3>
+        <textarea
+          style={{
+            width: "100%",
+            minHeight: 80,
+            background: "var(--bg)",
+            color: "var(--text)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            padding: "0.4rem 0.6rem",
+            fontFamily: "var(--font)",
+            fontSize: "0.85rem",
+            resize: "vertical",
+          }}
+          value={notesValue ?? playlist.notes ?? ""}
+          onChange={(e) => setNotesValue(e.target.value)}
+          onBlur={() => {
+            const val = notesValue ?? "";
+            if (val !== (playlist.notes ?? "")) {
+              handleSaveNotes(val);
+            }
+          }}
+          placeholder="Add notes about this playlist\u2026"
+        />
+      </div>
+
       {/* Duplicates */}
       {showDupes && dupes.isLoading && (
         <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>Scanning for duplicates...</p>
@@ -239,7 +430,7 @@ export function PlaylistDetail() {
             <div key={group.track.id} style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border)" }}>
               <div>
                 <strong>{group.track.title}</strong>
-                <span className="text-muted"> — {group.track.artist}</span>
+                <span className="text-muted"> \u2014 {group.track.artist}</span>
                 <span className="badge badge-yellow" style={{ marginLeft: "0.5rem" }}>
                   {group.duplicates.length + 1}x
                 </span>
@@ -280,7 +471,7 @@ export function PlaylistDetail() {
           </span>
           <input
             type="text"
-            placeholder="Filter by title or artist…"
+            placeholder="Filter by title or artist\u2026"
             value={trackSearch}
             onChange={(e) => setTrackSearch(e.target.value)}
             style={{ width: 220 }}
@@ -401,7 +592,7 @@ function ThSort({
 }) {
   return (
     <th onClick={() => onSort(sortKey)} style={{ cursor: "pointer", userSelect: "none" }}>
-      {label} {active === sortKey ? (dir === "asc" ? "▲" : "▼") : ""}
+      {label} {active === sortKey ? (dir === "asc" ? "\u25B2" : "\u25BC") : ""}
     </th>
   );
 }
@@ -437,7 +628,7 @@ function ReviewPanel({
         >
           <div>
             <span>{item.title}</span>
-            <span className="text-muted"> — {item.artist}</span>
+            <span className="text-muted"> \u2014 {item.artist}</span>
             <span className="badge badge-yellow" style={{ marginLeft: "0.5rem" }}>
               {(item.score * 100).toFixed(0)}%
             </span>
@@ -510,7 +701,7 @@ function MergeModal({
         </p>
         <input
           type="text"
-          placeholder="Filter playlists…"
+          placeholder="Filter playlists\u2026"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: "100%", marginBottom: "0.5rem" }}

@@ -17,6 +17,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   // Playlists
   getPlaylists: () => request<Playlist[]>("/playlists"),
+  getPlaylistStats: () => request<LibraryStats>("/playlists/stats"),
   getPlaylist: (id: string) => request<Playlist>(`/playlists/${id}`),
   getPlaylistTracks: (id: string) => request<Track[]>(`/playlists/${id}/tracks`),
   renamePlaylist: (id: string, name: string) =>
@@ -27,10 +28,17 @@ export const api = {
     request<PushResult>(`/playlists/${id}/push`, { method: "POST" }),
   repairPlaylist: (id: string) =>
     request<RepairResult>(`/playlists/${id}/repair`, { method: "POST" }),
+  updatePlaylistMeta: (id: string, meta: PlaylistMeta) =>
+    request<{ ok: boolean }>(`/playlists/${id}`, { method: "PATCH", body: JSON.stringify(meta) }),
   mergePlaylists: (targetId: string, sourceIds: string[]) =>
     request<{ ok: boolean; added: number; duplicatesSkipped: number }>(`/playlists/${targetId}/merge`, {
       method: "POST",
       body: JSON.stringify({ sourceIds }),
+    }),
+  bulkRename: (params: BulkRenameParams) =>
+    request<BulkRenameResult>("/playlists/bulk-rename", {
+      method: "POST",
+      body: JSON.stringify(params),
     }),
   syncPlaylists: () =>
     request<{ ok: boolean; added: number; updated: number; unchanged: number }>("/playlists/sync", { method: "POST" }),
@@ -38,6 +46,8 @@ export const api = {
     request<DuplicateGroup[]>(`/playlists/${id}/duplicates`),
   getCrossPlaylistDuplicates: () =>
     request<CrossPlaylistDuplicate[]>("/playlists/duplicates"),
+  getSimilarPlaylists: (threshold?: number) =>
+    request<SimilarPair[]>(`/playlists/similar${threshold != null ? `?threshold=${threshold}` : ""}`),
 
   // Tracks
   getTracks: (q?: string) => request<Track[]>(`/tracks${q ? `?q=${encodeURIComponent(q)}` : ""}`),
@@ -125,10 +135,26 @@ export interface Playlist {
   isOwned: number | null;
   ownerId: string | null;
   ownerName: string | null;
+  tags: string | null;
+  notes: string | null;
+  pinned: number | null;
   lastSynced: number | null;
+  totalDurationMs?: number;
   trackCount: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface LibraryStats {
+  totalPlaylists: number;
+  totalTracks: number;
+  totalDurationMs: number;
+}
+
+export interface PlaylistMeta {
+  tags?: string[];
+  notes?: string;
+  pinned?: boolean;
 }
 
 export interface Track {
@@ -300,3 +326,26 @@ export interface CrossPlaylistDuplicate {
   track: Track;
   playlists: Playlist[];
 }
+
+export interface SimilarPair {
+  a: Playlist;
+  b: Playlist;
+  score: number;
+}
+
+export interface BulkRenameParams {
+  mode: "find-replace" | "prefix" | "suffix";
+  find?: string;
+  replace?: string;
+  value?: string;
+  action?: "add" | "remove";
+  dryRun: boolean;
+}
+
+export interface BulkRenamePreview {
+  id: string;
+  name: string;
+  newName: string;
+}
+
+export type BulkRenameResult = BulkRenamePreview[];

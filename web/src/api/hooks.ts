@@ -1,8 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "./client.js";
+import { api, type BulkRenameParams, type PlaylistMeta } from "./client.js";
 
 export function usePlaylists() {
   return useQuery({ queryKey: ["playlists"], queryFn: api.getPlaylists });
+}
+
+export function usePlaylistStats() {
+  return useQuery({ queryKey: ["playlist-stats"], queryFn: api.getPlaylistStats });
 }
 
 export function usePlaylist(id: string) {
@@ -20,12 +24,36 @@ export function useRenamePlaylist() {
   });
 }
 
+export function useUpdatePlaylistMeta() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, meta }: { id: string; meta: PlaylistMeta }) => api.updatePlaylistMeta(id, meta),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["playlist"] });
+    },
+  });
+}
+
 export function useDeletePlaylist() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deletePlaylist(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["playlists"] });
+    },
+  });
+}
+
+export function useBulkRename() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: BulkRenameParams) => api.bulkRename(params),
+    onSuccess: (_data, variables) => {
+      if (!variables.dryRun) {
+        qc.invalidateQueries({ queryKey: ["playlists"] });
+        qc.invalidateQueries({ queryKey: ["playlist"] });
+      }
     },
   });
 }
@@ -82,6 +110,14 @@ export function useCrossPlaylistDuplicates(enabled: boolean) {
   return useQuery({
     queryKey: ["cross-playlist-duplicates"],
     queryFn: api.getCrossPlaylistDuplicates,
+    enabled,
+  });
+}
+
+export function useSimilarPlaylists(threshold: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["similar-playlists", threshold],
+    queryFn: () => api.getSimilarPlaylists(threshold),
     enabled,
   });
 }

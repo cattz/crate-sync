@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp09
 title: Similarity suggestions (merge candidates)
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-03-19T12:00:00Z
