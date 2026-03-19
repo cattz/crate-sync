@@ -32,12 +32,20 @@ export interface DownloadConfig {
   concurrency: number;
 }
 
+export interface JobRunnerConfig {
+  /** Polling interval in milliseconds. Default: 1000 */
+  pollIntervalMs: number;
+  /** Wishlist scan interval in milliseconds. Default: 6 hours */
+  wishlistIntervalMs: number;
+}
+
 export interface Config {
   spotify: SpotifyConfig;
   lexicon: LexiconConfig;
   soulseek: SoulseekConfig;
   matching: MatchingConfig;
   download: DownloadConfig;
+  jobRunner: JobRunnerConfig;
 }
 
 type DeepPartial<T> = {
@@ -69,6 +77,10 @@ const defaults: Config = {
     minBitrate: 320,
     concurrency: 3,
   },
+  jobRunner: {
+    pollIntervalMs: 1000,
+    wishlistIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
+  },
 };
 
 export function getConfigPath(): string {
@@ -97,6 +109,7 @@ function mergeDefaults(
       ...partial.download,
       formats: partial.download?.formats?.filter((f): f is string => f != null) ?? base.download.formats,
     },
+    jobRunner: { ...base.jobRunner, ...(partial as any).jobRunner },
   };
 
   // Expand ~ in path-like config values

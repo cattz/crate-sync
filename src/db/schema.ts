@@ -127,6 +127,38 @@ export const downloads = sqliteTable("downloads", {
 });
 
 // ---------------------------------------------------------------------------
+// jobs
+// ---------------------------------------------------------------------------
+export const jobs = sqliteTable("jobs", {
+  id,
+  type: text("type", {
+    enum: [
+      "spotify_sync",
+      "match",
+      "search",
+      "download",
+      "validate",
+      "lexicon_sync",
+      "wishlist_scan",
+    ],
+  }).notNull(),
+  status: text("status", {
+    enum: ["queued", "running", "done", "failed"],
+  }).notNull(),
+  priority: integer("priority").notNull().default(0),
+  payload: text("payload"), // JSON
+  result: text("result"), // JSON
+  error: text("error"),
+  attempt: integer("attempt").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(3),
+  runAfter: integer("run_after"), // timestamp — don't run before this time
+  parentJobId: text("parent_job_id"),
+  startedAt: integer("started_at"),
+  completedAt: integer("completed_at"),
+  createdAt,
+});
+
+// ---------------------------------------------------------------------------
 // sync_log
 // ---------------------------------------------------------------------------
 export const syncLog = sqliteTable("sync_log", {
@@ -157,6 +189,12 @@ export type NewMatch = InferInsertModel<typeof matches>;
 
 export type Download = InferSelectModel<typeof downloads>;
 export type NewDownload = InferInsertModel<typeof downloads>;
+
+export type Job = InferSelectModel<typeof jobs>;
+export type NewJob = InferInsertModel<typeof jobs>;
+
+export type JobType = Job["type"];
+export type JobStatus = Job["status"];
 
 export type SyncLogEntry = InferSelectModel<typeof syncLog>;
 export type NewSyncLogEntry = InferInsertModel<typeof syncLog>;
