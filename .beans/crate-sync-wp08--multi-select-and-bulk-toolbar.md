@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp08
 title: Multi-select and bulk operations toolbar
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-03-19T12:00:00Z

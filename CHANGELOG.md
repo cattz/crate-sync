@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Multi-select and bulk toolbar** in web UI — reusable `useMultiSelect` hook, floating `BulkToolbar` component, checkbox selection in playlist table with select-all toggle, bulk delete and bulk merge actions.
+
 ## 0.4.0 — 2026-03-17
 
 ### Added

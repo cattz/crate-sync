@@ -1,7 +1,9 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router";
-import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useCrossPlaylistDuplicates } from "../api/hooks.js";
+import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useCrossPlaylistDuplicates, useMergePlaylists } from "../api/hooks.js";
 import type { Playlist } from "../api/client.js";
+import { useMultiSelect } from "../hooks/useMultiSelect.js";
+import { BulkToolbar } from "../components/BulkToolbar.js";
 
 type SortKey = "name" | "trackCount" | "ownerName" | "lastSynced";
 type SortDir = "asc" | "desc";
@@ -118,6 +120,121 @@ function DeleteModal({
   );
 }
 
+function BulkDeleteModal({
+  playlists,
+  onClose,
+}: {
+  playlists: Playlist[];
+  onClose: () => void;
+}) {
+  const del = useDeletePlaylist();
+  const [progress, setProgress] = useState(0);
+  const [running, setRunning] = useState(false);
+
+  const handleDelete = async () => {
+    setRunning(true);
+    for (let i = 0; i < playlists.length; i++) {
+      await del.mutateAsync(playlists[i].id);
+      setProgress(i + 1);
+    }
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="card modal" onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ marginBottom: "0.5rem" }}>Delete {playlists.length} Playlists</h3>
+        <p style={{ marginBottom: "0.5rem" }}>
+          Delete the following playlists from the local database?
+        </p>
+        <ul style={{ marginBottom: "0.5rem", paddingLeft: "1.25rem", maxHeight: 200, overflow: "auto" }}>
+          {playlists.map((p) => (
+            <li key={p.id} className="text-sm">{p.name} ({p.trackCount} tracks)</li>
+          ))}
+        </ul>
+        <p className="text-muted text-sm" style={{ marginBottom: "0.75rem" }}>
+          This does not delete playlists from Spotify.
+        </p>
+        {running && (
+          <p className="text-sm" style={{ marginBottom: "0.5rem" }}>
+            Deleting... {progress}/{playlists.length}
+          </p>
+        )}
+        <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
+          <button onClick={onClose} disabled={running}>Cancel</button>
+          <button className="danger" onClick={handleDelete} disabled={running}>
+            {running ? `Deleting ${progress}/${playlists.length}...` : `Delete ${playlists.length} Playlists`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkMergeModal({
+  playlists,
+  onClose,
+}: {
+  playlists: Playlist[];
+  onClose: () => void;
+}) {
+  const merge = useMergePlaylists();
+  const [targetId, setTargetId] = useState(playlists[0]?.id ?? "");
+
+  const handleMerge = async () => {
+    const sourceIds = playlists.filter((p) => p.id !== targetId).map((p) => p.id);
+    if (sourceIds.length === 0) return;
+    await merge.mutateAsync({ targetId, sourceIds });
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 400 }}>
+        <h3 style={{ marginBottom: "0.5rem" }}>Merge {playlists.length} Playlists</h3>
+        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>
+          Choose a target playlist. Tracks from the other playlists will be merged into it. Duplicates are skipped.
+        </p>
+        <div style={{ maxHeight: 250, overflow: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius)", marginBottom: "0.5rem" }}>
+          {playlists.map((p) => (
+            <label
+              key={p.id}
+              className="flex items-center"
+              style={{
+                padding: "0.35rem 0.5rem",
+                cursor: "pointer",
+                background: targetId === p.id ? "var(--bg-hover)" : "transparent",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <input
+                type="radio"
+                name="merge-target"
+                checked={targetId === p.id}
+                onChange={() => setTargetId(p.id)}
+                style={{ marginRight: "0.5rem" }}
+              />
+              <span>{p.name}</span>
+              <span className="text-muted text-sm" style={{ marginLeft: "auto" }}>{p.trackCount} tracks</span>
+            </label>
+          ))}
+        </div>
+        <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
+          <button onClick={onClose}>Cancel</button>
+          <button
+            className="primary"
+            disabled={merge.isPending || playlists.length < 2}
+            onClick={handleMerge}
+          >
+            {merge.isPending ? "Merging..." : `Merge into ${playlists.find((p) => p.id === targetId)?.name ?? "..."}`}
+          </button>
+        </div>
+        {merge.isError && <p style={{ color: "var(--danger)", marginTop: "0.3rem" }}>{merge.error.message}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function Playlists() {
   const { data: playlists, isLoading } = usePlaylists();
   const [search, setSearch] = useState("");
@@ -129,6 +246,9 @@ export function Playlists() {
   const sync = useSyncPlaylists();
   const [showCrossDupes, setShowCrossDupes] = useState(false);
   const crossDupes = useCrossPlaylistDuplicates(showCrossDupes);
+  const selection = useMultiSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkMerging, setBulkMerging] = useState(false);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -254,6 +374,22 @@ export function Playlists() {
         <table>
           <thead>
             <tr>
+              <th style={{ width: 32 }}>
+                <input
+                  type="checkbox"
+                  checked={filtered.length > 0 && selection.count === filtered.length}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selection.count > 0 && selection.count < filtered.length;
+                  }}
+                  onChange={() => {
+                    if (selection.count === filtered.length) {
+                      selection.clear();
+                    } else {
+                      selection.selectAll(filtered.map((p) => p.id));
+                    }
+                  }}
+                />
+              </th>
               <SortHeader label="Name" sortKey="name" active={sortKey === "name"} direction={sortDir} onSort={handleSort} />
               <SortHeader label="Tracks" sortKey="trackCount" active={sortKey === "trackCount"} direction={sortDir} onSort={handleSort} />
               {ownership !== "own" && <SortHeader label="Owner" sortKey="ownerName" active={sortKey === "ownerName"} direction={sortDir} onSort={handleSort} />}
@@ -264,6 +400,13 @@ export function Playlists() {
           <tbody>
             {filtered.map((p) => (
               <tr key={p.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selection.isSelected(p.id)}
+                    onChange={() => selection.toggle(p.id)}
+                  />
+                </td>
                 <td>
                   <Link to={`/playlists/${p.id}`}>{p.name}</Link>
                 </td>
@@ -287,7 +430,7 @@ export function Playlists() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={ownership === "own" ? 5 : 6} className="text-muted">
+                <td colSpan={ownership === "own" ? 6 : 7} className="text-muted">
                   {search || ownership !== "all"
                     ? "No playlists match your filters."
                     : <>No playlists. Run <code>crate-sync db sync</code> to import from Spotify.</>}
@@ -300,6 +443,41 @@ export function Playlists() {
 
       {renaming && <RenameModal playlist={renaming} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteModal playlist={deleting} onClose={() => setDeleting(null)} />}
+
+      <BulkToolbar count={selection.count} onClear={selection.clear}>
+        <button
+          className="danger"
+          onClick={() => setBulkDeleting(true)}
+        >
+          Delete Selected
+        </button>
+        <button
+          className="primary"
+          onClick={() => setBulkMerging(true)}
+          disabled={selection.count < 2}
+        >
+          Merge Selected
+        </button>
+      </BulkToolbar>
+
+      {bulkDeleting && (
+        <BulkDeleteModal
+          playlists={(playlists ?? []).filter((p) => selection.selected.has(p.id))}
+          onClose={() => {
+            setBulkDeleting(false);
+            selection.clear();
+          }}
+        />
+      )}
+      {bulkMerging && (
+        <BulkMergeModal
+          playlists={(playlists ?? []).filter((p) => selection.selected.has(p.id))}
+          onClose={() => {
+            setBulkMerging(false);
+            selection.clear();
+          }}
+        />
+      )}
     </>
   );
 }
