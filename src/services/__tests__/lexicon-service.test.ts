@@ -299,6 +299,190 @@ describe("LexiconService", () => {
     expect(tags).toEqual([]);
   });
 
+  // --- getTracks pagination ---
+
+  it("getTracks paginates until a partial page", async () => {
+    const page1 = Array.from({ length: 1000 }, (_, i) => ({
+      id: i, title: `T${i}`, artist: "A", filePath: `/f${i}.mp3`,
+    }));
+    const page2 = [{ id: 2000, title: "Last", artist: "B", filePath: "/last.mp3" }];
+
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: () => Promise.resolve(page1),
+        text: () => Promise.resolve(""),
+        headers: new Headers({ "content-type": "application/json" }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: () => Promise.resolve(page2),
+        text: () => Promise.resolve(""),
+        headers: new Headers({ "content-type": "application/json" }),
+      } as unknown as Response);
+    vi.stubGlobal("fetch", fetchFn);
+
+    const tracks = await svc.getTracks();
+    expect(tracks).toHaveLength(1001);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  // --- getTracks duration conversion ---
+
+  it("getTracks converts duration in seconds to milliseconds", async () => {
+    mockFetch([{ id: 1, title: "T", artist: "A", location: "/t.mp3", duration: 245.5 }]);
+    const tracks = await svc.getTracks();
+    expect(tracks[0].durationMs).toBe(245500);
+  });
+
+  it("getTracks reads location field as filePath", async () => {
+    mockFetch([{ id: 1, title: "T", artist: "A", location: "/music/track.flac" }]);
+    const tracks = await svc.getTracks();
+    expect(tracks[0].filePath).toBe("/music/track.flac");
+  });
+
+  it("getTracks reads albumTitle field as album", async () => {
+    mockFetch([{ id: 1, title: "T", artist: "A", filePath: "/t.mp3", albumTitle: "My Album" }]);
+    const tracks = await svc.getTracks();
+    expect(tracks[0].album).toBe("My Album");
+  });
+
+  // --- getPlaylists ---
+
+  it("getPlaylists returns normalized playlists", async () => {
+    mockFetch({
+      playlists: [
+        { id: 1, name: "Chill", trackIds: [10, 20] },
+        { id: 2, name: "Party", trackIds: [30] },
+      ],
+    });
+    const playlists = await svc.getPlaylists();
+    expect(playlists).toHaveLength(2);
+    expect(playlists[0].id).toBe("1");
+    expect(playlists[0].name).toBe("Chill");
+    expect(playlists[0].trackIds).toEqual(["10", "20"]);
+  });
+
+  // --- getPlaylistByName ---
+
+  it("getPlaylistByName finds top-level playlist", async () => {
+    mockFetch({
+      playlists: [
+        { id: 1, name: "Chill", trackIds: [] },
+        { id: 2, name: "Party", trackIds: [10, 20] },
+      ],
+    });
+    const pl = await svc.getPlaylistByName("Party");
+    expect(pl).not.toBeNull();
+    expect(pl!.id).toBe("2");
+  });
+
+  it("getPlaylistByName finds nested playlist", async () => {
+    mockFetch({
+      playlists: [
+        {
+          id: 1, name: "Folder",
+          playlists: [
+            { id: 3, name: "Deep/House", trackIds: [100] },
+          ],
+        },
+      ],
+    });
+    const pl = await svc.getPlaylistByName("Deep/House");
+    expect(pl).not.toBeNull();
+    expect(pl!.id).toBe("3");
+  });
+
+  it("getPlaylistByName returns null when not found", async () => {
+    mockFetch({ playlists: [{ id: 1, name: "Other", trackIds: [] }] });
+    const pl = await svc.getPlaylistByName("Missing");
+    expect(pl).toBeNull();
+  });
+
+  // --- setPlaylistTracks ---
+
+  it("setPlaylistTracks deletes existing then adds new tracks", async () => {
+    // First call: GET /playlist?id=5 (returns existing tracks)
+    // Second call: DELETE /playlist-tracks (remove existing)
+    // Third call: PATCH /playlist-tracks (add new)
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: () => Promise.resolve({ id: 5, name: "PL", trackIds: [1, 2] }),
+        text: () => Promise.resolve(""),
+        headers: new Headers({ "content-type": "application/json" }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 204,
+        json: () => Promise.resolve(undefined),
+        text: () => Promise.resolve(""),
+        headers: new Headers(),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 204,
+        json: () => Promise.resolve(undefined),
+        text: () => Promise.resolve(""),
+        headers: new Headers(),
+      } as unknown as Response);
+    vi.stubGlobal("fetch", fetchFn);
+
+    await svc.setPlaylistTracks("5", ["10", "20", "30"]);
+
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+
+    // DELETE call
+    const [, delOpts] = fetchFn.mock.calls[1];
+    expect(delOpts.method).toBe("DELETE");
+    expect(JSON.parse(delOpts.body).trackIds).toEqual([1, 2]);
+
+    // PATCH call
+    const [, patchOpts] = fetchFn.mock.calls[2];
+    expect(patchOpts.method).toBe("PATCH");
+    expect(JSON.parse(patchOpts.body).trackIds).toEqual([10, 20, 30]);
+  });
+
+  it("setPlaylistTracks skips delete when playlist is empty", async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: () => Promise.resolve({ id: 5, name: "PL", trackIds: [] }),
+        text: () => Promise.resolve(""),
+        headers: new Headers({ "content-type": "application/json" }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 204,
+        json: () => Promise.resolve(undefined),
+        text: () => Promise.resolve(""),
+        headers: new Headers(),
+      } as unknown as Response);
+    vi.stubGlobal("fetch", fetchFn);
+
+    await svc.setPlaylistTracks("5", ["10"]);
+
+    // Should only be GET + PATCH (no DELETE)
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    const [, patchOpts] = fetchFn.mock.calls[1];
+    expect(patchOpts.method).toBe("PATCH");
+  });
+
+  // --- createPlaylist with no tracks ---
+
+  it("createPlaylist with empty trackIds skips PATCH", async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: () => Promise.resolve({ id: 7, name: "Empty" }),
+        text: () => Promise.resolve(""),
+        headers: new Headers({ "content-type": "application/json" }),
+      } as unknown as Response);
+    vi.stubGlobal("fetch", fetchFn);
+
+    const pl = await svc.createPlaylist("Empty", []);
+    expect(pl.id).toBe("7");
+    // Only POST, no PATCH
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   // --- error handling ---
 
   it("throws on non-2xx response", async () => {

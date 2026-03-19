@@ -418,6 +418,179 @@ describe("SoulseekService", () => {
     expect(deleteCall).toBeDefined();
   });
 
+  // --- getTransfers ---
+
+  it("getTransfers flattens per-user directory structure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([
+      {
+        username: "user1",
+        directories: [
+          {
+            directory: "Music",
+            files: [
+              { id: "t1", username: "user1", filename: "song.flac", state: "Completed", bytesTransferred: 1000, size: 1000, percentComplete: 100 },
+            ],
+          },
+        ],
+      },
+      {
+        username: "user2",
+        directories: [
+          {
+            directory: "Shared",
+            files: [
+              { id: "t2", username: "user2", filename: "other.mp3", state: "InProgress", bytesTransferred: 500, size: 2000, percentComplete: 25 },
+            ],
+          },
+        ],
+      },
+    ])));
+
+    const transfers = await svc.getTransfers();
+    expect(transfers).toHaveLength(2);
+    expect(transfers[0].username).toBe("user1");
+    expect(transfers[0].filename).toBe("song.flac");
+    expect(transfers[1].username).toBe("user2");
+  });
+
+  // --- getTransfer ---
+
+  it("getTransfer returns matching transfer", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      username: "user1",
+      directories: [{
+        directory: "Music",
+        files: [
+          { id: "t1", username: "user1", filename: "target.flac", state: "Completed", bytesTransferred: 1000, size: 1000, percentComplete: 100 },
+          { id: "t2", username: "user1", filename: "other.mp3", state: "InProgress", bytesTransferred: 0, size: 500, percentComplete: 0 },
+        ],
+      }],
+    })));
+
+    const transfer = await svc.getTransfer("user1", "target.flac");
+    expect(transfer).not.toBeNull();
+    expect(transfer!.filename).toBe("target.flac");
+    expect(transfer!.state).toBe("Completed");
+  });
+
+  it("getTransfer returns null when file not found", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      username: "user1",
+      directories: [{ directory: "Music", files: [] }],
+    })));
+
+    const transfer = await svc.getTransfer("user1", "missing.flac");
+    expect(transfer).toBeNull();
+  });
+
+  it("getTransfer returns null on API error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false, status: 404, statusText: "Not Found",
+      text: () => Promise.resolve(""), headers: new Headers(),
+    } as unknown as Response));
+
+    const transfer = await svc.getTransfer("user1", "file.flac");
+    expect(transfer).toBeNull();
+  });
+
+  // --- waitForDownload ---
+
+  it("waitForDownload returns on completed state", async () => {
+    const completedTransfer = {
+      username: "user1",
+      directories: [{
+        directory: "Music",
+        files: [{ id: "t1", username: "user1", filename: "song.flac", state: "Completed, Succeeded", bytesTransferred: 5000, size: 5000, percentComplete: 100 }],
+      }],
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(completedTransfer)));
+
+    const result = await svc.waitForDownload("user1", "song.flac", 5000);
+    expect(result.state).toContain("Completed");
+  });
+
+  it("waitForDownload throws on errored state", async () => {
+    const errorTransfer = {
+      username: "user1",
+      directories: [{
+        directory: "Music",
+        files: [{ id: "t1", username: "user1", filename: "song.flac", state: "Errored", bytesTransferred: 0, size: 5000, percentComplete: 0 }],
+      }],
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(errorTransfer)));
+
+    await expect(svc.waitForDownload("user1", "song.flac", 5000)).rejects.toThrow(/Download failed/);
+  });
+
+  it("waitForDownload throws when transfer not found", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      username: "user1",
+      directories: [{ directory: "Music", files: [] }],
+    })));
+
+    await expect(svc.waitForDownload("user1", "missing.flac", 5000)).rejects.toThrow(/Transfer not found/);
+  });
+
+  it("waitForDownload throws on timeout", async () => {
+    const inProgressTransfer = {
+      username: "user1",
+      directories: [{
+        directory: "Music",
+        files: [{ id: "t1", username: "user1", filename: "song.flac", state: "InProgress", bytesTransferred: 100, size: 5000, percentComplete: 2 }],
+      }],
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(inProgressTransfer)));
+
+    let fakeTime = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      fakeTime += 2000;
+      return fakeTime;
+    });
+    vi.spyOn(svc as never, "sleep").mockResolvedValue(undefined as never);
+
+    await expect(svc.waitForDownload("user1", "song.flac", 100)).rejects.toThrow(/timed out/);
+  });
+
+  // --- search (convenience) ---
+
+  it("search calls startSearch then waitForSearch", async () => {
+    const completed = {
+      id: "s1", searchText: "q", state: "Completed",
+      responses: [{ username: "u", files: [{ filename: "f.mp3", size: 1, code: "0" }] }],
+    };
+
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ id: "s1" }))
+      .mockResolvedValueOnce(jsonResponse(completed))
+      .mockResolvedValueOnce(jsonResponse(completed));
+    vi.stubGlobal("fetch", fetchFn);
+
+    let fakeTime = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+    vi.spyOn(svc as never, "sleep").mockImplementation(async () => { fakeTime += 5000; });
+
+    const files = await svc.search("query");
+    expect(files).toHaveLength(1);
+  });
+
+  // --- waitForSearch: 0 results after min wait ---
+
+  it("waitForSearch accepts 0 results after MIN_SEARCH_WAIT_MS", async () => {
+    const empty = { id: "s1", searchText: "q", state: "Completed", responses: [] };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(empty)));
+
+    let fakeTime = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+    vi.spyOn(svc as never, "sleep").mockImplementation(async () => { fakeTime += 11_000; }); // past MIN_SEARCH_WAIT_MS (10s)
+
+    const files = await svc.waitForSearch("s1", 60_000);
+    expect(files).toHaveLength(0);
+  });
+
   // --- error handling ---
 
   it("throws on non-2xx from slskd API", async () => {

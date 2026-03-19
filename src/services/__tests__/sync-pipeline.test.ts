@@ -39,6 +39,7 @@ const TEST_CONFIG: Config = {
   soulseek: { slskdUrl: "http://localhost:5030", slskdApiKey: "test", searchDelayMs: 0, downloadDir: "/tmp/slskd-downloads" },
   matching: { autoAcceptThreshold: 0.9, reviewThreshold: 0.7 },
   download: { formats: ["flac", "mp3"], minBitrate: 320, concurrency: 2 },
+  jobRunner: { pollIntervalMs: 1000, wishlistIntervalMs: 6 * 60 * 60 * 1000 },
 };
 
 /** Insert a playlist + tracks + playlist_tracks and return their IDs. */
