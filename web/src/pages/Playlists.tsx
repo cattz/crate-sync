@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router";
-import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists } from "../api/hooks.js";
+import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useCrossPlaylistDuplicates } from "../api/hooks.js";
 import type { Playlist } from "../api/client.js";
 
 type SortKey = "name" | "trackCount" | "ownerName" | "lastSynced";
@@ -127,6 +127,8 @@ export function Playlists() {
   const [renaming, setRenaming] = useState<Playlist | null>(null);
   const [deleting, setDeleting] = useState<Playlist | null>(null);
   const sync = useSyncPlaylists();
+  const [showCrossDupes, setShowCrossDupes] = useState(false);
+  const crossDupes = useCrossPlaylistDuplicates(showCrossDupes);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -181,6 +183,9 @@ export function Playlists() {
           >
             {sync.isPending ? "Syncing..." : "Sync from Spotify"}
           </button>
+          <button onClick={() => setShowCrossDupes(!showCrossDupes)}>
+            {showCrossDupes ? "Hide Dupes" : "Cross-Playlist Dupes"}
+          </button>
           {(["all", "own", "followed"] as const).map((value) => (
             <button
               key={value}
@@ -208,6 +213,40 @@ export function Playlists() {
       {sync.isError && (
         <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
           {sync.error.message}
+        </div>
+      )}
+
+      {showCrossDupes && crossDupes.isLoading && (
+        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>Scanning for cross-playlist duplicates...</p>
+      )}
+      {showCrossDupes && crossDupes.data && crossDupes.data.length === 0 && (
+        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
+          No cross-playlist duplicates found.
+        </div>
+      )}
+      {showCrossDupes && crossDupes.data && crossDupes.data.length > 0 && (
+        <div className="card mb-2">
+          <h3 style={{ marginBottom: "0.3rem" }}>Cross-Playlist Duplicates ({crossDupes.data.length} tracks)</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Track</th>
+                <th>Artist</th>
+                <th>In Playlists</th>
+              </tr>
+            </thead>
+            <tbody>
+              {crossDupes.data.map((d) => (
+                <tr key={d.track.id}>
+                  <td>{d.track.title}</td>
+                  <td className="text-muted">{d.track.artist}</td>
+                  <td className="text-muted text-sm">
+                    {d.playlists.map((p) => p.name).join(", ")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

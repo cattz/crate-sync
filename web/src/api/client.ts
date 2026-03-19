@@ -34,6 +34,10 @@ export const api = {
     }),
   syncPlaylists: () =>
     request<{ ok: boolean; added: number; updated: number; unchanged: number }>("/playlists/sync", { method: "POST" }),
+  getPlaylistDuplicates: (id: string) =>
+    request<DuplicateGroup[]>(`/playlists/${id}/duplicates`),
+  getCrossPlaylistDuplicates: () =>
+    request<CrossPlaylistDuplicate[]>("/playlists/duplicates"),
 
   // Tracks
   getTracks: (q?: string) => request<Track[]>(`/tracks${q ? `?q=${encodeURIComponent(q)}` : ""}`),
@@ -285,4 +289,14 @@ export interface RepairResult {
   found: number;
   needsReview: number;
   notFound: number;
+}
+
+export interface DuplicateGroup {
+  track: Track;
+  duplicates: Track[];
+}
+
+export interface CrossPlaylistDuplicate {
+  track: Track;
+  playlists: Playlist[];
 }

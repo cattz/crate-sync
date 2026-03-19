@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router";
-import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useRepairPlaylist, useMergePlaylists } from "../api/hooks.js";
+import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useRepairPlaylist, useMergePlaylists, usePlaylistDuplicates } from "../api/hooks.js";
 import { api, type ReviewDecision, type Playlist } from "../api/client.js";
 
 function formatDuration(ms: number) {
@@ -52,6 +52,8 @@ export function PlaylistDetail() {
   const [trackSearch, setTrackSearch] = useState("");
   const [trackSortKey, setTrackSortKey] = useState<TrackSortKey>("position");
   const [trackSortDir, setTrackSortDir] = useState<SortDir>("asc");
+  const [showDupes, setShowDupes] = useState(false);
+  const dupes = usePlaylistDuplicates(id!, showDupes);
 
   // SSE listener
   useEffect(() => {
@@ -163,6 +165,9 @@ export function PlaylistDetail() {
           >
             {repair.isPending ? "Repairing..." : "Repair"}
           </button>
+          <button onClick={() => setShowDupes(!showDupes)}>
+            {showDupes ? "Hide Dupes" : "Find Dupes"}
+          </button>
           <button onClick={() => setMergeOpen(true)}>
             Merge Into
           </button>
@@ -215,6 +220,32 @@ export function PlaylistDetail() {
       {merge.isError && (
         <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
           Merge failed: {merge.error.message}
+        </div>
+      )}
+
+      {/* Duplicates */}
+      {showDupes && dupes.isLoading && (
+        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>Scanning for duplicates...</p>
+      )}
+      {showDupes && dupes.data && dupes.data.length === 0 && (
+        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
+          No duplicates found.
+        </div>
+      )}
+      {showDupes && dupes.data && dupes.data.length > 0 && (
+        <div className="card mb-2">
+          <h3 style={{ marginBottom: "0.3rem" }}>Duplicates ({dupes.data.length} groups)</h3>
+          {dupes.data.map((group) => (
+            <div key={group.track.id} style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <strong>{group.track.title}</strong>
+                <span className="text-muted"> — {group.track.artist}</span>
+                <span className="badge badge-yellow" style={{ marginLeft: "0.5rem" }}>
+                  {group.duplicates.length + 1}x
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

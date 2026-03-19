@@ -70,6 +70,22 @@ export function usePlaylistTracks(id: string) {
   return useQuery({ queryKey: ["playlist-tracks", id], queryFn: () => api.getPlaylistTracks(id) });
 }
 
+export function usePlaylistDuplicates(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["playlist-duplicates", id],
+    queryFn: () => api.getPlaylistDuplicates(id),
+    enabled,
+  });
+}
+
+export function useCrossPlaylistDuplicates(enabled: boolean) {
+  return useQuery({
+    queryKey: ["cross-playlist-duplicates"],
+    queryFn: api.getCrossPlaylistDuplicates,
+    enabled,
+  });
+}
+
 export function useMatches(status?: string) {
   return useQuery({ queryKey: ["matches", status], queryFn: () => api.getMatches(status) });
 }

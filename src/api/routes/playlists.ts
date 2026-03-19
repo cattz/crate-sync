@@ -52,6 +52,13 @@ playlistRoutes.post("/sync", async (c) => {
   return c.json({ ok: true, ...result });
 });
 
+// GET /api/playlists/duplicates — cross-playlist duplicates
+playlistRoutes.get("/duplicates", (c) => {
+  const svc = getService();
+  const dupes = svc.findDuplicatesAcrossPlaylists();
+  return c.json(dupes);
+});
+
 // GET /api/playlists/:id
 playlistRoutes.get("/:id", (c) => {
   const svc = getService();
@@ -216,4 +223,17 @@ playlistRoutes.get("/:id/tracks", (c) => {
 
   const tracks = svc.getPlaylistTracks(playlist.id);
   return c.json(tracks);
+});
+
+// GET /api/playlists/:id/duplicates — within-playlist duplicates
+playlistRoutes.get("/:id/duplicates", (c) => {
+  const svc = getService();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) {
+    return c.json({ error: "Playlist not found" }, 404);
+  }
+
+  const dupes = svc.findDuplicatesInPlaylist(playlist.id);
+  return c.json(dupes);
 });
