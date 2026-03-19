@@ -22,6 +22,13 @@
       "when": 1773758978899,
       "tag": "0002_bouncy_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1773936008278,
+      "tag": "0003_real_senator_kelly",
+      "breakpoints": true
     }
   ]
 }

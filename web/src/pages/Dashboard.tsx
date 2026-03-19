@@ -1,4 +1,5 @@
-import { useStatus, usePlaylists, useMatches, useDownloads, useJobStats } from "../api/hooks.js";
+import { useState } from "react";
+import { useStatus, usePlaylists, useMatches, useDownloads, useJobStats, useStartSpotifyLogin, useSpotifyAuthStatus, useSpotifyLogout, useConnectSoulseek, useDisconnectSoulseek } from "../api/hooks.js";
 
 export function Dashboard() {
   const { data: status, isLoading: statusLoading } = useStatus();
@@ -56,9 +57,9 @@ export function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              <ServiceRow name="Spotify" status={status.spotify} />
+              <SpotifyRow status={status.spotify} />
               <ServiceRow name="Lexicon" status={status.lexicon} />
-              <ServiceRow name="Soulseek" status={status.soulseek} />
+              <SoulseekRow status={status.soulseek} />
               <ServiceRow
                 name="Database"
                 status={status.database}
@@ -95,5 +96,181 @@ function ServiceRow({
       </td>
       <td className="text-muted text-sm">{detail ?? status.error ?? ""}</td>
     </tr>
+  );
+}
+
+function SpotifyRow({ status }: { status: { ok: boolean; error?: string } }) {
+  const [polling, setPolling] = useState(false);
+  const [error, setError] = useState("");
+
+  const startLogin = useStartSpotifyLogin();
+  const { data: authStatus } = useSpotifyAuthStatus(polling);
+  const logout = useSpotifyLogout();
+
+  // Stop polling once authenticated
+  if (polling && authStatus?.authenticated) {
+    setPolling(false);
+  }
+
+  const handleLogin = async () => {
+    setError("");
+    try {
+      const result = await startLogin.mutateAsync();
+      if (!result.ok) {
+        setError(result.error ?? "Failed to start login");
+        return;
+      }
+      if (result.authUrl) {
+        window.open(result.authUrl, "_blank", "noopener");
+        setPolling(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start login");
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout.mutateAsync();
+  };
+
+  return (
+    <>
+      <tr>
+        <td>Spotify</td>
+        <td>
+          <span className={`badge ${status.ok ? "badge-green" : "badge-red"}`}>
+            {status.ok ? "Connected" : "Error"}
+          </span>
+        </td>
+        <td className="text-muted text-sm">
+          <span style={{ marginRight: "0.5rem" }}>
+            {polling ? "Waiting for authorization..." : (status.error ?? "")}
+          </span>
+          {status.ok ? (
+            <button
+              className="danger"
+              style={{ fontSize: "0.7rem", padding: "0.15rem 0.4rem" }}
+              onClick={handleLogout}
+              disabled={logout.isPending}
+            >
+              Logout
+            </button>
+          ) : !polling ? (
+            <button
+              className="primary"
+              style={{ fontSize: "0.7rem", padding: "0.15rem 0.4rem" }}
+              onClick={handleLogin}
+              disabled={startLogin.isPending}
+            >
+              {startLogin.isPending ? "Starting..." : "Login"}
+            </button>
+          ) : null}
+          {error && (
+            <span style={{ color: "var(--danger)", fontSize: "0.75rem", marginLeft: "0.5rem" }}>{error}</span>
+          )}
+        </td>
+      </tr>
+    </>
+  );
+}
+
+function SoulseekRow({ status }: { status: { ok: boolean; error?: string } }) {
+  const [showForm, setShowForm] = useState(false);
+  const [slskdUrl, setSlskdUrl] = useState("http://localhost:5030");
+  const [slskdApiKey, setSlskdApiKey] = useState("");
+  const [error, setError] = useState("");
+
+  const connect = useConnectSoulseek();
+  const disconnect = useDisconnectSoulseek();
+
+  const handleConnect = async () => {
+    setError("");
+    try {
+      const result = await connect.mutateAsync({ slskdUrl, slskdApiKey });
+      if (!result.ok) {
+        setError(result.error ?? "Connection failed");
+        return;
+      }
+      setShowForm(false);
+      setSlskdApiKey("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Connection failed");
+    }
+  };
+
+  const handleDisconnect = async () => {
+    await disconnect.mutateAsync();
+  };
+
+  return (
+    <>
+      <tr>
+        <td>Soulseek</td>
+        <td>
+          <span className={`badge ${status.ok ? "badge-green" : "badge-red"}`}>
+            {status.ok ? "Connected" : "Error"}
+          </span>
+        </td>
+        <td className="text-muted text-sm">
+          <span style={{ marginRight: "0.5rem" }}>{status.error ?? ""}</span>
+          {status.ok ? (
+            <button
+              className="danger"
+              style={{ fontSize: "0.7rem", padding: "0.15rem 0.4rem" }}
+              onClick={handleDisconnect}
+              disabled={disconnect.isPending}
+            >
+              Disconnect
+            </button>
+          ) : (
+            <button
+              className="primary"
+              style={{ fontSize: "0.7rem", padding: "0.15rem 0.4rem" }}
+              onClick={() => setShowForm(!showForm)}
+            >
+              {showForm ? "Cancel" : "Connect"}
+            </button>
+          )}
+        </td>
+      </tr>
+      {showForm && (
+        <tr>
+          <td colSpan={3} style={{ padding: "0.5rem 0.6rem" }}>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div>
+                <label className="text-muted" style={{ fontSize: "0.7rem", display: "block" }}>slskd URL</label>
+                <input
+                  type="text"
+                  value={slskdUrl}
+                  onChange={(e) => setSlskdUrl(e.target.value)}
+                  placeholder="http://localhost:5030"
+                  style={{ width: 200, marginTop: "0.15rem" }}
+                />
+              </div>
+              <div>
+                <label className="text-muted" style={{ fontSize: "0.7rem", display: "block" }}>API Key</label>
+                <input
+                  type="password"
+                  value={slskdApiKey}
+                  onChange={(e) => setSlskdApiKey(e.target.value)}
+                  placeholder="slskd API key"
+                  style={{ width: 200, marginTop: "0.15rem" }}
+                />
+              </div>
+              <button
+                className="primary"
+                onClick={handleConnect}
+                disabled={connect.isPending || !slskdApiKey}
+              >
+                {connect.isPending ? "Connecting..." : "Connect"}
+              </button>
+            </div>
+            {error && (
+              <div style={{ color: "var(--danger)", fontSize: "0.75rem", marginTop: "0.35rem" }}>{error}</div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

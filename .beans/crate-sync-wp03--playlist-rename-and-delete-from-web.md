@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp03
 title: Playlist rename and delete from web
-status: pending
+status: completed
 type: task
 priority: high
 created_at: 2026-03-19T12:00:00Z

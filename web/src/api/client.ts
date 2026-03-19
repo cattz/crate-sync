@@ -19,6 +19,21 @@ export const api = {
   getPlaylists: () => request<Playlist[]>("/playlists"),
   getPlaylist: (id: string) => request<Playlist>(`/playlists/${id}`),
   getPlaylistTracks: (id: string) => request<Track[]>(`/playlists/${id}/tracks`),
+  renamePlaylist: (id: string, name: string) =>
+    request<{ ok: boolean }>(`/playlists/${id}/rename`, { method: "PUT", body: JSON.stringify({ name }) }),
+  deletePlaylist: (id: string) =>
+    request<{ ok: boolean }>(`/playlists/${id}`, { method: "DELETE" }),
+  pushPlaylist: (id: string) =>
+    request<PushResult>(`/playlists/${id}/push`, { method: "POST" }),
+  repairPlaylist: (id: string) =>
+    request<RepairResult>(`/playlists/${id}/repair`, { method: "POST" }),
+  mergePlaylists: (targetId: string, sourceIds: string[]) =>
+    request<{ ok: boolean; added: number; duplicatesSkipped: number }>(`/playlists/${targetId}/merge`, {
+      method: "POST",
+      body: JSON.stringify({ sourceIds }),
+    }),
+  syncPlaylists: () =>
+    request<{ ok: boolean; added: number; updated: number; unchanged: number }>("/playlists/sync", { method: "POST" }),
 
   // Tracks
   getTracks: (q?: string) => request<Track[]>(`/tracks${q ? `?q=${encodeURIComponent(q)}` : ""}`),
@@ -40,6 +55,23 @@ export const api = {
   getConfig: () => request<AppConfig>("/status/config"),
   updateConfig: (config: Partial<AppConfig>) =>
     request<{ ok: boolean }>("/status/config", { method: "PUT", body: JSON.stringify(config) }),
+
+  // Spotify auth
+  startSpotifyLogin: () =>
+    request<{ ok: boolean; authUrl?: string; error?: string }>("/status/spotify/login", { method: "POST" }),
+  getSpotifyAuthStatus: () =>
+    request<{ authenticated: boolean; pending: boolean }>("/status/spotify/auth-status"),
+  spotifyLogout: () =>
+    request<{ ok: boolean }>("/status/spotify/login", { method: "DELETE" }),
+
+  // Soulseek
+  connectSoulseek: (params: { slskdUrl: string; slskdApiKey: string }) =>
+    request<{ ok: boolean; error?: string }>("/status/soulseek/connect", {
+      method: "PUT",
+      body: JSON.stringify(params),
+    }),
+  disconnectSoulseek: () =>
+    request<{ ok: boolean }>("/status/soulseek/connect", { method: "DELETE" }),
 
   // Sync
   startSync: (playlistId: string) =>
@@ -86,6 +118,9 @@ export interface Playlist {
   name: string;
   description: string | null;
   snapshotId: string | null;
+  isOwned: number | null;
+  ownerId: string | null;
+  ownerName: string | null;
   lastSynced: number | null;
   trackCount: number;
   createdAt: number;
@@ -233,4 +268,21 @@ export interface JobListResponse {
 export interface JobStats {
   byStatus: Record<string, number>;
   byType: Record<string, number>;
+}
+
+export interface PushResult {
+  ok: boolean;
+  renamed: boolean;
+  added: number;
+  removed: number;
+  message?: string;
+}
+
+export interface RepairResult {
+  ok: boolean;
+  playlistName: string;
+  total: number;
+  found: number;
+  needsReview: number;
+  notFound: number;
 }

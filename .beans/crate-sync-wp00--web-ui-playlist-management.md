@@ -1,11 +1,11 @@
 ---
 # crate-sync-wp00
 title: Web UI playlist management
-status: pending
+status: in-progress
 type: epic
 priority: normal
 created_at: 2026-03-19T12:00:00Z
-updated_at: 2026-03-19T12:00:00Z
+updated_at: 2026-03-19T15:10:08Z
 ---
 
 Web UI playlist management features. The CLI already has rename, delete, merge, dupes, repair, and push — the gap is API routes + React UI. Also adds sorting, search, ownership filtering, bulk operations, similarity suggestions, statistics, and metadata.

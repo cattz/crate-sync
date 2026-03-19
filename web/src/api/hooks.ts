@@ -9,6 +9,63 @@ export function usePlaylist(id: string) {
   return useQuery({ queryKey: ["playlist", id], queryFn: () => api.getPlaylist(id) });
 }
 
+export function useRenamePlaylist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => api.renamePlaylist(id, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["playlist"] });
+    },
+  });
+}
+
+export function useDeletePlaylist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deletePlaylist(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+    },
+  });
+}
+
+export function useSyncPlaylists() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.syncPlaylists,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
+}
+
+export function useMergePlaylists() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ targetId, sourceIds }: { targetId: string; sourceIds: string[] }) =>
+      api.mergePlaylists(targetId, sourceIds),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["playlist"] });
+      qc.invalidateQueries({ queryKey: ["playlist-tracks"] });
+    },
+  });
+}
+
+export function usePushPlaylist() {
+  return useMutation({
+    mutationFn: (id: string) => api.pushPlaylist(id),
+  });
+}
+
+export function useRepairPlaylist() {
+  return useMutation({
+    mutationFn: (id: string) => api.repairPlaylist(id),
+  });
+}
+
 export function usePlaylistTracks(id: string) {
   return useQuery({ queryKey: ["playlist-tracks", id], queryFn: () => api.getPlaylistTracks(id) });
 }
@@ -47,6 +104,53 @@ export function useUpdateConfig() {
   return useMutation({
     mutationFn: api.updateConfig,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["config"] }),
+  });
+}
+
+export function useStartSpotifyLogin() {
+  return useMutation({
+    mutationFn: api.startSpotifyLogin,
+  });
+}
+
+export function useSpotifyAuthStatus(enabled: boolean) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ["spotify-auth-status"],
+    queryFn: api.getSpotifyAuthStatus,
+    enabled,
+    refetchInterval: enabled ? 2000 : false,
+    select: (data) => {
+      if (data.authenticated) {
+        qc.invalidateQueries({ queryKey: ["status"] });
+      }
+      return data;
+    },
+  });
+}
+
+export function useSpotifyLogout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.spotifyLogout,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["status"] }),
+  });
+}
+
+export function useConnectSoulseek() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { slskdUrl: string; slskdApiKey: string }) =>
+      api.connectSoulseek(params),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["status"] }),
+  });
+}
+
+export function useDisconnectSoulseek() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.disconnectSoulseek,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["status"] }),
   });
 }
 

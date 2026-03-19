@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp10
 title: Bulk rename (find-replace, prefix/suffix)
-status: pending
+status: todo
 type: task
 priority: low
 created_at: 2026-03-19T12:00:00Z

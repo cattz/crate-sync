@@ -27,3 +27,4 @@ I want to complete the list of features and high level architecture design and c
 ## Workflow
 
 - Use Claude Code native tasks to track work items organically during conversations.
+- Commit changes for each bean (work package) separately before moving on to the next one.

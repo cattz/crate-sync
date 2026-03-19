@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp02
 title: Playlist ownership schema and filter
-status: pending
+status: done
 type: task
 priority: high
 created_at: 2026-03-19T12:00:00Z
@@ -29,7 +29,7 @@ Add ownership fields to playlists schema, persist owner data from Spotify API, a
 
 ## Acceptance Criteria
 
-- [ ] Migration adds `is_owned`, `owner_id`, `owner_name` columns
-- [ ] Spotify sync populates ownership fields from API data
-- [ ] Playlists page has Own / Followed / All filter
-- [ ] Filtering works correctly with sort and search (wp01)
+- [x] Migration adds `is_owned`, `owner_id`, `owner_name` columns
+- [x] Spotify sync populates ownership fields from API data
+- [x] Playlists page has Own / Followed / All filter
+- [x] Filtering works correctly with sort and search (wp01)

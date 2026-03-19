@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp01
 title: Playlist table sort and search
-status: pending
+status: completed
 type: task
 priority: high
 created_at: 2026-03-19T12:00:00Z

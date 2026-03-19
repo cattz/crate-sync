@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp06
 title: Duplicate detection from web
-status: pending
+status: todo
 type: task
 priority: normal
 created_at: 2026-03-19T12:00:00Z

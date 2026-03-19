@@ -5,6 +5,8 @@ export interface SpotifyPlaylist {
   snapshotId: string;
   trackCount: number;
   uri: string;
+  ownerId: string;
+  ownerName: string;
 }
 
 export interface SpotifyTrack {

@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp04
 title: Playlist push and repair from web
-status: pending
+status: completed
 type: task
 priority: normal
 created_at: 2026-03-19T12:00:00Z

@@ -287,6 +287,7 @@ export class SpotifyService {
 
   private mapPlaylist(raw: Record<string, unknown>): SpotifyPlaylist {
     const tracks = raw.tracks as Record<string, unknown> | undefined;
+    const owner = raw.owner as Record<string, unknown> | undefined;
     return {
       id: String(raw.id),
       name: String(raw.name),
@@ -294,6 +295,8 @@ export class SpotifyService {
       snapshotId: String(raw.snapshot_id),
       trackCount: tracks ? Number(tracks.total) : 0,
       uri: String(raw.uri),
+      ownerId: owner ? String(owner.id) : "",
+      ownerName: owner ? String(owner.display_name ?? owner.id) : "",
     };
   }
 
@@ -370,9 +373,16 @@ export class SpotifyService {
    * Sync all playlists from Spotify to the local DB.
    * Upserts each playlist by spotify_id.
    */
+  /** Get the current user's Spotify ID. */
+  async getCurrentUserId(): Promise<string> {
+    const me = (await this.fetchApi("/me")) as { id: string };
+    return me.id;
+  }
+
   async syncToDb(): Promise<{ added: number; updated: number; unchanged: number }> {
     const db = getDb();
     const apiPlaylists = await this.getPlaylists();
+    const currentUserId = await this.getCurrentUserId();
 
     let added = 0;
     let updated = 0;
@@ -382,6 +392,8 @@ export class SpotifyService {
       if (isShutdownRequested()) {
         break;
       }
+
+      const isOwned = pl.ownerId === currentUserId ? 1 : 0;
 
       const existing = await db
         .select()
@@ -395,16 +407,26 @@ export class SpotifyService {
           name: pl.name,
           description: pl.description ?? null,
           snapshotId: pl.snapshotId,
+          isOwned,
+          ownerId: pl.ownerId,
+          ownerName: pl.ownerName,
           lastSynced: Date.now(),
         });
         added++;
-      } else if (existing.snapshotId !== pl.snapshotId || existing.name !== pl.name) {
+      } else if (
+        existing.snapshotId !== pl.snapshotId ||
+        existing.name !== pl.name ||
+        existing.isOwned !== isOwned
+      ) {
         await db
           .update(playlists)
           .set({
             name: pl.name,
             description: pl.description ?? null,
             snapshotId: pl.snapshotId,
+            isOwned,
+            ownerId: pl.ownerId,
+            ownerName: pl.ownerName,
             lastSynced: Date.now(),
           })
           .where(eq(playlists.spotifyId, pl.id));
