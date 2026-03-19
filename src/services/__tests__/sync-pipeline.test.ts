@@ -182,6 +182,7 @@ function mockDownloadService(results: DownloadResult[]) {
     ),
     searchAndRank: vi.fn().mockResolvedValue([]),
     downloadTrack: vi.fn().mockResolvedValue({ trackId: "", success: false }),
+    ensurePlaylistFolder: vi.fn(),
   } as any;
 }
 
