@@ -377,6 +377,11 @@ export class SyncPipeline {
       trackTitle: string,
       success: boolean,
       error?: string,
+      meta?: {
+        strategy?: string;
+        strategyLog?: Array<{ label: string; query: string; resultCount: number }>;
+        topCandidates?: Array<{ score: number; filename: string }>;
+      },
     ) => void,
     onReview?: import("./download-service.js").DownloadReviewFn,
   ): Promise<{ succeeded: number; failed: number }> {
@@ -400,7 +405,10 @@ export class SyncPipeline {
         // Find the original track for the title
         const item = batchItems.find((b) => b.dbTrackId === result.trackId);
         const title = item?.track.title ?? "Unknown";
-        onProgress?.(done, total, title, result.success, result.error);
+        onProgress?.(done, total, title, result.success, result.error, {
+          strategy: result.strategy,
+          strategyLog: result.strategyLog,
+        });
       },
       onReview,
     );

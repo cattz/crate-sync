@@ -485,6 +485,191 @@ describe("DownloadService", () => {
   });
 
   // -----------------------------------------------------------------------
+  // searchAndRank (multi-strategy)
+  // -----------------------------------------------------------------------
+  describe("searchAndRank multi-strategy", () => {
+    it("returns results from first strategy when it succeeds", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      const file = makeFile({
+        filename: "@@user1\\music\\Artist\\Album\\01 - Title.flac",
+      });
+      vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
+
+      const result = await service.searchAndRank({
+        title: "Title",
+        artist: "Artist",
+      });
+
+      expect(result.ranked.length).toBe(1);
+      expect(result.strategy).toBe("full");
+      expect(result.strategyLog.length).toBe(1);
+      expect(mock.rateLimitedSearch).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls back to next strategy when first returns 0 candidates", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      const file = makeFile({
+        filename: "@@user1\\music\\Satori\\01 - Reliquia.flac",
+      });
+      // Strategy 1 (full): no results
+      vi.mocked(mock.rateLimitedSearch)
+        .mockResolvedValueOnce([])
+        // Strategy 2 (base-title): has results
+        .mockResolvedValueOnce([file]);
+
+      const result = await service.searchAndRank({
+        title: "Reliquia - German Brigante Remix",
+        artist: "Satori",
+      });
+
+      expect(result.ranked.length).toBe(1);
+      expect(result.strategy).toBe("base-title");
+      expect(result.strategyLog.length).toBe(2);
+      expect(result.strategyLog[0].resultCount).toBe(0);
+      expect(result.strategyLog[1].resultCount).toBe(1);
+    });
+
+    it("returns empty when all strategies fail", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      vi.mocked(mock.rateLimitedSearch).mockResolvedValue([]);
+
+      const result = await service.searchAndRank({
+        title: "Nonexistent Track",
+        artist: "Unknown Artist",
+      });
+
+      expect(result.ranked.length).toBe(0);
+      expect(result.strategyLog.length).toBeGreaterThanOrEqual(2);
+      expect(result.strategyLog.every((s) => s.resultCount === 0)).toBe(true);
+    });
+
+    it("includes strategy info in downloadTrack result", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      vi.mocked(mock.rateLimitedSearch).mockResolvedValue([]);
+
+      const result = await service.downloadTrack(
+        { title: "Missing", artist: "Nobody" },
+        "Playlist",
+        "track-1",
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.strategyLog).toBeDefined();
+      expect(result.strategyLog!.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // searchAndRankBatch (with fallback)
+  // -----------------------------------------------------------------------
+  describe("searchAndRankBatch fallback", () => {
+    it("falls back to multi-strategy for tracks with 0 batch results", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      const file = makeFile({
+        filename: "@@u1\\music\\Artist\\01 - Found Song.flac",
+      });
+
+      // Batch search returns results for track 1, nothing for track 2
+      vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(
+        new Map([
+          ["Artist Found Song", { searchId: "s1", startedAt: Date.now() }],
+          ["Unknown Missing", { searchId: "s2", startedAt: Date.now() }],
+        ]),
+      );
+      vi.mocked(mock.waitForSearchBatch).mockResolvedValueOnce(
+        new Map([
+          ["Artist Found Song", [file]],
+          ["Unknown Missing", []],
+        ]),
+      );
+
+      // Fallback search for track 2 (multi-strategy) also returns nothing
+      vi.mocked(mock.rateLimitedSearch).mockResolvedValue([]);
+
+      const tracks = [
+        { track: { title: "Found Song", artist: "Artist" }, dbTrackId: "t1" },
+        { track: { title: "Missing", artist: "Unknown" }, dbTrackId: "t2" },
+      ];
+
+      const results = await service.searchAndRankBatch(tracks);
+
+      expect(results.get("t1")!.ranked.length).toBe(1);
+      expect(results.get("t1")!.strategy).toBe("full");
+      expect(results.get("t2")!.ranked.length).toBe(0);
+      // Fallback was invoked (rateLimitedSearch was called)
+      expect(mock.rateLimitedSearch).toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // findDownloadedFile (suffixed variants)
+  // -----------------------------------------------------------------------
+  describe("findDownloadedFile", () => {
+    it("finds exact match in slskd downloads", async () => {
+      const service = makeService();
+
+      vi.mocked(existsSync).mockImplementation((p) => {
+        return String(p).includes("slskd-downloads") && String(p).endsWith("Track.flac");
+      });
+
+      const result = await service.downloadTrack(
+        { title: "Track", artist: "Artist" },
+        "Playlist",
+        "t1",
+      );
+
+      // File exists so download is skipped — but validation may fail
+      // The point is findDownloadedFile found it
+      expect(mockSoulseekInstance.download).not.toHaveBeenCalled();
+    });
+
+    it("finds suffixed variant when exact match missing", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      const file = makeFile({
+        filename: "@@user1\\music\\Artist\\Album\\Track.flac",
+      });
+      vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
+
+      // Exact path doesn't exist, but directory does and has a suffixed file
+      vi.mocked(existsSync).mockImplementation((p) => {
+        const s = String(p);
+        if (s.endsWith("Track.flac")) return false; // exact match missing
+        if (s.includes("slskd-downloads") && !s.endsWith(".flac")) return true; // directory exists
+        return false;
+      });
+      vi.mocked(readdirSync).mockReturnValue(["Track_639091878895823617.flac" as any]);
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() } as any);
+
+      // parseFile returns matching metadata
+      vi.mocked(parseFile).mockResolvedValueOnce({
+        common: { title: "Track", artist: "Artist" },
+        format: { duration: 200 },
+      } as any);
+
+      const result = await service.downloadTrack(
+        { title: "Track", artist: "Artist" },
+        "Playlist",
+        "t1",
+      );
+
+      // Should have found the suffixed file and not called download
+      expect(mock.download).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // validateDownload
   // -----------------------------------------------------------------------
   describe("validateDownload", () => {

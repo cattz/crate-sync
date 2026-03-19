@@ -21,6 +21,7 @@ import { SoulseekService } from "./soulseek-service.js";
 import { FuzzyMatchStrategy } from "../matching/fuzzy.js";
 import { isShutdownRequested } from "../utils/shutdown.js";
 import { createLogger } from "../utils/logger.js";
+import { generateSearchQueries, type QueryStrategy } from "../search/query-builder.js";
 
 const log = createLogger("download");
 
@@ -38,6 +39,10 @@ export interface DownloadResult {
   success: boolean;
   filePath?: string;
   error?: string;
+  /** Which query strategy succeeded (if any). */
+  strategy?: string;
+  /** All strategies tried and their result counts. */
+  strategyLog?: Array<{ label: string; query: string; resultCount: number }>;
 }
 
 /** Info passed to the download review callback. */
@@ -197,46 +202,73 @@ export class DownloadService {
   }
 
   /**
-   * Search Soulseek for a track, filter by format/bitrate, and rank results
-   * using fuzzy matching against the expected artist + title.
+   * Search Soulseek for a track using multi-strategy query builder.
+   * Tries strategies in order, stopping at the first that returns results.
    */
-  async searchAndRank(track: TrackInfo): Promise<{ ranked: RankedResult[]; diagnostics: string }> {
-    const query = `${track.artist} ${track.title}`;
-    log.debug(`Searching Soulseek`, { query });
-    const files = await this.soulseek.rateLimitedSearch(query);
-    log.debug(`Search returned ${files.length} files`, { query });
+  async searchAndRank(track: TrackInfo): Promise<{
+    ranked: RankedResult[];
+    diagnostics: string;
+    strategy?: string;
+    strategyLog: Array<{ label: string; query: string; resultCount: number }>;
+  }> {
+    const strategies = generateSearchQueries(track);
+    const strategyLog: Array<{ label: string; query: string; resultCount: number }> = [];
 
-    const result = this.rankResults(files, track);
+    for (const strategy of strategies) {
+      log.debug(`Searching Soulseek [${strategy.label}]`, { query: strategy.query });
+      const files = await this.soulseek.rateLimitedSearch(strategy.query);
+      log.debug(`Search returned ${files.length} files [${strategy.label}]`, { query: strategy.query });
 
-    log.debug(`Filter results`, { query, total: files.length, candidates: result.ranked.length });
+      const result = this.rankResults(files, track);
+      strategyLog.push({ label: strategy.label, query: strategy.query, resultCount: result.ranked.length });
 
-    // Log top candidates for debugging
-    for (const r of result.ranked.slice(0, 5)) {
-      const cand = trackInfoFromFilename(r.file.filename);
-      log.debug(`Candidate`, {
-        score: r.score,
-        filename: r.file.filename,
-        parsedTitle: cand.title,
-        parsedArtist: cand.artist,
-        bitrate: r.file.bitRate,
-        username: r.file.username,
+      if (result.ranked.length > 0) {
+        log.debug(`Strategy "${strategy.label}" succeeded`, {
+          query: strategy.query,
+          candidates: result.ranked.length,
+        });
+
+        // Log top candidates for debugging
+        for (const r of result.ranked.slice(0, 5)) {
+          const cand = trackInfoFromFilename(r.file.filename);
+          log.debug(`Candidate`, {
+            score: r.score,
+            filename: r.file.filename,
+            parsedTitle: cand.title,
+            parsedArtist: cand.artist,
+            bitrate: r.file.bitRate,
+            username: r.file.username,
+          });
+        }
+
+        return { ...result, strategy: strategy.label, strategyLog };
+      }
+
+      log.debug(`Strategy "${strategy.label}" returned 0 candidates, trying next`, {
+        query: strategy.query,
+        total: files.length,
       });
     }
 
-    return result;
+    // All strategies exhausted
+    const lastDiag = `0 results across ${strategies.length} strategies`;
+    return { ranked: [], diagnostics: lastDiag, strategyLog };
   }
 
   /**
-   * Batch search: POST all searches upfront, poll all concurrently, then rank.
-   * Much faster than sequential searchAndRank for multiple tracks.
+   * Batch search: POST all searches upfront using strategy 1, poll all
+   * concurrently, then rank. Tracks with 0 results fall back to sequential
+   * multi-strategy search.
    */
   async searchAndRankBatch(
     tracks: Array<{ track: TrackInfo; dbTrackId: string }>,
-  ): Promise<Map<string, { ranked: RankedResult[]; diagnostics: string }>> {
+  ): Promise<Map<string, { ranked: RankedResult[]; diagnostics: string; strategy?: string; strategyLog?: Array<{ label: string; query: string; resultCount: number }> }>> {
+    // Build first-strategy queries for batch
     const queryToTrack = new Map<string, { track: TrackInfo; dbTrackId: string }>();
 
     for (const item of tracks) {
-      const query = `${item.track.artist} ${item.track.title}`;
+      const strategies = generateSearchQueries(item.track);
+      const query = strategies[0]?.query ?? `${item.track.artist} ${item.track.title}`;
       queryToTrack.set(query, item);
     }
 
@@ -251,13 +283,33 @@ export class DownloadService {
     const searchResults = await this.soulseek.waitForSearchBatch(searchEntries);
 
     // Rank results for each track
-    const results = new Map<string, { ranked: RankedResult[]; diagnostics: string }>();
+    const results = new Map<string, { ranked: RankedResult[]; diagnostics: string; strategy?: string; strategyLog?: Array<{ label: string; query: string; resultCount: number }> }>();
+    const needsFallback: Array<{ track: TrackInfo; dbTrackId: string }> = [];
 
     for (const [query, item] of queryToTrack) {
       const files = searchResults.get(query) ?? [];
       log.debug(`Batch search results`, { query, fileCount: files.length });
       const rankResult = this.rankResults(files, item.track);
-      results.set(item.dbTrackId, rankResult);
+
+      if (rankResult.ranked.length > 0) {
+        results.set(item.dbTrackId, {
+          ...rankResult,
+          strategy: "full",
+          strategyLog: [{ label: "full", query, resultCount: rankResult.ranked.length }],
+        });
+      } else {
+        needsFallback.push(item);
+      }
+    }
+
+    // Fallback: try remaining strategies sequentially for tracks with 0 results
+    for (const item of needsFallback) {
+      log.debug(`Batch fallback: trying additional strategies`, {
+        title: item.track.title,
+        artist: item.track.artist,
+      });
+      const result = await this.searchAndRank(item.track);
+      results.set(item.dbTrackId, result);
     }
 
     return results;
@@ -273,13 +325,14 @@ export class DownloadService {
   ): Promise<DownloadResult> {
     try {
       // 1. Search and rank
-      const { ranked, diagnostics } = await this.searchAndRank(track);
+      const { ranked, diagnostics, strategy, strategyLog } = await this.searchAndRank(track);
 
       if (ranked.length === 0) {
         return {
           trackId: dbTrackId,
           success: false,
           error: `No matching files on Soulseek (${diagnostics})`,
+          strategyLog,
         };
       }
 
@@ -291,10 +344,13 @@ export class DownloadService {
           trackId: dbTrackId,
           success: false,
           error: `Best match score too low: ${(best.score * 100).toFixed(0)}% — "${best.file.filename}" (${diagnostics})`,
+          strategy,
+          strategyLog,
         };
       }
 
-      return this.acquireAndMove(best.file, track, playlistName, dbTrackId);
+      const result = await this.acquireAndMove(best.file, track, playlistName, dbTrackId);
+      return { ...result, strategy, strategyLog };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -433,17 +489,20 @@ export class DownloadService {
     track: TrackInfo,
     playlistName: string,
     dbTrackId: string,
-    searchResult?: { ranked: RankedResult[]; diagnostics: string },
+    searchResult?: { ranked: RankedResult[]; diagnostics: string; strategy?: string; strategyLog?: Array<{ label: string; query: string; resultCount: number }> },
   ): Promise<DownloadResult> {
     try {
       const ranked = searchResult?.ranked ?? [];
       const diagnostics = searchResult?.diagnostics ?? "no search results";
+      const strategy = searchResult?.strategy;
+      const strategyLog = searchResult?.strategyLog;
 
       if (ranked.length === 0) {
         return {
           trackId: dbTrackId,
           success: false,
           error: `No matching files on Soulseek (${diagnostics})`,
+          strategyLog,
         };
       }
 
@@ -454,10 +513,13 @@ export class DownloadService {
           trackId: dbTrackId,
           success: false,
           error: `Best match score too low: ${(best.score * 100).toFixed(0)}% — "${best.file.filename}" (${diagnostics})`,
+          strategy,
+          strategyLog,
         };
       }
 
-      return this.acquireAndMove(best.file, track, playlistName, dbTrackId);
+      const result = await this.acquireAndMove(best.file, track, playlistName, dbTrackId);
+      return { ...result, strategy, strategyLog };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -477,7 +539,7 @@ export class DownloadService {
    * Check if file already exists in slskd downloads, otherwise download it.
    * Then validate and move to playlist folder.
    */
-  private async acquireAndMove(
+  async acquireAndMove(
     file: SlskdFile,
     track: TrackInfo,
     playlistName: string,
