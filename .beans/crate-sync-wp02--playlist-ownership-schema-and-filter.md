@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp02
 title: Playlist ownership schema and filter
-status: done
+status: completed
 type: task
 priority: high
 created_at: 2026-03-19T12:00:00Z
