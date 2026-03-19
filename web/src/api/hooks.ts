@@ -61,3 +61,72 @@ export function useDryRunSync() {
     mutationFn: (playlistId: string) => api.dryRunSync(playlistId),
   });
 }
+
+// Track lifecycle
+
+export function useTrackLifecycle(id: string) {
+  return useQuery({
+    queryKey: ["track-lifecycle", id],
+    queryFn: () => api.getTrackLifecycle(id),
+    enabled: !!id,
+  });
+}
+
+// Job hooks
+
+export function useJobs(params?: { type?: string; status?: string; limit?: number }) {
+  return useQuery({
+    queryKey: ["jobs", params],
+    queryFn: () => api.getJobs(params),
+    refetchInterval: 3000,
+  });
+}
+
+export function useJob(id: string) {
+  return useQuery({
+    queryKey: ["job", id],
+    queryFn: () => api.getJob(id),
+    refetchInterval: 3000,
+  });
+}
+
+export function useJobStats() {
+  return useQuery({
+    queryKey: ["job-stats"],
+    queryFn: api.getJobStats,
+    refetchInterval: 5000,
+  });
+}
+
+export function useRetryJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.retryJob(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job-stats"] });
+    },
+  });
+}
+
+export function useCancelJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.cancelJob(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job-stats"] });
+    },
+  });
+}
+
+export function useRetryAllJobs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (type?: string) => api.retryAllJobs(type),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job-stats"] });
+    },
+  });
+}

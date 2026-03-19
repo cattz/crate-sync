@@ -23,6 +23,7 @@ export const api = {
   // Tracks
   getTracks: (q?: string) => request<Track[]>(`/tracks${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   getTrack: (id: string) => request<Track>(`/tracks/${id}`),
+  getTrackLifecycle: (id: string) => request<TrackLifecycle>(`/tracks/${id}/lifecycle`),
 
   // Matches
   getMatches: (status?: string) =>
@@ -42,7 +43,7 @@ export const api = {
 
   // Sync
   startSync: (playlistId: string) =>
-    request<{ syncId: string }>(`/sync/${playlistId}`, { method: "POST" }),
+    request<{ syncId: string; jobId?: string }>(`/sync/${playlistId}`, { method: "POST" }),
   dryRunSync: (playlistId: string) =>
     request<PhaseOneResult>(`/sync/${playlistId}/dry-run`, { method: "POST" }),
   getSyncStatus: (syncId: string) => request<SyncStatus>(`/sync/${syncId}`),
@@ -52,6 +53,29 @@ export const api = {
       body: JSON.stringify({ decisions }),
     }),
   syncEvents: (syncId: string) => new EventSource(`${BASE}/sync/${syncId}/events`),
+
+  // Jobs
+  getJobs: (params?: { type?: string; status?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.type) qs.set("type", params.type);
+    if (params?.status) qs.set("status", params.status);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.offset) qs.set("offset", String(params.offset));
+    const q = qs.toString();
+    return request<JobListResponse>(`/jobs${q ? `?${q}` : ""}`);
+  },
+  getJob: (id: string) => request<JobDetail>(`/jobs/${id}`),
+  getJobStats: () => request<JobStats>("/jobs/stats"),
+  retryJob: (id: string) =>
+    request<{ ok: boolean }>(`/jobs/${id}/retry`, { method: "POST" }),
+  cancelJob: (id: string) =>
+    request<{ ok: boolean }>(`/jobs/${id}`, { method: "DELETE" }),
+  retryAllJobs: (type?: string) =>
+    request<{ retried: number }>("/jobs/retry-all", {
+      method: "POST",
+      body: JSON.stringify({ type }),
+    }),
+  jobEvents: () => new EventSource(`${BASE}/jobs/stream`),
 };
 
 // Types (mirrors API responses)
@@ -96,8 +120,19 @@ export interface Match {
   updatedAt: number;
 }
 
+export interface LexiconTrack {
+  id: string;
+  filePath: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  durationMs: number | null;
+  lastSynced: number;
+}
+
 export interface MatchWithTrack extends Match {
   sourceTrack: Track | null;
+  targetTrack: LexiconTrack | null;
 }
 
 export interface DownloadWithTrack {
@@ -153,4 +188,49 @@ export interface SyncStatus {
 export interface ReviewDecision {
   dbTrackId: string;
   accepted: boolean;
+}
+
+// Track lifecycle
+
+export interface TrackLifecycle {
+  track: Track;
+  playlists: Array<{ playlistId: string; position: number; playlistName: string }>;
+  matches: Match[];
+  downloads: DownloadWithTrack[];
+  jobs: JobItem[];
+}
+
+// Job types
+
+export interface JobItem {
+  id: string;
+  type: string;
+  status: "queued" | "running" | "done" | "failed";
+  priority: number;
+  payload: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  attempt: number;
+  maxAttempts: number;
+  runAfter: number | null;
+  parentJobId: string | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  createdAt: number;
+}
+
+export interface JobDetail extends JobItem {
+  children: JobItem[];
+}
+
+export interface JobListResponse {
+  jobs: JobItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface JobStats {
+  byStatus: Record<string, number>;
+  byType: Record<string, number>;
 }

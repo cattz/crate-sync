@@ -10,6 +10,8 @@ import { registerDownloadCommands } from "./commands/download.js";
 import { registerMatchCommands } from "./commands/matches.js";
 import { registerSyncCommand } from "./commands/sync.js";
 import { registerServeCommand } from "./commands/serve.js";
+import { registerJobCommands } from "./commands/jobs.js";
+import { registerReviewCommand } from "./commands/review.js";
 import { setupShutdownHandler, onShutdown } from "./utils/shutdown.js";
 import { closeDb, getDb } from "./db/client.js";
 import { loadConfig } from "./config.js";
@@ -90,5 +92,7 @@ registerDownloadCommands(program);
 registerMatchCommands(program);
 registerSyncCommand(program);
 registerServeCommand(program);
+registerJobCommands(program);
+registerReviewCommand(program);
 
 program.parse();

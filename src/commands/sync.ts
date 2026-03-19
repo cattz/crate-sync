@@ -10,6 +10,7 @@ import { SyncPipeline, type PhaseOneResult, type ReviewDecision } from "../servi
 import type { DownloadCandidate, DownloadReviewFn } from "../services/download-service.js";
 import { Progress } from "../utils/progress.js";
 import { checkHealth } from "../utils/health.js";
+import { tryDetectServer, runThinClientSync } from "./sync-client.js";
 
 export function registerSyncCommand(program: Command): void {
   program
@@ -18,13 +19,66 @@ export function registerSyncCommand(program: Command): void {
     .option("--all", "Sync all playlists")
     .option("--dry-run", "Show what would happen without making changes")
     .option("--tags", "Sync Spotify playlist name segments as Lexicon custom tags (default: off)")
-    .action(async (playlist: string | undefined, opts: { all?: boolean; dryRun?: boolean; tags?: boolean }) => {
+    .option("--verbose", "Show per-track search diagnostics (query strategies, candidate counts)")
+    .option("--standalone", "Force standalone mode (skip server detection)")
+    .option("--server <url>", "Server URL to connect to (default: http://localhost:3100)")
+    .action(async (playlist: string | undefined, opts: { all?: boolean; dryRun?: boolean; tags?: boolean; verbose?: boolean; standalone?: boolean; server?: string }) => {
       if (!playlist && !opts.all) {
         console.log(chalk.red("Provide a playlist name/ID or use --all."));
         return;
       }
 
       try {
+        // --- Thin-client mode: delegate to running server ---
+        if (!opts.standalone) {
+          const serverUrl = await tryDetectServer(opts.server);
+          if (serverUrl) {
+            console.log(chalk.dim(`Server detected at ${serverUrl} — using thin-client mode`));
+            console.log(chalk.dim(`(use --standalone to run the pipeline directly)`));
+            console.log();
+
+            // Resolve playlists locally so we can pass IDs to the server
+            const db = getDb();
+            const playlistService = new PlaylistService(db);
+
+            let playlistsToSync: schema.Playlist[] = [];
+            if (opts.all) {
+              playlistsToSync = playlistService.getPlaylists();
+              if (playlistsToSync.length === 0) {
+                console.log(chalk.red("No playlists in database. Run `crate-sync db sync` first."));
+                return;
+              }
+            } else {
+              let resolved = playlistService.getPlaylist(playlist!);
+              if (!resolved) {
+                const all = playlistService.getPlaylists();
+                resolved = all.find(
+                  (p) => p.name.toLowerCase() === playlist!.toLowerCase(),
+                ) ?? null;
+              }
+              if (!resolved) {
+                console.log(chalk.red(`Playlist not found: "${playlist}"`));
+                console.log(chalk.dim("Use `crate-sync playlists list` to see available playlists."));
+                return;
+              }
+              playlistsToSync = [resolved];
+            }
+
+            for (const pl of playlistsToSync) {
+              console.log(chalk.bold(`Syncing "${pl.name}"`));
+              console.log();
+              await runThinClientSync(serverUrl, pl.id, pl.name, {
+                dryRun: opts.dryRun,
+                verbose: opts.verbose,
+              });
+              console.log();
+            }
+
+            return;
+          }
+        }
+
+        // --- Standalone mode: run pipeline directly ---
         const config = loadConfig();
         const db = getDb();
         const playlistService = new PlaylistService(db);
@@ -203,11 +257,28 @@ export function registerSyncCommand(program: Command): void {
             const downloadResult = await pipeline.downloadMissing(
               phaseTwo,
               pl.name,
-              (done, total, title, success, error) => {
+              (done, total, title, success, error, meta) => {
                 const status = success ? chalk.green("✓") : chalk.red("✗");
                 console.log(`  ${status} [${done}/${total}] ${title}`);
                 if (!success && error) {
                   console.log(`    ${chalk.dim(error)}`);
+                }
+                if (opts.verbose && meta) {
+                  if (meta.strategy) {
+                    console.log(`    ${chalk.dim(`Strategy: ${meta.strategy}`)}`);
+                  }
+                  if (meta.strategyLog) {
+                    for (const s of meta.strategyLog) {
+                      const icon = s.resultCount > 0 ? chalk.green("✓") : chalk.dim("·");
+                      console.log(`    ${icon} ${chalk.dim(`[${s.label}] "${s.query}" → ${s.resultCount} candidates`)}`);
+                    }
+                  }
+                  if (meta.topCandidates && meta.topCandidates.length > 0) {
+                    console.log(`    ${chalk.dim("Top candidates:")}`);
+                    for (const c of meta.topCandidates.slice(0, 3)) {
+                      console.log(`      ${chalk.dim(`${(c.score * 100).toFixed(0)}% — ${c.filename}`)}`);
+                    }
+                  }
                 }
               },
               downloadReview,

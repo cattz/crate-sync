@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import { getDb } from "../../db/client.js";
 import { matches, tracks } from "../../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
+import { loadConfig } from "../../config.js";
+import { LexiconService } from "../../services/lexicon-service.js";
 
 export const matchRoutes = new Hono();
 
 // GET /api/matches?status=pending&playlistId=xxx
-matchRoutes.get("/", (c) => {
+matchRoutes.get("/", async (c) => {
   const db = getDb();
   const status = c.req.query("status");
 
@@ -18,14 +20,38 @@ matchRoutes.get("/", (c) => {
 
   const results = query.all();
 
-  // Enrich with source track info
+  // Fetch Lexicon tracks once for target enrichment
+  const lexiconTargetIds = new Set(
+    results.filter((m) => m.targetType === "lexicon").map((m) => m.targetId),
+  );
+
+  let lexiconById = new Map<string, { id: string; title: string; artist: string; album?: string; durationMs?: number; filePath: string }>();
+
+  if (lexiconTargetIds.size > 0) {
+    try {
+      const config = loadConfig();
+      const lexicon = new LexiconService(config.lexicon);
+      const allTracks = await lexicon.getTracks();
+      for (const lt of allTracks) {
+        if (lexiconTargetIds.has(lt.id)) {
+          lexiconById.set(lt.id, lt);
+        }
+      }
+    } catch {
+      // Lexicon unavailable — enrich without target track info
+    }
+  }
+
+  // Enrich with source track info and target track info
   const enriched = results.map((m) => {
     const sourceTrack =
       m.sourceType === "spotify"
         ? db.select().from(tracks).where(eq(tracks.id, m.sourceId)).get()
         : null;
 
-    return { ...m, sourceTrack };
+    const targetTrack = lexiconById.get(m.targetId) ?? null;
+
+    return { ...m, sourceTrack, targetTrack };
   });
 
   return c.json(enriched);

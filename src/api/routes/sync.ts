@@ -6,10 +6,11 @@ import { PlaylistService } from "../../services/playlist-service.js";
 import { loadConfig, type Config } from "../../config.js";
 import { SyncPipeline, type PhaseOneResult } from "../../services/sync-pipeline.js";
 import { syncState } from "../state.js";
+import { createJob } from "../../jobs/runner.js";
 
 export const syncRoutes = new Hono();
 
-// POST /api/sync/:playlistId — start sync, returns { syncId }
+// POST /api/sync/:playlistId — start sync via job queue, returns { syncId, jobId }
 syncRoutes.post("/:playlistId", async (c) => {
   const db = getDb();
   const config = loadConfig();
@@ -35,7 +36,15 @@ syncRoutes.post("/:playlistId", async (c) => {
     listeners: new Set(),
   });
 
-  // Run sync in background
+  // Create the root job in the queue
+  const job = createJob({
+    type: "spotify_sync",
+    status: "queued",
+    priority: 10,
+    payload: JSON.stringify({ playlistId: playlist.id }),
+  });
+
+  // Also run via the legacy in-process pipeline for SSE events
   runSync(syncId, playlist.id, config).catch((err) => {
     const state = syncState.get(syncId);
     if (state) {
@@ -44,7 +53,7 @@ syncRoutes.post("/:playlistId", async (c) => {
     }
   });
 
-  return c.json({ syncId });
+  return c.json({ syncId, jobId: job.id });
 });
 
 // POST /api/sync/:playlistId/dry-run — phase 1 only, returns JSON

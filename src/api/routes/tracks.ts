@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../../db/client.js";
-import { tracks } from "../../db/schema.js";
-import { eq, like, or, sql } from "drizzle-orm";
+import { tracks, matches, downloads, jobs, playlistTracks, playlists } from "../../db/schema.js";
+import { eq, like, or, and, desc, sql } from "drizzle-orm";
 
 export const trackRoutes = new Hono();
 
@@ -35,4 +35,62 @@ trackRoutes.get("/:id", (c) => {
   }
 
   return c.json(track);
+});
+
+// GET /api/tracks/:id/lifecycle — full lifecycle for a track
+trackRoutes.get("/:id/lifecycle", (c) => {
+  const db = getDb();
+  const trackId = c.req.param("id");
+  const track = db.select().from(tracks).where(eq(tracks.id, trackId)).get();
+
+  if (!track) {
+    return c.json({ error: "Track not found" }, 404);
+  }
+
+  // Playlists this track belongs to
+  const memberOf = db
+    .select({
+      playlistId: playlistTracks.playlistId,
+      position: playlistTracks.position,
+      playlistName: playlists.name,
+    })
+    .from(playlistTracks)
+    .innerJoin(playlists, eq(playlists.id, playlistTracks.playlistId))
+    .where(eq(playlistTracks.trackId, trackId))
+    .all();
+
+  // All matches for this track (as source)
+  const trackMatches = db
+    .select()
+    .from(matches)
+    .where(and(eq(matches.sourceType, "spotify"), eq(matches.sourceId, trackId)))
+    .all();
+
+  // All downloads for this track
+  const trackDownloads = db
+    .select()
+    .from(downloads)
+    .where(eq(downloads.trackId, trackId))
+    .orderBy(desc(downloads.createdAt))
+    .all();
+
+  // Related jobs (search/download jobs for this track)
+  const trackJobs = db
+    .select()
+    .from(jobs)
+    .where(sql`json_extract(${jobs.payload}, '$.trackId') = ${trackId}`)
+    .orderBy(desc(jobs.createdAt))
+    .all();
+
+  return c.json({
+    track,
+    playlists: memberOf,
+    matches: trackMatches,
+    downloads: trackDownloads,
+    jobs: trackJobs.map((j) => ({
+      ...j,
+      payload: j.payload ? JSON.parse(j.payload) : null,
+      result: j.result ? JSON.parse(j.result) : null,
+    })),
+  });
 });
