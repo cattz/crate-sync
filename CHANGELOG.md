@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0 — 2026-03-17
+
+### Added
+- **Multi-strategy search query builder** — searches now try up to 4 strategies (full, base-title without remix suffix, title-only, keywords) and stop at the first that returns results. Fixes 0-result searches for remixes, live sessions, and long titles.
+- **Job queue architecture** — background job runner with SQLite polling, exponential backoff, and parent-child job relationships. Decomposes the sync pipeline into independent jobs (spotify_sync → match → search → download → validate → lexicon_sync).
+- **Job CLI commands** — `jobs list`, `jobs retry`, `jobs retry-all`, `jobs stats` for managing background work from the terminal.
+- **Wishlist** — automatic retry of failed searches on a backoff schedule (1h → 6h → 24h → 7d). Runs periodically via the job runner or manually via `wishlist run`.
+- **Queue page** in web UI — live job list with status filters, stats cards, retry/cancel actions, and drill-down to job details with payload/result/child jobs.
+- **`--verbose` flag** for `sync` command — shows per-track search diagnostics: which query strategy succeeded, all strategies tried with result counts, top candidates.
+- **Job runner config** — `jobRunner.pollIntervalMs` and `jobRunner.wishlistIntervalMs` in config.json.
+- **`--no-jobs` flag** for `serve` command — start the API server without the background job runner.
+- **Jobs API** — REST endpoints for listing, filtering, retrying, cancelling jobs, plus SSE stream for real-time updates.
+
+- **Review page** in web UI — side-by-side Spotify vs Lexicon comparison for pending matches with confirm/reject and bulk actions.
+- **Track detail page** in web UI — full lifecycle view: Spotify metadata, playlist membership, matches, downloads, related jobs.
+- **`review` CLI command** — interactive terminal review of pending matches with side-by-side comparison (y/n/a=all/q=quit/s=skip).
+- **Track lifecycle API** — `GET /api/tracks/:id/lifecycle` aggregates data from tracks, matches, downloads, and jobs tables.
+- **Match API enrichment** — `GET /api/matches` now includes `targetTrack` (Lexicon track info) alongside `sourceTrack`.
+
+### Changed
+- `serve` command now starts the job runner alongside the API server by default.
+- `POST /api/sync/:playlistId` now also creates a root job in the queue.
+- `acquireAndMove` in DownloadService is now public (used by job handlers).
+- `DownloadResult` includes `strategy` and `strategyLog` fields for observability.
+
 ## 0.3.0 — 2026-03-15
 
 ### Added

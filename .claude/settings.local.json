@@ -1,8 +1,18 @@
 {
-   "defaultMode": "bypassPermissions",
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:www.lexicondj.com)",
+      "Bash(npx vitest:*)",
+      "Bash(find:*)",
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm approve-builds:*)",
+      "Bash(npx vite:*)",
+      "Bash(ls -1 /Users/xabier/Repos/Music/crate-sync/spoty-poty/components/*.tsx)",
+      "Bash(xargs -I {} basename {})"
     ]
-  }
+  },
+  "defaultMode": "bypassPermissions"
 }

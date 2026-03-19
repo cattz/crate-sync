@@ -1,0 +1,37 @@
+[tasks.dev]
+description = "Start API server in dev mode"
+run = "tsx src/index.ts serve"
+
+[tasks."dev:web"]
+description = "Start Vite frontend dev server"
+dir = "web"
+run = "pnpm dev"
+
+[tasks."dev:all"]
+description = "Start API + frontend dev servers together"
+run = ["mise run dev & mise run dev:web"]
+
+[tasks.build]
+description = "Build backend and frontend"
+run = "pnpm build && cd web && pnpm build"
+
+[tasks.preview]
+description = "Build everything and run in production mode"
+depends = ["build"]
+run = "node dist/index.js serve"
+
+[tasks.test]
+description = "Run tests"
+run = "pnpm test"
+
+[tasks.lint]
+description = "Type-check the project"
+run = "tsc --noEmit"
+
+[tasks."db:generate"]
+description = "Generate DB migrations"
+run = "drizzle-kit generate"
+
+[tasks."db:migrate"]
+description = "Run DB migrations"
+run = "drizzle-kit migrate"

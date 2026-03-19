@@ -7,9 +7,10 @@ Downloads missing tracks from Soulseek. Single TypeScript codebase.
 
 ## Architecture Principles
 
-- **CLI-first** — Simple command-based interface, TUI/Web can come later
-- **Local-first** — SQLite for all persistent state (playlists, tracks, matches, config)
+- **CLI + Web UI** — Full feature parity between CLI and web dashboard
+- **Local-first** — SQLite for all persistent state (playlists, tracks, matches, jobs, config)
 - **Pluggable matching** — Song matching is a core abstraction, used across all sync flows
+- **Job queue** — Background processing with retry, backoff, and observability
 - **Source-agnostic** — Spotify first, Tidal later (same interfaces)
 - **Offline-friendly** — Work from local DB whenever possible, sync with APIs on demand
 
@@ -112,13 +113,46 @@ Orchestrate the full flow: Spotify → match → download → Lexicon.
 - **F6.4** Batch processing — efficient workflow where user reviews all matches upfront, then downloads run unattended
 - **F6.5** Preserve Spotify playlist track order in Lexicon playlists
 
+### 7. Multi-Strategy Search
+
+Improve Soulseek search hit rate for difficult track names.
+
+- **F7.1** Multi-strategy query builder (full, base-title, title-only, keywords)
+- **F7.2** Automatic fallback — try strategies in order, stop at first with results
+- **F7.3** Strategy logging — track which strategy succeeded for observability
+- **F7.4** `--verbose` flag — show per-track search diagnostics in CLI
+
+### 8. Job Queue
+
+Background processing with automatic retry and observability.
+
+- **F8.1** SQLite-backed job queue with atomic claim, priority ordering
+- **F8.2** Job types: spotify_sync, match, search, download, validate, lexicon_sync, wishlist_scan
+- **F8.3** Parent-child job relationships (sync → match → search → download)
+- **F8.4** Exponential backoff on failure (1h → 6h → 24h → 7d)
+- **F8.5** Wishlist — periodic scanner re-queues failed searches past cooldown
+- **F8.6** CLI: `jobs list`, `jobs retry`, `jobs retry-all`, `jobs stats`, `wishlist run`
+- **F8.7** REST API: list, filter, retry, cancel, stats, SSE stream
+- **F8.8** Web UI: Queue page with live job list, filters, drill-down, retry/cancel
+
+### 9. Web UI
+
+Dashboard for browsing, reviewing, and monitoring.
+
+- **F9.1** Dashboard — stats cards, service status
+- **F9.2** Playlist browsing with track listings
+- **F9.3** Match review (confirm/reject from the browser)
+- **F9.4** Download monitoring with status filters
+- **F9.5** Job queue page with filters, stats, retry/cancel, job detail drill-down
+- **F9.6** Settings editor for matching thresholds and download config
+- **F9.7** SSE-based real-time sync progress streaming
+
 ---
 
 ## Deferred (Future)
 
 - **Tidal support** — Same interfaces, different extractor (keep door open)
 - **TUI** — Textual/Ink interactive interface on top of CLI
-- **Web UI** — Dashboard for playlist management and sync monitoring
 - **Smart playlists** — Auto-categorization by BPM, key, genre
 - **Multi-user** — Auth and per-user state (only needed for Web UI)
 
@@ -156,7 +190,20 @@ crate-sync
 │   ├── list               # Show match registry
 │   ├── confirm <id>       # Confirm a match
 │   └── reject <id>        # Reject a match (false match)
-└── sync <playlist|--all>  # Full end-to-end pipeline
+├── sync <playlist|--all>  # Full end-to-end pipeline
+│   ├── --dry-run          # Phase 1 only, no changes
+│   ├── --verbose          # Per-track search diagnostics
+│   └── --tags             # Sync playlist name segments as Lexicon tags
+├── serve                  # Start API server + job runner
+│   ├── --port <n>         # Port (default: 3100)
+│   └── --no-jobs          # Disable background job runner
+├── jobs
+│   ├── list               # List jobs (--status, --type filters)
+│   ├── retry <id>         # Re-queue a failed job
+│   ├── retry-all          # Re-queue all failed jobs (--type filter)
+│   └── stats              # Job statistics
+└── wishlist
+    └── run                # Manually trigger wishlist scan
 ```
 
 ---
@@ -169,4 +216,5 @@ crate-sync
 - **LexiconTrack** — id, file_path, title, artist, album, duration_ms
 - **Match** — id, source_type, source_id, target_type, target_id, score, status (confirmed/rejected/pending)
 - **Download** — id, track_id, status, soulseek_path, file_path, started_at, completed_at
+- **Job** — id, type, status, priority, payload (JSON), result (JSON), error, attempt, max_attempts, run_after, parent_job_id, timestamps
 - **SyncLog** — id, playlist_id, action, details, timestamp

@@ -76,14 +76,28 @@ pnpm dev download search "artist - title"
 pnpm dev sync <playlist-id>
 pnpm dev sync --all
 pnpm dev sync <playlist-id> --dry-run
+pnpm dev sync <playlist-id> --verbose   # Show per-track search diagnostics
 
 # Spotify URLs work anywhere a playlist ID is accepted
 pnpm dev sync https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
+
+# Interactive review of pending matches (side-by-side comparison)
+pnpm dev review
 
 # Manage match registry
 pnpm dev matches list
 pnpm dev matches confirm <id>
 pnpm dev matches reject <id>
+
+# Manage background jobs
+pnpm dev jobs list
+pnpm dev jobs list --status failed --type search
+pnpm dev jobs retry <id>
+pnpm dev jobs retry-all --type search
+pnpm dev jobs stats
+
+# Wishlist — retry failed searches on a schedule
+pnpm dev wishlist run    # manual trigger
 
 # Database status
 pnpm dev db status
@@ -91,17 +105,19 @@ pnpm dev db status
 
 ## Web UI
 
-Crate Sync includes a web dashboard for browsing playlists, reviewing matches, monitoring downloads, and managing settings.
+Crate Sync includes a web dashboard for browsing playlists, reviewing matches, monitoring downloads, managing the job queue, and settings.
 
 ```bash
-# Start the API server
+# Start the API server + background job runner
 pnpm dev serve
 
 # In another terminal, start the frontend dev server
-npx vite
+cd web && npx vite
 ```
 
 The API runs on http://localhost:3100 and the frontend on http://localhost:5173 (proxies API requests automatically).
+
+The `serve` command starts both the Hono API server and the background job runner. Use `--no-jobs` to disable the job runner if you only need the API.
 
 For production, build the frontend and serve everything from the API:
 
