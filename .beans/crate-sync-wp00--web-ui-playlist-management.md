@@ -1,7 +1,7 @@
 ---
 # crate-sync-wp00
 title: Web UI playlist management
-status: in-progress
+status: completed
 type: epic
 priority: normal
 created_at: 2026-03-19T12:00:00Z
