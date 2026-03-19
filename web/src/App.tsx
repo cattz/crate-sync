@@ -30,11 +30,17 @@ export function App() {
           <NavLink to="/playlists" className={({ isActive }) => (isActive ? "active" : "")}>
             Playlists
           </NavLink>
+          <NavLink to="/review" className={({ isActive }) => (isActive ? "active" : "")}>
+            Review
+          </NavLink>
           <NavLink to="/matches" className={({ isActive }) => (isActive ? "active" : "")}>
             Matches
           </NavLink>
           <NavLink to="/downloads" className={({ isActive }) => (isActive ? "active" : "")}>
             Downloads
+          </NavLink>
+          <NavLink to="/queue" className={({ isActive }) => (isActive ? "active" : "")}>
+            Queue
           </NavLink>
           <NavLink to="/settings" className={({ isActive }) => (isActive ? "active" : "")}>
             Settings
@@ -42,8 +48,8 @@ export function App() {
         </nav>
 
         {status && (
-          <div style={{ padding: "1rem 1.25rem", marginTop: "auto", fontSize: "0.8rem" }}>
-            <div className="text-muted mb-1" style={{ fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div style={{ padding: "0.75rem 1rem", marginTop: "auto", fontSize: "0.75rem" }}>
+            <div className="text-muted" style={{ fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.25rem", fontSize: "0.7rem" }}>
               Services
             </div>
             <div><StatusDot ok={status.spotify.ok} /> Spotify</div>

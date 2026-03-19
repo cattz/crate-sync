@@ -1,10 +1,11 @@
-import { useStatus, usePlaylists, useMatches, useDownloads } from "../api/hooks.js";
+import { useStatus, usePlaylists, useMatches, useDownloads, useJobStats } from "../api/hooks.js";
 
 export function Dashboard() {
   const { data: status, isLoading: statusLoading } = useStatus();
   const { data: playlists } = usePlaylists();
   const { data: pendingMatches } = useMatches("pending");
   const { data: recentDownloads } = useDownloads();
+  const { data: jobStats } = useJobStats();
 
   if (statusLoading) return <p className="text-muted">Loading...</p>;
 
@@ -29,10 +30,22 @@ export function Dashboard() {
           <div className="label">Downloads</div>
           <div className="value">{recentDownloads?.length ?? 0}</div>
         </div>
+        {jobStats && (
+          <>
+            <div className="stat-card">
+              <div className="label">Jobs Running</div>
+              <div className="value">{jobStats.byStatus.running ?? 0}</div>
+            </div>
+            <div className="stat-card">
+              <div className="label">Jobs Failed</div>
+              <div className="value">{jobStats.byStatus.failed ?? 0}</div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">
-        <h3 style={{ marginBottom: "0.75rem" }}>Service Status</h3>
+        <h3 style={{ marginBottom: "0.4rem" }}>Service Status</h3>
         {status && (
           <table>
             <thead>

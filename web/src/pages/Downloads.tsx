@@ -56,10 +56,9 @@ export function Downloads() {
               <tr key={d.id}>
                 <td>
                   {d.track ? (
-                    <>
-                      <div>{d.track.title}</div>
-                      <div className="text-muted text-sm">{d.track.artist}</div>
-                    </>
+                    <span className="inline-track">
+                      {d.track.title} <span className="artist">— {d.track.artist}</span>
+                    </span>
                   ) : (
                     <span className="text-muted">{d.trackId}</span>
                   )}
@@ -69,7 +68,7 @@ export function Downloads() {
                     {d.status}
                   </span>
                 </td>
-                <td className="text-muted text-sm mono" style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>
+                <td className="text-muted text-sm mono" style={{ maxWidth: 350, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {d.filePath ?? "—"}
                 </td>
                 <td className="text-sm" style={{ color: "var(--danger)" }}>

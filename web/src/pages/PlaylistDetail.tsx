@@ -89,7 +89,7 @@ export function PlaylistDetail() {
       {/* Sync progress */}
       {syncEvents.length > 0 && (
         <div className="card mb-2">
-          <h3 style={{ marginBottom: "0.5rem" }}>Sync Progress</h3>
+          <h3 style={{ marginBottom: "0.3rem" }}>Sync Progress</h3>
           {syncEvents.map((evt, i) => (
             <div key={i} className="text-sm" style={{ padding: "0.2rem 0" }}>
               <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
@@ -104,7 +104,7 @@ export function PlaylistDetail() {
       {/* Review UI */}
       {reviewItems.length > 0 && (
         <div className="card mb-2">
-          <h3 style={{ marginBottom: "0.75rem" }}>Review Matches</h3>
+          <h3 style={{ marginBottom: "0.4rem" }}>Review Matches</h3>
           <ReviewPanel items={reviewItems} onSubmit={handleSubmitReview} />
         </div>
       )}

@@ -42,7 +42,7 @@ export function Settings() {
       <h2>Settings</h2>
 
       <div className="card">
-        <h3 style={{ marginBottom: "1rem" }}>Matching Thresholds</h3>
+        <h3 style={{ marginBottom: "0.5rem" }}>Matching Thresholds</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", maxWidth: 500 }}>
           <div>
@@ -73,7 +73,7 @@ export function Settings() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginBottom: "1rem" }}>Download Settings</h3>
+        <h3 style={{ marginBottom: "0.5rem" }}>Download Settings</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", maxWidth: 700 }}>
           <div>

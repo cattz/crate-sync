@@ -25,7 +25,8 @@ body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
-  line-height: 1.5;
+  line-height: 1.4;
+  font-size: 14px;
 }
 
 a {
@@ -44,10 +45,10 @@ a:hover {
 }
 
 .sidebar {
-  width: 220px;
+  width: 180px;
   background: var(--bg-card);
   border-right: 1px solid var(--border);
-  padding: 1.5rem 0;
+  padding: 1rem 0;
   position: fixed;
   top: 0;
   bottom: 0;
@@ -55,17 +56,17 @@ a:hover {
 }
 
 .sidebar h1 {
-  font-size: 1.1rem;
-  padding: 0 1.25rem 1rem;
+  font-size: 1rem;
+  padding: 0 1rem 0.75rem;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .sidebar nav a {
   display: block;
-  padding: 0.5rem 1.25rem;
+  padding: 0.35rem 1rem;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   transition: background 0.15s, color 0.15s;
 }
 
@@ -76,10 +77,9 @@ a:hover {
 }
 
 .content {
-  margin-left: 220px;
+  margin-left: 180px;
   flex: 1;
-  padding: 2rem;
-  max-width: 1200px;
+  padding: 1.25rem 1.5rem;
 }
 
 /* Cards */
@@ -87,8 +87,8 @@ a:hover {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.25rem;
-  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
 }
 
 /* Tables */
@@ -99,8 +99,9 @@ table {
 
 th, td {
   text-align: left;
-  padding: 0.6rem 0.75rem;
+  padding: 0.35rem 0.6rem;
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
 
 th {
@@ -118,9 +119,9 @@ tr:hover td {
 /* Badges */
 .badge {
   display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
   font-weight: 500;
 }
 
@@ -152,9 +153,9 @@ tr:hover td {
 /* Buttons */
 button {
   font-family: var(--font);
-  font-size: 0.85rem;
-  padding: 0.45rem 1rem;
-  border-radius: var(--radius);
+  font-size: 0.8rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 5px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text);
@@ -194,9 +195,9 @@ button:disabled {
 /* Forms */
 input, select {
   font-family: var(--font);
-  font-size: 0.85rem;
-  padding: 0.45rem 0.75rem;
-  border-radius: var(--radius);
+  font-size: 0.8rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 5px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
@@ -231,35 +232,37 @@ input:focus, select:focus {
 .justify-between { justify-content: space-between; }
 
 .grid-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
 }
 
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.25rem;
+  padding: 0.5rem 0.85rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
 }
 
 .stat-card .label {
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .stat-card .value {
-  font-size: 2rem;
+  font-size: 1.25rem;
   font-weight: 700;
-  margin-top: 0.25rem;
 }
 
 h2 {
-  font-size: 1.3rem;
-  margin-bottom: 1rem;
+  font-size: 1.15rem;
+  margin-bottom: 0.6rem;
 }
 
 /* Progress bar */
@@ -280,9 +283,27 @@ h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .page-header h2 {
   margin-bottom: 0;
+}
+
+td.wrap {
+  white-space: normal;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inline-track {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 350px;
+}
+
+.inline-track .artist {
+  color: var(--text-muted);
 }

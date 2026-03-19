@@ -39,10 +39,9 @@ export function Matches() {
               <tr key={m.id}>
                 <td>
                   {m.sourceTrack ? (
-                    <>
-                      <div>{m.sourceTrack.title}</div>
-                      <div className="text-muted text-sm">{m.sourceTrack.artist}</div>
-                    </>
+                    <span className="inline-track">
+                      {m.sourceTrack.title} <span className="artist">— {m.sourceTrack.artist}</span>
+                    </span>
                   ) : (
                     <span className="text-muted">{m.sourceId}</span>
                   )}
