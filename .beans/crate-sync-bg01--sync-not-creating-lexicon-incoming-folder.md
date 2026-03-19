@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg01
 title: Sync not creating Lexicon/Incoming folder for new playlists
-status: todo
+status: done
 type: bug
 priority: high
 created_at: 2026-03-19T18:00:00Z

@@ -387,6 +387,10 @@ export class SyncPipeline {
   ): Promise<{ succeeded: number; failed: number }> {
     const downloadService = this.getDownloadService();
 
+    // Create the playlist folder upfront so it's visible in Lexicon/Incoming
+    // even if no downloads succeed
+    downloadService.ensurePlaylistFolder(playlistName);
+
     const batchItems = phaseTwo.missing.map((m) => ({
       track: m.track,
       dbTrackId: m.dbTrackId,

@@ -256,6 +256,19 @@ export class DownloadService {
   }
 
   /**
+   * Ensure the playlist destination folder exists under downloadRoot.
+   * Called early in the sync so the folder is visible in Lexicon/Incoming
+   * even before any downloads complete.
+   */
+  ensurePlaylistFolder(playlistName: string): string {
+    const destDir = join(this.downloadRoot, sanitize(playlistName));
+    if (!existsSync(destDir)) {
+      mkdirSync(destDir, { recursive: true });
+    }
+    return destDir;
+  }
+
+  /**
    * Batch search: POST all searches upfront using strategy 1, poll all
    * concurrently, then rank. Tracks with 0 results fall back to sequential
    * multi-strategy search.
@@ -324,6 +337,9 @@ export class DownloadService {
     dbTrackId: string,
   ): Promise<DownloadResult> {
     try {
+      // 0. Ensure playlist folder exists
+      this.ensurePlaylistFolder(playlistName);
+
       // 1. Search and rank
       const { ranked, diagnostics, strategy, strategyLog } = await this.searchAndRank(track);
 
@@ -383,6 +399,12 @@ export class DownloadService {
 
     if (total === 0) {
       return results;
+    }
+
+    // 0. Create playlist folders upfront so they're visible in Lexicon/Incoming
+    const playlistNames = new Set(tracks.map((t) => t.playlistName));
+    for (const name of playlistNames) {
+      this.ensurePlaylistFolder(name);
     }
 
     // 1. Batch search all tracks at once
