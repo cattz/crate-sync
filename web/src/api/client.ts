@@ -303,6 +303,7 @@ export interface JobStats {
 export interface PushResult {
   ok: boolean;
   renamed: boolean;
+  descriptionUpdated: boolean;
   added: number;
   removed: number;
   message?: string;

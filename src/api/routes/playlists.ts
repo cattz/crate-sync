@@ -195,19 +195,26 @@ playlistRoutes.post("/:id/push", async (c) => {
   const spotifyTracks = await spotify.getPlaylistTracks(playlist.spotifyId);
   const diff = svc.getPlaylistDiff(playlist.id, spotifyTracks);
 
-  // Check if name changed
+  // Check if name or description changed
   const spotifyPlaylists = await spotify.getPlaylists();
   const spotifyPlaylist = spotifyPlaylists.find((p) => p.id === playlist.spotifyId);
   const nameChanged = spotifyPlaylist ? spotifyPlaylist.name !== playlist.name : false;
 
-  const hasChanges = nameChanged || diff.toAdd.length > 0 || diff.toRemove.length > 0;
+  const localDescription = SpotifyService.composeDescription(playlist.notes ?? null, playlist.tags ?? null);
+  const descriptionChanged = spotifyPlaylist ? (spotifyPlaylist.description ?? "") !== localDescription : false;
+
+  const hasChanges = nameChanged || descriptionChanged || diff.toAdd.length > 0 || diff.toRemove.length > 0;
 
   if (!hasChanges) {
-    return c.json({ ok: true, renamed: false, added: 0, removed: 0, message: "No changes" });
+    return c.json({ ok: true, renamed: false, descriptionUpdated: false, added: 0, removed: 0, message: "No changes" });
   }
 
-  if (nameChanged) {
-    await spotify.renamePlaylist(playlist.spotifyId, playlist.name);
+  // Push name and/or description if changed
+  if (nameChanged || descriptionChanged) {
+    const details: { name?: string; description?: string } = {};
+    if (nameChanged) details.name = playlist.name;
+    if (descriptionChanged) details.description = localDescription;
+    await spotify.updatePlaylistDetails(playlist.spotifyId, details);
   }
 
   if (diff.toRemove.length > 0) {
@@ -227,6 +234,7 @@ playlistRoutes.post("/:id/push", async (c) => {
   return c.json({
     ok: true,
     renamed: nameChanged,
+    descriptionUpdated: descriptionChanged,
     added: diff.toAdd.length,
     removed: diff.toRemove.length,
   });
