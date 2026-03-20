@@ -346,7 +346,7 @@ export function PlaylistDetail() {
         <div style={{ position: "relative", maxWidth: 260 }}>
           <input
             type="text"
-            placeholder="Add tag\u2026"
+            placeholder="Add tag…"
             value={tagInput}
             onChange={(e) => { setTagInput(e.target.value); setShowTagSuggestions(true); }}
             onKeyDown={(e) => {
@@ -410,7 +410,7 @@ export function PlaylistDetail() {
               handleSaveNotes(val);
             }
           }}
-          placeholder="Add notes about this playlist\u2026"
+          placeholder="Add notes about this playlist…"
         />
       </div>
 
@@ -471,7 +471,7 @@ export function PlaylistDetail() {
           </span>
           <input
             type="text"
-            placeholder="Filter by title or artist\u2026"
+            placeholder="Filter by title or artist…"
             value={trackSearch}
             onChange={(e) => setTrackSearch(e.target.value)}
             style={{ width: 220 }}
@@ -701,7 +701,7 @@ function MergeModal({
         </p>
         <input
           type="text"
-          placeholder="Filter playlists\u2026"
+          placeholder="Filter playlists…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: "100%", marginBottom: "0.5rem" }}

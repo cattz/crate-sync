@@ -596,7 +596,7 @@ export function Playlists() {
           )}
           <input
             type="text"
-            placeholder="Search playlists\u2026"
+            placeholder="Search playlists…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{ width: 220, marginLeft: "0.25rem" }}
