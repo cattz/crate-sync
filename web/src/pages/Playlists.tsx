@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Link } from "react-router";
+import { useState, useMemo, useCallback } from "react";
+import { Link, useSearchParams } from "react-router";
 import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useCrossPlaylistDuplicates, useSimilarPlaylists, useMergePlaylists, useBulkRename } from "../api/hooks.js";
 import type { Playlist, BulkRenamePreview, SimilarPair } from "../api/client.js";
 import { useMultiSelect } from "../hooks/useMultiSelect.js";
@@ -450,10 +450,28 @@ function BulkRenameModal({ onClose }: { onClose: () => void }) {
 
 export function Playlists() {
   const { data: playlists, isLoading } = usePlaylists();
-  const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [ownership, setOwnership] = useState<OwnershipFilter>("all");
+  const [params, setParams] = useSearchParams();
+
+  // Persist filter/sort state in URL search params
+  const search = params.get("q") ?? "";
+  const sortKey = (params.get("sort") ?? "name") as SortKey;
+  const sortDir = (params.get("dir") ?? "asc") as SortDir;
+  const ownership = (params.get("owner") ?? "all") as OwnershipFilter;
+  const tagFilter = params.get("tag") ?? "";
+
+  const setParam = useCallback((key: string, value: string, fallback: string) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value === fallback) next.delete(key);
+      else next.set(key, value);
+      return next;
+    }, { replace: true });
+  }, [setParams]);
+
+  const setSearch = useCallback((v: string) => setParam("q", v, ""), [setParam]);
+  const setOwnership = useCallback((v: OwnershipFilter) => setParam("owner", v, "all"), [setParam]);
+  const setTagFilter = useCallback((v: string) => setParam("tag", v, ""), [setParam]);
+
   const [renaming, setRenaming] = useState<Playlist | null>(null);
   const [deleting, setDeleting] = useState<Playlist | null>(null);
   const sync = useSyncPlaylists();
@@ -466,7 +484,6 @@ export function Playlists() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkMerging, setBulkMerging] = useState(false);
   const [showBulkRename, setShowBulkRename] = useState(false);
-  const [tagFilter, setTagFilter] = useState("");
 
   // Collect all unique tags across playlists for autocomplete/filter
   const allTags = useMemo(() => {
@@ -479,12 +496,17 @@ export function Playlists() {
   }, [playlists]);
 
   function handleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (key === sortKey) {
+        const newDir = sortDir === "asc" ? "desc" : "asc";
+        if (newDir === "asc") next.delete("dir"); else next.set("dir", newDir);
+      } else {
+        if (key === "name") next.delete("sort"); else next.set("sort", key);
+        next.delete("dir");
+      }
+      return next;
+    }, { replace: true });
   }
 
   const filtered = useMemo(() => {
