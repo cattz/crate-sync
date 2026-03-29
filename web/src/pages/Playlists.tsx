@@ -176,7 +176,7 @@ function BulkDeleteModal({
   );
 }
 
-function BulkRenameModal({ onClose }: { onClose: () => void }) {
+function BulkRenameModal({ playlistIds, onClose }: { playlistIds?: string[]; onClose: () => void }) {
   const [pattern, setPattern] = useState("");
   const [replacement, setReplacement] = useState("");
   const [preview, setPreview] = useState<BulkRenamePreview[] | null>(null);
@@ -186,12 +186,12 @@ function BulkRenameModal({ onClose }: { onClose: () => void }) {
 
   const handlePreview = async () => {
     setPreview(null);
-    const result = await bulkRename.mutateAsync({ pattern, replacement, dryRun: true });
+    const result = await bulkRename.mutateAsync({ pattern, replacement, dryRun: true, playlistIds });
     setPreview(result);
   };
 
   const handleApply = async () => {
-    await bulkRename.mutateAsync({ pattern, replacement, dryRun: false });
+    await bulkRename.mutateAsync({ pattern, replacement, dryRun: false, playlistIds });
     onClose();
   };
 
@@ -289,7 +289,7 @@ export function Playlists() {
   const search = params.get("q") ?? "";
   const sortKey = (params.get("sort") ?? "name") as SortKey;
   const sortDir = (params.get("dir") ?? "asc") as SortDir;
-  const ownership = (params.get("owner") ?? "all") as OwnershipFilter;
+  const ownership = (params.get("owner") ?? "own") as OwnershipFilter;
   const tagFilter = params.get("tag") ?? "";
 
   const setParam = useCallback((key: string, value: string, fallback: string) => {
@@ -302,7 +302,7 @@ export function Playlists() {
   }, [setParams]);
 
   const setSearch = useCallback((v: string) => setParam("q", v, ""), [setParam]);
-  const setOwnership = useCallback((v: OwnershipFilter) => setParam("owner", v, "all"), [setParam]);
+  const setOwnership = useCallback((v: OwnershipFilter) => setParam("owner", v, "own"), [setParam]);
   const setTagFilter = useCallback((v: string) => setParam("tag", v, ""), [setParam]);
 
   const [renaming, setRenaming] = useState<Playlist | null>(null);
@@ -347,8 +347,21 @@ export function Playlists() {
     }
 
     if (search) {
-      const q = search.toLowerCase();
-      list = list.filter((p) => p.name.toLowerCase().includes(q));
+      // Detect regex pattern: /pattern/ or /pattern/flags
+      const regexMatch = search.match(/^\/(.+)\/([gimsuy]*)$/);
+      if (regexMatch) {
+        try {
+          const re = new RegExp(regexMatch[1], regexMatch[2]);
+          list = list.filter((p) => re.test(p.name));
+        } catch {
+          // Invalid regex — fall back to literal substring match
+          const q = search.toLowerCase();
+          list = list.filter((p) => p.name.toLowerCase().includes(q));
+        }
+      } else {
+        const q = search.toLowerCase();
+        list = list.filter((p) => p.name.toLowerCase().includes(q));
+      }
     }
 
     if (tagFilter) {
@@ -390,9 +403,6 @@ export function Playlists() {
           >
             {sync.isPending ? "Syncing..." : "Sync from Spotify"}
           </button>
-          <button onClick={() => setShowBulkRename(true)}>
-            Bulk Rename
-          </button>
           {(["all", "own", "followed"] as const).map((value) => (
             <button
               key={value}
@@ -417,7 +427,7 @@ export function Playlists() {
           )}
           <input
             type="text"
-            placeholder="Search playlists\u2026"
+            placeholder="Search (/regex/ supported)..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{ width: 220, marginLeft: "0.25rem" }}
@@ -502,7 +512,7 @@ export function Playlists() {
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={ownership === "own" ? 6 : 7} className="text-muted">
-                  {search || ownership !== "all"
+                  {search || ownership !== "own"
                     ? "No playlists match your filters."
                     : <>No playlists. Run <code>crate-sync db sync</code> to import from Spotify.</>}
                 </td>
@@ -514,9 +524,20 @@ export function Playlists() {
 
       {renaming && <RenameModal playlist={renaming} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteModal playlist={deleting} onClose={() => setDeleting(null)} />}
-      {showBulkRename && <BulkRenameModal onClose={() => setShowBulkRename(false)} />}
+      {showBulkRename && (
+        <BulkRenameModal
+          playlistIds={[...selection.selected]}
+          onClose={() => {
+            setShowBulkRename(false);
+            selection.clear();
+          }}
+        />
+      )}
 
       <BulkToolbar count={selection.count} onClear={selection.clear}>
+        <button onClick={() => setShowBulkRename(true)}>
+          Bulk Rename
+        </button>
         <button
           className="danger"
           onClick={() => setBulkDeleting(true)}

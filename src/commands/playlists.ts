@@ -17,10 +17,35 @@ export function registerPlaylistCommands(program: Command): void {
   playlists
     .command("list")
     .description("List playlists from local DB")
-    .action(() => {
+    .option("--owner <filter>", "Ownership filter: all, own, followed", "own")
+    .option("--filter <pattern>", "Filter playlists by name (substring or regex with --regex)")
+    .option("--regex", "Treat --filter as a regular expression")
+    .action((opts: { owner: string; filter?: string; regex?: boolean }) => {
       const db = getDb();
       const service = new PlaylistService(db);
-      const rows = service.getPlaylists();
+      let rows = service.getPlaylists();
+
+      if (opts.owner === "own") {
+        rows = rows.filter((r) => r.isOwned === 1);
+      } else if (opts.owner === "followed") {
+        rows = rows.filter((r) => r.isOwned === 0);
+      }
+
+      if (opts.filter) {
+        if (opts.regex) {
+          try {
+            const re = new RegExp(opts.filter);
+            rows = rows.filter((r) => re.test(r.name));
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.log(chalk.red(`Invalid regex: ${message}`));
+            return;
+          }
+        } else {
+          const q = opts.filter.toLowerCase();
+          rows = rows.filter((r) => r.name.toLowerCase().includes(q));
+        }
+      }
 
       if (rows.length === 0) {
         console.log(chalk.dim("No playlists in database. Run `crate-sync db sync` first."));
@@ -169,7 +194,8 @@ export function registerPlaylistCommands(program: Command): void {
     .description("Bulk rename playlists matching a pattern")
     .option("--regex", "Treat pattern as a regular expression")
     .option("--dry-run", "Show what would be renamed without applying changes")
-    .action((pattern: string, replacement: string, opts: { regex?: boolean; dryRun?: boolean }) => {
+    .option("--filter <name-filter>", "Only consider playlists whose name matches this substring")
+    .action((pattern: string, replacement: string, opts: { regex?: boolean; dryRun?: boolean; filter?: string }) => {
       try {
         const db = getDb();
         const service = new PlaylistService(db);
@@ -187,7 +213,15 @@ export function registerPlaylistCommands(program: Command): void {
           regexPattern = pattern;
         }
 
-        const results = service.bulkRename(regexPattern, replacement, { dryRun: opts.dryRun });
+        // Pre-filter by --filter flag to scope which playlists are candidates
+        let playlistIds: string[] | undefined;
+        if (opts.filter) {
+          const q = opts.filter.toLowerCase();
+          const matching = service.getPlaylists().filter((p) => p.name.toLowerCase().includes(q));
+          playlistIds = matching.map((p) => p.id);
+        }
+
+        const results = service.bulkRename(regexPattern, replacement, { dryRun: opts.dryRun, playlistIds });
 
         if (results.length === 0) {
           console.log(chalk.dim("No playlists matched."));

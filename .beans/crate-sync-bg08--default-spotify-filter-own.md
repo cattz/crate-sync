@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg08
 title: Default Spotify filter for playlist lists should be "Own"
-status: todo
+status: done
 type: task
 priority: normal
 created_at: 2026-03-29T00:00:00Z

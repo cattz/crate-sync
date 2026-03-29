@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg10
 title: Bulk rename should only apply to selected playlists
-status: todo
+status: done
 type: task
 priority: normal
 created_at: 2026-03-29T00:00:00Z

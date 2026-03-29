@@ -19,9 +19,17 @@ export class PlaylistService {
     this.db = db;
   }
 
-  /** Get all playlists. */
-  getPlaylists(): Playlist[] {
-    return this.db.select().from(playlists).all();
+  /** Get all playlists, optionally filtered by name. */
+  getPlaylists(options?: { filter?: string | RegExp }): Playlist[] {
+    const all = this.db.select().from(playlists).all();
+    if (!options?.filter) return all;
+
+    const pattern = options.filter;
+    if (pattern instanceof RegExp) {
+      return all.filter((p) => pattern.test(p.name));
+    }
+    const q = pattern.toLowerCase();
+    return all.filter((p) => p.name.toLowerCase().includes(q));
   }
 
   /** Get playlist by local DB id, spotify_id, or Spotify URL. */
@@ -187,17 +195,23 @@ export class PlaylistService {
       .run();
   }
 
-  /** Bulk rename playlists matching a pattern. */
+  /** Bulk rename playlists matching a pattern. Optionally scoped to specific playlist IDs. */
   bulkRename(
     pattern: string | RegExp,
     replacement: string,
-    options?: { dryRun?: boolean },
+    options?: { dryRun?: boolean; playlistIds?: string[] },
   ): Array<{ id: string; oldName: string; newName: string }> {
     const regex = typeof pattern === "string" ? new RegExp(pattern) : pattern;
-    const all = this.getPlaylists();
+    let candidates = this.getPlaylists();
+
+    if (options?.playlistIds && options.playlistIds.length > 0) {
+      const idSet = new Set(options.playlistIds);
+      candidates = candidates.filter((p) => idSet.has(p.id));
+    }
+
     const results: Array<{ id: string; oldName: string; newName: string }> = [];
 
-    for (const pl of all) {
+    for (const pl of candidates) {
       const newName = pl.name.replace(regex, replacement);
       if (newName !== pl.name) {
         results.push({ id: pl.id, oldName: pl.name, newName });

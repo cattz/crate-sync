@@ -62,16 +62,17 @@ playlistRoutes.post("/bulk-rename", async (c) => {
     replacement: string;
     regex?: boolean;
     dryRun?: boolean;
+    playlistIds?: string[];
   }>();
 
-  const { pattern, replacement, regex, dryRun } = body;
+  const { pattern, replacement, regex, dryRun, playlistIds } = body;
 
   if (!pattern) {
     return c.json({ error: "pattern is required" }, 400);
   }
 
   const regexPattern = regex ? new RegExp(pattern) : pattern;
-  const results = svc.bulkRename(regexPattern, replacement ?? "", { dryRun });
+  const results = svc.bulkRename(regexPattern, replacement ?? "", { dryRun, playlistIds });
 
   return c.json(results);
 });

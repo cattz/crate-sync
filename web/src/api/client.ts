@@ -339,6 +339,7 @@ export interface BulkRenameParams {
   pattern: string;
   replacement: string;
   dryRun: boolean;
+  playlistIds?: string[];
 }
 
 export interface BulkRenamePreview {
