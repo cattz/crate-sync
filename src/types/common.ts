@@ -26,3 +26,7 @@ export type DownloadStatus =
   | "failed";
 
 export type MatchStatus = "pending" | "confirmed" | "rejected";
+
+export type ReviewStatus = "pending" | "confirmed" | "rejected";
+
+export type ValidationStrictness = "strict" | "moderate" | "lenient";

@@ -8,10 +8,9 @@ export interface LexiconTrack {
   tags?: string[];
 }
 
-export interface LexiconPlaylist {
-  id: string;
-  name: string;
-  trackIds: string[];
+export interface LexiconTagConfig {
+  categoryName: string;
+  color: string;
 }
 
 export interface LexiconTagCategory {

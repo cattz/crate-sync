@@ -104,6 +104,7 @@ export const matches = sqliteTable("matches", {
   confidence: text("confidence", { enum: ["high", "review", "low"] }).notNull(),
   method: text("method", { enum: ["isrc", "fuzzy", "manual"] }).notNull(),
   status: text("status", { enum: ["pending", "confirmed", "rejected"] }).notNull(),
+  parkedAt: integer("parked_at"),
   createdAt,
   updatedAt,
 }, (table) => [
@@ -124,6 +125,7 @@ export const downloads = sqliteTable("downloads", {
   status: text("status", {
     enum: ["pending", "searching", "downloading", "validating", "moving", "done", "failed"],
   }).notNull(),
+  origin: text("origin", { enum: ["not_found", "review_rejected"] }).notNull().default("not_found"),
   soulseekPath: text("soulseek_path"),
   filePath: text("file_path"),
   error: text("error"),
@@ -140,12 +142,12 @@ export const jobs = sqliteTable("jobs", {
   type: text("type", {
     enum: [
       "spotify_sync",
-      "match",
+      "lexicon_match",
       "search",
       "download",
       "validate",
-      "lexicon_sync",
-      "wishlist_scan",
+      "lexicon_tag",
+      "wishlist_run",
     ],
   }).notNull(),
   status: text("status", {
@@ -157,12 +159,31 @@ export const jobs = sqliteTable("jobs", {
   error: text("error"),
   attempt: integer("attempt").notNull().default(0),
   maxAttempts: integer("max_attempts").notNull().default(3),
-  runAfter: integer("run_after"), // timestamp — don't run before this time
   parentJobId: text("parent_job_id"),
   startedAt: integer("started_at"),
   completedAt: integer("completed_at"),
   createdAt,
 });
+
+// ---------------------------------------------------------------------------
+// rejections
+// ---------------------------------------------------------------------------
+export const rejections = sqliteTable(
+  "rejections",
+  {
+    id,
+    trackId: text("track_id")
+      .notNull()
+      .references(() => tracks.id),
+    context: text("context", { enum: ["soulseek_download"] }).notNull(),
+    fileKey: text("file_key").notNull(), // username + filepath
+    reason: text("reason"),             // "validation_failed", "user_rejected", "wrong_track"
+    createdAt,
+  },
+  (table) => [
+    uniqueIndex("rejection_uniq").on(table.trackId, table.context, table.fileKey),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // sync_log
@@ -201,6 +222,9 @@ export type NewJob = InferInsertModel<typeof jobs>;
 
 export type JobType = Job["type"];
 export type JobStatus = Job["status"];
+
+export type Rejection = InferSelectModel<typeof rejections>;
+export type NewRejection = InferInsertModel<typeof rejections>;
 
 export type SyncLogEntry = InferSelectModel<typeof syncLog>;
 export type NewSyncLogEntry = InferInsertModel<typeof syncLog>;

@@ -11,6 +11,10 @@ export interface SpotifyConfig {
 export interface LexiconConfig {
   url: string;
   downloadRoot: string;
+  tagCategory: {
+    name: string;
+    color: string;
+  };
 }
 
 export interface SoulseekConfig {
@@ -30,13 +34,12 @@ export interface DownloadConfig {
   formats: string[];
   minBitrate: number;
   concurrency: number;
+  validationStrictness: "strict" | "moderate" | "lenient";
 }
 
 export interface JobRunnerConfig {
   /** Polling interval in milliseconds. Default: 1000 */
   pollIntervalMs: number;
-  /** Wishlist scan interval in milliseconds. Default: 6 hours */
-  wishlistIntervalMs: number;
 }
 
 export interface Config {
@@ -61,6 +64,10 @@ const defaults: Config = {
   lexicon: {
     url: "http://localhost:48624",
     downloadRoot: "",
+    tagCategory: {
+      name: "Spotify Playlists",
+      color: "#1DB954",
+    },
   },
   soulseek: {
     slskdUrl: "http://localhost:5030",
@@ -76,10 +83,10 @@ const defaults: Config = {
     formats: ["flac", "mp3"],
     minBitrate: 320,
     concurrency: 3,
+    validationStrictness: "moderate",
   },
   jobRunner: {
     pollIntervalMs: 1000,
-    wishlistIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
   },
 };
 
@@ -101,7 +108,11 @@ function mergeDefaults(
 ): Config {
   const merged = {
     spotify: { ...base.spotify, ...partial.spotify },
-    lexicon: { ...base.lexicon, ...partial.lexicon },
+    lexicon: {
+      ...base.lexicon,
+      ...partial.lexicon,
+      tagCategory: { ...base.lexicon.tagCategory, ...partial.lexicon?.tagCategory },
+    },
     soulseek: { ...base.soulseek, ...partial.soulseek },
     matching: { ...base.matching, ...partial.matching },
     download: {
