@@ -1,6 +1,6 @@
 [tasks.dev]
 description = "Start API server in dev mode"
-run = "tsx src/index.ts serve"
+run = "pnpm exec tsx src/index.ts serve"
 
 [tasks."dev:web"]
 description = "Start Vite frontend dev server"
@@ -9,7 +9,7 @@ run = "pnpm dev"
 
 [tasks."dev:all"]
 description = "Start API + frontend dev servers together"
-run = ["mise run dev & mise run dev:web"]
+depends = ["dev", "dev:web"]
 
 [tasks.build]
 description = "Build backend and frontend"
@@ -26,12 +26,12 @@ run = "pnpm test"
 
 [tasks.lint]
 description = "Type-check the project"
-run = "tsc --noEmit"
+run = "pnpm exec tsc --noEmit"
 
 [tasks."db:generate"]
 description = "Generate DB migrations"
-run = "drizzle-kit generate"
+run = "pnpm exec drizzle-kit generate"
 
 [tasks."db:migrate"]
 description = "Run DB migrations"
-run = "drizzle-kit migrate"
+run = "pnpm exec drizzle-kit migrate"
