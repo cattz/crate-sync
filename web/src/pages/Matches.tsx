@@ -38,7 +38,7 @@ export function Matches() {
                 <td>
                   {m.sourceTrack ? (
                     <span className="inline-track">
-                      {m.sourceTrack.title} <span className="artist">\u2014 {m.sourceTrack.artist}</span>
+                      {m.sourceTrack.title} <span className="artist">— {m.sourceTrack.artist}</span>
                     </span>
                   ) : (
                     <span className="text-muted">{m.sourceId}</span>

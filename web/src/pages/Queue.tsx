@@ -21,7 +21,7 @@ const typeLabel: Record<string, string> = {
 };
 
 function formatTime(ms: number | null) {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   return new Date(ms).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -37,7 +37,7 @@ function JobRow({ job }: { job: JobItem }) {
   const payload = job.payload;
   const trackInfo =
     payload && (payload.title || payload.artist)
-      ? `${payload.artist ?? ""} \u2014 ${payload.title ?? ""}`
+      ? `${payload.artist ?? ""} — ${payload.title ?? ""}`
       : null;
 
   return (

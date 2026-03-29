@@ -3,7 +3,7 @@ import type { PendingReviewItem } from "../api/client.js";
 import { Link } from "react-router";
 
 function formatDuration(ms: number | null | undefined) {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   const totalSec = Math.round(ms / 1000);
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;

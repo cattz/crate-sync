@@ -25,7 +25,7 @@ export function Dashboard() {
         </div>
         <div className="stat-card">
           <div className="label">Tracks</div>
-          <div className="value">{status?.database.ok ? status.database.tracks : "\u2014"}</div>
+          <div className="value">{status?.database.ok ? status.database.tracks : "—"}</div>
         </div>
         <div className="stat-card">
           <div className="label">Pending Reviews</div>

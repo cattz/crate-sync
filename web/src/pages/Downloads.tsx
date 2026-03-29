@@ -12,7 +12,7 @@ const statusBadge: Record<string, string> = {
 };
 
 function formatTime(ms: number | null) {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   return new Date(ms).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -71,7 +71,7 @@ export function Downloads() {
                 <td>
                   {d.track ? (
                     <span className="inline-track">
-                      {d.track.title} <span className="artist">\u2014 {d.track.artist}</span>
+                      {d.track.title} <span className="artist">— {d.track.artist}</span>
                     </span>
                   ) : (
                     <span className="text-muted">{d.trackId}</span>
@@ -86,7 +86,7 @@ export function Downloads() {
                   <span className="badge badge-gray">{d.origin}</span>
                 </td>
                 <td className="text-muted text-sm mono" style={{ maxWidth: 350, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {d.filePath ?? "\u2014"}
+                  {d.filePath ?? "—"}
                 </td>
                 <td className="text-sm" style={{ color: "var(--danger)" }}>
                   {d.error ?? ""}

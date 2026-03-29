@@ -25,7 +25,7 @@ const jobStatusBadge: Record<string, string> = {
 };
 
 function formatDuration(ms: number | null | undefined) {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   const totalSec = Math.round(ms / 1000);
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;
@@ -33,7 +33,7 @@ function formatDuration(ms: number | null | undefined) {
 }
 
 function formatTime(ms: number | null) {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   return new Date(ms).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -67,10 +67,10 @@ export function TrackDetail() {
         <table>
           <tbody>
             <tr><td className="text-muted">Artist</td><td>{track.artist}</td></tr>
-            <tr><td className="text-muted">Album</td><td>{track.album ?? "\u2014"}</td></tr>
+            <tr><td className="text-muted">Album</td><td>{track.album ?? "—"}</td></tr>
             <tr><td className="text-muted">Duration</td><td>{formatDuration(track.durationMs)}</td></tr>
-            <tr><td className="text-muted">ISRC</td><td className="mono">{track.isrc ?? "\u2014"}</td></tr>
-            <tr><td className="text-muted">Spotify URI</td><td className="mono text-sm">{track.spotifyUri ?? "\u2014"}</td></tr>
+            <tr><td className="text-muted">ISRC</td><td className="mono">{track.isrc ?? "—"}</td></tr>
+            <tr><td className="text-muted">Spotify URI</td><td className="mono text-sm">{track.spotifyUri ?? "—"}</td></tr>
             <tr><td className="text-muted">Imported</td><td>{formatTime(track.createdAt)}</td></tr>
           </tbody>
         </table>
@@ -147,7 +147,7 @@ export function TrackDetail() {
                     </span>
                   </td>
                   <td className="mono text-sm" style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {d.filePath ?? d.soulseekPath ?? "\u2014"}
+                    {d.filePath ?? d.soulseekPath ?? "—"}
                   </td>
                   <td>
                     <span className="badge badge-gray">{d.origin}</span>
@@ -181,8 +181,8 @@ export function TrackDetail() {
                 <tbody>
                   {matchRejections.map((r) => (
                     <tr key={r.id}>
-                      <td className="mono text-sm">{r.targetTrackId?.slice(0, 12) ?? "\u2014"}</td>
-                      <td className="text-sm">{r.reason ?? "\u2014"}</td>
+                      <td className="mono text-sm">{r.targetTrackId?.slice(0, 12) ?? "—"}</td>
+                      <td className="text-sm">{r.reason ?? "—"}</td>
                       <td className="text-muted text-sm">{formatTime(r.createdAt)}</td>
                     </tr>
                   ))}
@@ -202,9 +202,9 @@ export function TrackDetail() {
                   {downloadRejections.map((r) => (
                     <tr key={r.id}>
                       <td className="mono text-sm" style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {r.fileKey ?? "\u2014"}
+                        {r.fileKey ?? "—"}
                       </td>
-                      <td className="text-sm">{r.reason ?? "\u2014"}</td>
+                      <td className="text-sm">{r.reason ?? "—"}</td>
                       <td className="text-muted text-sm">{formatTime(r.createdAt)}</td>
                     </tr>
                   ))}

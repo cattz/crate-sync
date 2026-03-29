@@ -448,7 +448,7 @@ function ThSort({
 }) {
   return (
     <th className={className} onClick={() => onSort(sortKey)} style={{ cursor: "pointer", userSelect: "none" }}>
-      {label} {active === sortKey ? (dir === "asc" ? "\u25B2" : "\u25BC") : ""}
+      {label} {active === sortKey ? (dir === "asc" ? "▲" : "▼") : ""}
     </th>
   );
 }

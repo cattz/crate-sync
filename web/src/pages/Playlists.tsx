@@ -15,7 +15,7 @@ type SortDir = "asc" | "desc";
 type OwnershipFilter = "all" | "own" | "followed";
 
 function formatDate(ms: number | null) {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   return new Date(ms).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -45,7 +45,7 @@ function SortHeader({
       onClick={() => onSort(sortKey)}
       style={{ cursor: "pointer", userSelect: "none" }}
     >
-      {label} {active ? (direction === "asc" ? "\u25B2" : "\u25BC") : ""}
+      {label} {active ? (direction === "asc" ? "▲" : "▼") : ""}
     </th>
   );
 }
@@ -497,7 +497,7 @@ export function Playlists() {
                 <td>{p.trackCount}</td>
                 {ownership !== "own" && (
                   <td className="text-muted text-sm">
-                    {p.isOwned === 1 ? "You" : (p.ownerName ?? "\u2014")}
+                    {p.isOwned === 1 ? "You" : (p.ownerName ?? "—")}
                   </td>
                 )}
                 <td className="text-muted text-sm">{formatDate(p.lastSynced)}</td>
