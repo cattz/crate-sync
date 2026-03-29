@@ -95,6 +95,7 @@ a:hover {
 table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 th, td {
@@ -102,6 +103,8 @@ th, td {
   padding: 0.35rem 0.6rem;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 th {
@@ -115,6 +118,13 @@ th {
 tr:hover td {
   background: var(--bg-hover);
 }
+
+/* Column width hints */
+.col-check { width: 32px; }
+.col-xs { width: 48px; }
+.col-sm { width: 80px; }
+.col-md { width: 120px; }
+.col-actions { width: 100px; }
 
 /* Badges */
 .badge {

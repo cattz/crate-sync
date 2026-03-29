@@ -167,13 +167,13 @@ export function Queue() {
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Type</th>
-              <th>Status</th>
+              <th className="col-sm">ID</th>
+              <th className="col-md">Type</th>
+              <th className="col-sm">Status</th>
               <th>Details</th>
               <th>Error</th>
-              <th>Created</th>
-              <th>Actions</th>
+              <th className="col-md">Created</th>
+              <th className="col-actions">Actions</th>
             </tr>
           </thead>
           <tbody>

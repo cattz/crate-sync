@@ -247,7 +247,7 @@ export function PlaylistDetail() {
         <div style={{ position: "relative", maxWidth: 260 }}>
           <input
             type="text"
-            placeholder="Add tag\u2026"
+            placeholder="Add tag…"
             value={tagInput}
             onChange={(e) => { setTagInput(e.target.value); setShowTagSuggestions(true); }}
             onKeyDown={(e) => {
@@ -311,7 +311,7 @@ export function PlaylistDetail() {
               handleSaveNotes(val);
             }
           }}
-          placeholder="Add notes about this playlist\u2026"
+          placeholder="Add notes about this playlist…"
         />
       </div>
 
@@ -338,7 +338,7 @@ export function PlaylistDetail() {
           </span>
           <input
             type="text"
-            placeholder="Filter by title or artist\u2026"
+            placeholder="Filter by title or artist…"
             value={trackSearch}
             onChange={(e) => setTrackSearch(e.target.value)}
             style={{ width: 220 }}
@@ -347,11 +347,11 @@ export function PlaylistDetail() {
         <table>
           <thead>
             <tr>
-              <ThSort label="#" sortKey="position" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
+              <ThSort label="#" sortKey="position" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} className="col-xs" />
               <ThSort label="Title" sortKey="title" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
               <ThSort label="Artist" sortKey="artist" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
               <ThSort label="Album" sortKey="album" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
-              <ThSort label="Duration" sortKey="durationMs" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
+              <ThSort label="Duration" sortKey="durationMs" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} className="col-sm" />
             </tr>
           </thead>
           <tbody>
@@ -437,15 +437,17 @@ function ThSort({
   active,
   dir,
   onSort,
+  className,
 }: {
   label: string;
   sortKey: TrackSortKey;
   active: TrackSortKey;
   dir: SortDir;
   onSort: (key: TrackSortKey) => void;
+  className?: string;
 }) {
   return (
-    <th onClick={() => onSort(sortKey)} style={{ cursor: "pointer", userSelect: "none" }}>
+    <th className={className} onClick={() => onSort(sortKey)} style={{ cursor: "pointer", userSelect: "none" }}>
       {label} {active === sortKey ? (dir === "asc" ? "\u25B2" : "\u25BC") : ""}
     </th>
   );

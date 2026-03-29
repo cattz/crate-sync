@@ -58,11 +58,11 @@ export function Downloads() {
           <thead>
             <tr>
               <th>Track</th>
-              <th>Status</th>
-              <th>Origin</th>
+              <th className="col-sm">Status</th>
+              <th className="col-sm">Origin</th>
               <th>File</th>
               <th>Error</th>
-              <th>Completed</th>
+              <th className="col-md">Completed</th>
             </tr>
           </thead>
           <tbody>

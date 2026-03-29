@@ -30,15 +30,18 @@ function SortHeader({
   active,
   direction,
   onSort,
+  className,
 }: {
   label: string;
   sortKey: SortKey;
   active: boolean;
   direction: SortDir;
   onSort: (key: SortKey) => void;
+  className?: string;
 }) {
   return (
     <th
+      className={className}
       onClick={() => onSort(sortKey)}
       style={{ cursor: "pointer", userSelect: "none" }}
     >
@@ -449,7 +452,7 @@ export function Playlists() {
         <table>
           <thead>
             <tr>
-              <th style={{ width: 32 }}>
+              <th className="col-check">
                 <input
                   type="checkbox"
                   checked={filtered.length > 0 && selection.count === filtered.length}
@@ -466,10 +469,10 @@ export function Playlists() {
                 />
               </th>
               <SortHeader label="Name" sortKey="name" active={sortKey === "name"} direction={sortDir} onSort={handleSort} />
-              <SortHeader label="Tracks" sortKey="trackCount" active={sortKey === "trackCount"} direction={sortDir} onSort={handleSort} />
-              {ownership !== "own" && <SortHeader label="Owner" sortKey="ownerName" active={sortKey === "ownerName"} direction={sortDir} onSort={handleSort} />}
-              <SortHeader label="Last Synced" sortKey="lastSynced" active={sortKey === "lastSynced"} direction={sortDir} onSort={handleSort} />
-              <th></th>
+              <SortHeader label="Tracks" sortKey="trackCount" active={sortKey === "trackCount"} direction={sortDir} onSort={handleSort} className="col-sm" />
+              {ownership !== "own" && <SortHeader label="Owner" sortKey="ownerName" active={sortKey === "ownerName"} direction={sortDir} onSort={handleSort} className="col-md" />}
+              <SortHeader label="Last Synced" sortKey="lastSynced" active={sortKey === "lastSynced"} direction={sortDir} onSort={handleSort} className="col-md" />
+              <th className="col-actions"></th>
             </tr>
           </thead>
           <tbody>
