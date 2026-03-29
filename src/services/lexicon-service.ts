@@ -231,7 +231,16 @@ export class LexiconService {
     const { categories } = await this.getTags();
     const existing = categories.find((c) => c.label === label);
     if (existing) return existing;
-    return this.createTagCategory(label, color ?? "#808080");
+    try {
+      return await this.createTagCategory(label, color ?? "#808080");
+    } catch (err) {
+      if (String(err).includes("already exists")) {
+        const { categories: retry } = await this.getTags();
+        const found = retry.find((c) => c.label === label);
+        if (found) return found;
+      }
+      throw err;
+    }
   }
 
   /** Find existing tag in category or create new one */
@@ -239,7 +248,16 @@ export class LexiconService {
     const { tags } = await this.getTags();
     const existing = tags.find((t) => t.categoryId === categoryId && t.label === label);
     if (existing) return existing;
-    return this.createTag(categoryId, label);
+    try {
+      return await this.createTag(categoryId, label);
+    } catch (err) {
+      if (String(err).includes("already exists")) {
+        const { tags: retry } = await this.getTags();
+        const found = retry.find((t) => t.categoryId === categoryId && t.label === label);
+        if (found) return found;
+      }
+      throw err;
+    }
   }
 
   /** Read only tags belonging to a specific category for a track */
