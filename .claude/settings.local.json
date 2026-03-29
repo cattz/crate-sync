@@ -11,7 +11,14 @@
       "Bash(pnpm approve-builds:*)",
       "Bash(npx vite:*)",
       "Bash(ls -1 /Users/xabier/Repos/Music/crate-sync/spoty-poty/components/*.tsx)",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(grep \"\\\\.json$\")",
+      "Bash(sqlite3:*)",
+      "Bash(grep -h \"import.*from.*services\\\\|from.*matching\\\\|from.*search\\\\|from.*db\\\\|from.*config\" /Users/xabier/Repos/Music/crate-sync/src/commands/*.ts)",
+      "Bash(grep -E \"\\\\.ts$\")",
+      "mcp__claude_ai_Mermaid_Chart__validate_and_render_mermaid_diagram"
     ]
   },
   "defaultMode": "bypassPermissions"
