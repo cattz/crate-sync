@@ -472,7 +472,7 @@ export function Playlists() {
               <SortHeader label="Tracks" sortKey="trackCount" active={sortKey === "trackCount"} direction={sortDir} onSort={handleSort} className="col-sm" />
               {ownership !== "own" && <SortHeader label="Owner" sortKey="ownerName" active={sortKey === "ownerName"} direction={sortDir} onSort={handleSort} className="col-md" />}
               <SortHeader label="Last Synced" sortKey="lastSynced" active={sortKey === "lastSynced"} direction={sortDir} onSort={handleSort} className="col-md" />
-              <th className="col-actions"></th>
+              <th className="col-lg"></th>
             </tr>
           </thead>
           <tbody>

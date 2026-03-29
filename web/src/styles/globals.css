@@ -122,9 +122,10 @@ tr:hover td {
 /* Column width hints */
 .col-check { width: 32px; }
 .col-xs { width: 48px; }
-.col-sm { width: 80px; }
-.col-md { width: 120px; }
-.col-actions { width: 100px; }
+.col-sm { width: 72px; }
+.col-md { width: 140px; }
+.col-lg { width: 180px; }
+.col-actions { width: 120px; }
 
 /* Badges */
 .badge {
