@@ -230,77 +230,133 @@ describe("PlaylistService", () => {
   });
 
   // -------------------------------------------------------------------------
-  // findDuplicatesInPlaylist
+  // bulkRename
   // -------------------------------------------------------------------------
-  describe("findDuplicatesInPlaylist", () => {
-    it("detects duplicates by spotifyId", () => {
-      const pl = svc.upsertPlaylist({ spotifyId: "sp-dups", name: "Dups" });
+  describe("bulkRename", () => {
+    it("renames matching playlists", () => {
+      svc.upsertPlaylist({ spotifyId: "sp-a", name: "WIP - A" });
+      svc.upsertPlaylist({ spotifyId: "sp-b", name: "WIP - B" });
+      svc.upsertPlaylist({ spotifyId: "sp-c", name: "Final C" });
 
-      // Insert two track rows that share the same spotifyId — impossible via
-      // upsertTrack (unique constraint), so we create them with different
-      // spotify IDs and wire them both into the playlist, then check by
-      // spotifyId grouping.
-      // Actually, findDuplicatesInPlaylist groups by spotifyId on the Track
-      // objects, so we need two distinct DB rows with the same spotifyId.
-      // Since the tracks table has a unique index on spotify_id, we instead
-      // add the *same* track twice to the playlist_tracks table.
-      // But playlist_tracks has a unique index on (playlist_id, track_id)...
-      //
-      // The realistic scenario: two different track rows that happen to share
-      // a spotifyId can't exist. The code path handles it anyway. We can test
-      // by inserting two tracks with identical spotify_id by bypassing the
-      // unique index (insert raw). Alternatively, test the title+artist path.
-      //
-      // Let's test both paths:
-      // Path 1 — same spotifyId: insert raw with different PK but same spotifyId
-      const now = Date.now();
-      const t1Id = crypto.randomUUID();
-      const t2Id = crypto.randomUUID();
+      const results = svc.bulkRename(/^WIP - /, "");
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.newName).sort()).toEqual(["A", "B"]);
 
-      // Use raw SQL to bypass drizzle unique constraint for testing
-      sqlite.exec(`
-        INSERT INTO tracks (id, spotify_id, title, artist, duration_ms, created_at, updated_at)
-        VALUES ('${t1Id}', 'dup-spotify', 'Dup Song', 'Artist', 200000, ${now}, ${now}),
-               ('${t2Id}', 'dup-spotify2', 'Dup Song', 'Artist', 200000, ${now}, ${now})
-      `);
+      // Verify DB updated
+      expect(svc.getPlaylist("sp-a")!.name).toBe("A");
+      expect(svc.getPlaylist("sp-b")!.name).toBe("B");
+      expect(svc.getPlaylist("sp-c")!.name).toBe("Final C");
+    });
 
-      // Actually for spotifyId-based dedup to trigger, they need the SAME spotifyId.
-      // We can't have two rows with same spotify_id due to unique index.
-      // So test with two tracks that have same spotifyId value via raw insert
-      // (SQLite allows if we drop the unique index, but that changes the schema).
-      //
-      // Better approach: use two tracks with same title+artist but no spotifyId
-      // for the title+artist dedup path. And for spotifyId dedup, note that
-      // findDuplicatesInPlaylist reads track objects and groups by their
-      // spotifyId field. Since we can't have duplicate spotifyIds in the DB,
-      // this path would only fire if there's a bug. Let's just test the
-      // title+artist dedup path which is the realistic scenario.
+    it("dryRun does not persist", () => {
+      svc.upsertPlaylist({ spotifyId: "sp-dry", name: "WIP - Dry" });
 
-      // Clean up raw insert
-      sqlite.exec(`DELETE FROM tracks WHERE id IN ('${t1Id}', '${t2Id}')`);
+      const results = svc.bulkRename(/^WIP - /, "", { dryRun: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].newName).toBe("Dry");
 
-      // Title+artist dedup path: tracks with null spotifyId
-      const t3Id = crypto.randomUUID();
-      const t4Id = crypto.randomUUID();
-      sqlite.exec(`
-        INSERT INTO tracks (id, spotify_id, title, artist, duration_ms, created_at, updated_at)
-        VALUES ('${t3Id}', NULL, 'Same Song', 'Same Artist', 200000, ${now}, ${now}),
-               ('${t4Id}', NULL, 'same song', 'same artist', 200000, ${now}, ${now})
-      `);
+      // DB unchanged
+      expect(svc.getPlaylist("sp-dry")!.name).toBe("WIP - Dry");
+    });
 
-      // Wire them into the playlist
-      const ptId1 = crypto.randomUUID();
-      const ptId2 = crypto.randomUUID();
-      sqlite.exec(`
-        INSERT INTO playlist_tracks (id, playlist_id, track_id, position)
-        VALUES ('${ptId1}', '${pl.id}', '${t3Id}', 0),
-               ('${ptId2}', '${pl.id}', '${t4Id}', 1)
-      `);
+    it("accepts string pattern", () => {
+      svc.upsertPlaylist({ spotifyId: "sp-str", name: "WIP done" });
 
-      const dupes = svc.findDuplicatesInPlaylist(pl.id);
-      expect(dupes).toHaveLength(1);
-      expect(dupes[0].track.title).toBe("Same Song");
-      expect(dupes[0].duplicates).toHaveLength(1);
+      const results = svc.bulkRename("WIP", "DONE");
+      expect(results).toHaveLength(1);
+      expect(results[0].newName).toBe("DONE done");
+    });
+
+    it("returns empty for no matches", () => {
+      svc.upsertPlaylist({ spotifyId: "sp-none", name: "Hello" });
+      expect(svc.bulkRename(/^ZZZZZ/, "X")).toEqual([]);
+    });
+
+    it("global flag replaces all occurrences", () => {
+      svc.upsertPlaylist({ spotifyId: "sp-g", name: "a/b/a" });
+
+      const results = svc.bulkRename(/a/g, "x");
+      expect(results).toHaveLength(1);
+      expect(results[0].newName).toBe("x/b/x");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // updateMetadata
+  // -------------------------------------------------------------------------
+  describe("updateMetadata", () => {
+    it("updates tags only", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-meta", name: "Meta" });
+      svc.updateMetadata(pl.id, { tags: '["Techno"]' });
+
+      const updated = svc.getPlaylist(pl.id)!;
+      expect(updated.tags).toBe('["Techno"]');
+      expect(updated.notes).toBeNull();
+    });
+
+    it("updates notes only", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-notes", name: "Notes" });
+      svc.updateMetadata(pl.id, { notes: "Great set" });
+
+      const updated = svc.getPlaylist(pl.id)!;
+      expect(updated.notes).toBe("Great set");
+    });
+
+    it("updates pinned", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-pin", name: "Pin" });
+      svc.updateMetadata(pl.id, { pinned: 1 });
+
+      expect(svc.getPlaylist(pl.id)!.pinned).toBe(1);
+    });
+
+    it("updates multiple fields at once", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-multi", name: "Multi" });
+      svc.updateMetadata(pl.id, {
+        tags: '["House"]',
+        notes: "Club mix",
+        pinned: 1,
+      });
+
+      const updated = svc.getPlaylist(pl.id)!;
+      expect(updated.tags).toBe('["House"]');
+      expect(updated.notes).toBe("Club mix");
+      expect(updated.pinned).toBe(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // composeDescription
+  // -------------------------------------------------------------------------
+  describe("composeDescription", () => {
+    it("serializes tags and notes", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-desc", name: "Desc" });
+      svc.updateMetadata(pl.id, {
+        tags: '["Techno","Dark"]',
+        notes: "Late night vibes",
+      });
+
+      const desc = svc.composeDescription(pl.id);
+      expect(desc).toBe("Late night vibes\n\nTags: Techno, Dark");
+    });
+
+    it("handles notes only", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-nonly", name: "NOnly" });
+      svc.updateMetadata(pl.id, { notes: "Just notes" });
+
+      expect(svc.composeDescription(pl.id)).toBe("Just notes");
+    });
+
+    it("handles tags only", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-tonly", name: "TOnly" });
+      svc.updateMetadata(pl.id, { tags: '["House","Minimal"]' });
+
+      expect(svc.composeDescription(pl.id)).toBe("Tags: House, Minimal");
+    });
+
+    it("throws for missing playlist", () => {
+      expect(() => svc.composeDescription("nonexistent")).toThrow(
+        "Playlist not found: nonexistent",
+      );
     });
   });
 
@@ -343,32 +399,4 @@ describe("PlaylistService", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // mergePlaylistTracks
-  // -------------------------------------------------------------------------
-  describe("mergePlaylistTracks", () => {
-    it("merges tracks from sources, deduplicates, and counts correctly", () => {
-      const target = svc.upsertPlaylist({ spotifyId: "sp-tgt", name: "Target" });
-      const source = svc.upsertPlaylist({ spotifyId: "sp-src", name: "Source" });
-
-      const t1 = insertTrack(db, { title: "Shared", artist: "A" });
-      const t2 = insertTrack(db, { title: "Only Target", artist: "B" });
-      const t3 = insertTrack(db, { title: "Only Source", artist: "C" });
-
-      svc.setPlaylistTracks(target.id, [t1, t2]);
-      svc.setPlaylistTracks(source.id, [t1, t3]);
-
-      const result = svc.mergePlaylistTracks(target.id, [source.id]);
-
-      expect(result.added).toBe(1); // t3 was added
-      expect(result.duplicatesSkipped).toBe(1); // t1 was skipped
-
-      const merged = svc.getPlaylistTracks(target.id);
-      expect(merged).toHaveLength(3);
-      // Order: target tracks first (t1, t2), then new from source (t3)
-      expect(merged[0].id).toBe(t1);
-      expect(merged[1].id).toBe(t2);
-      expect(merged[2].id).toBe(t3);
-    });
-  });
 });

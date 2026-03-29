@@ -1,4 +1,4 @@
-import { eq, and, sql, count, desc, like } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb } from "../db/client.js";
 import {
   playlists,
@@ -10,6 +10,7 @@ import {
 } from "../db/schema.js";
 import type { SpotifyTrack } from "../types/spotify.js";
 import { extractPlaylistId } from "../utils/spotify-url.js";
+import { SpotifyService } from "./spotify-service.js";
 
 export class PlaylistService {
   private db: ReturnType<typeof getDb>;
@@ -80,118 +81,6 @@ export class PlaylistService {
       .all();
 
     return rows;
-  }
-
-  /**
-   * Find duplicate tracks within a playlist.
-   * Groups by spotify_id first, then by title+artist for tracks without spotify_id.
-   */
-  findDuplicatesInPlaylist(
-    playlistId: string,
-  ): Array<{ track: Track; duplicates: Track[] }> {
-    const playlistTrackRows = this.getPlaylistTracks(playlistId);
-    const result: Array<{ track: Track; duplicates: Track[] }> = [];
-
-    // Group by spotify_id
-    const bySpotifyId = new Map<string, Track[]>();
-    const noSpotifyId: Track[] = [];
-
-    for (const row of playlistTrackRows) {
-      const { position: _, ...track } = row;
-      if (track.spotifyId) {
-        const group = bySpotifyId.get(track.spotifyId) ?? [];
-        group.push(track);
-        bySpotifyId.set(track.spotifyId, group);
-      } else {
-        noSpotifyId.push(track);
-      }
-    }
-
-    // Collect spotify_id duplicates
-    for (const [, group] of bySpotifyId) {
-      if (group.length > 1) {
-        result.push({ track: group[0], duplicates: group.slice(1) });
-      }
-    }
-
-    // Group remaining by title+artist (case-insensitive)
-    const byTitleArtist = new Map<string, Track[]>();
-    for (const track of noSpotifyId) {
-      const key = `${track.title.toLowerCase()}::${track.artist.toLowerCase()}`;
-      const group = byTitleArtist.get(key) ?? [];
-      group.push(track);
-      byTitleArtist.set(key, group);
-    }
-
-    for (const [, group] of byTitleArtist) {
-      if (group.length > 1) {
-        result.push({ track: group[0], duplicates: group.slice(1) });
-      }
-    }
-
-    return result;
-  }
-
-  /** Find duplicate tracks across all playlists. */
-  findDuplicatesAcrossPlaylists(): Array<{
-    track: Track;
-    playlists: Playlist[];
-  }> {
-    // Get all tracks that appear in more than one playlist
-    const allPt = this.db
-      .select({
-        trackId: playlistTracks.trackId,
-        playlistId: playlistTracks.playlistId,
-      })
-      .from(playlistTracks)
-      .all();
-
-    // Group playlist IDs by track ID
-    const trackPlaylists = new Map<string, Set<string>>();
-    for (const row of allPt) {
-      const set = trackPlaylists.get(row.trackId) ?? new Set();
-      set.add(row.playlistId);
-      trackPlaylists.set(row.trackId, set);
-    }
-
-    const result: Array<{ track: Track; playlists: Playlist[] }> = [];
-
-    for (const [trackId, playlistIdSet] of trackPlaylists) {
-      if (playlistIdSet.size <= 1) continue;
-
-      const track = this.db
-        .select()
-        .from(tracks)
-        .where(eq(tracks.id, trackId))
-        .get();
-
-      if (!track) continue;
-
-      const trackPlaylists_: Playlist[] = [];
-      for (const pid of playlistIdSet) {
-        const playlist = this.db
-          .select()
-          .from(playlists)
-          .where(eq(playlists.id, pid))
-          .get();
-        if (playlist) trackPlaylists_.push(playlist);
-      }
-
-      result.push({ track, playlists: trackPlaylists_ });
-    }
-
-    return result;
-  }
-
-  /** Create a new local-only playlist (no spotify_id). */
-  createPlaylist(name: string): Playlist {
-    const row = this.db
-      .insert(playlists)
-      .values({ name })
-      .returning()
-      .get();
-
-    return row;
   }
 
   /** Upsert a playlist (insert or update by spotify_id). */
@@ -298,40 +187,51 @@ export class PlaylistService {
       .run();
   }
 
-  /**
-   * Merge tracks from source playlists into target.
-   * Deduplicates by track_id, preserving order from target first, then sources.
-   */
-  mergePlaylistTracks(
-    targetPlaylistId: string,
-    sourcePlaylistIds: string[],
-  ): { added: number; duplicatesSkipped: number } {
-    const targetTracks = this.getPlaylistTracks(targetPlaylistId);
-    const seenTrackIds = new Set(targetTracks.map((t) => t.id));
+  /** Bulk rename playlists matching a pattern. */
+  bulkRename(
+    pattern: string | RegExp,
+    replacement: string,
+    options?: { dryRun?: boolean },
+  ): Array<{ id: string; oldName: string; newName: string }> {
+    const regex = typeof pattern === "string" ? new RegExp(pattern) : pattern;
+    const all = this.getPlaylists();
+    const results: Array<{ id: string; oldName: string; newName: string }> = [];
 
-    const newTrackIds: string[] = [];
-    let duplicatesSkipped = 0;
-
-    for (const sourceId of sourcePlaylistIds) {
-      const sourceTracks = this.getPlaylistTracks(sourceId);
-      for (const track of sourceTracks) {
-        if (seenTrackIds.has(track.id)) {
-          duplicatesSkipped++;
-        } else {
-          seenTrackIds.add(track.id);
-          newTrackIds.push(track.id);
-        }
+    for (const pl of all) {
+      const newName = pl.name.replace(regex, replacement);
+      if (newName !== pl.name) {
+        results.push({ id: pl.id, oldName: pl.name, newName });
       }
     }
 
-    const allTrackIds = [
-      ...targetTracks.map((t) => t.id),
-      ...newTrackIds,
-    ];
+    if (!options?.dryRun) {
+      for (const r of results) {
+        this.renamePlaylist(r.id, r.newName);
+      }
+    }
 
-    this.setPlaylistTracks(targetPlaylistId, allTrackIds);
+    return results;
+  }
 
-    return { added: newTrackIds.length, duplicatesSkipped };
+  /** Update local playlist metadata (tags, notes, pinned). Partial update. */
+  updateMetadata(
+    playlistId: string,
+    data: { tags?: string; notes?: string; pinned?: number },
+  ): void {
+    this.db
+      .update(playlists)
+      .set({ ...data, updatedAt: Date.now() })
+      .where(eq(playlists.id, playlistId))
+      .run();
+  }
+
+  /** Compose a Spotify description string from playlist tags + notes. */
+  composeDescription(playlistId: string): string {
+    const playlist = this.getPlaylist(playlistId);
+    if (!playlist) {
+      throw new Error(`Playlist not found: ${playlistId}`);
+    }
+    return SpotifyService.composeDescription(playlist.notes ?? null, playlist.tags ?? null);
   }
 
   /** Remove a playlist and its playlist_tracks entries. */

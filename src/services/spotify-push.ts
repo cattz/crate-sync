@@ -1,0 +1,83 @@
+import type { SpotifyService } from "./spotify-service.js";
+import type { PlaylistService } from "./playlist-service.js";
+
+export interface PushOptions {
+  dryRun?: boolean;
+  includeDescription?: boolean;
+}
+
+export interface PushSummary {
+  playlistId: string;
+  playlistName: string;
+  renamed: { from: string; to: string } | null;
+  descriptionUpdated: boolean;
+  tracksAdded: number;
+  tracksRemoved: number;
+  dryRun: boolean;
+}
+
+export async function pushPlaylist(
+  playlistId: string,
+  spotifyService: SpotifyService,
+  playlistService: PlaylistService,
+  options?: PushOptions,
+): Promise<PushSummary> {
+  const dryRun = options?.dryRun ?? false;
+  const includeDescription = options?.includeDescription ?? true;
+
+  const playlist = playlistService.getPlaylist(playlistId);
+  if (!playlist) {
+    throw new Error(`Playlist not found: ${playlistId}`);
+  }
+  if (!playlist.spotifyId) {
+    throw new Error(`Playlist has no Spotify ID: ${playlistId}`);
+  }
+
+  const spotifyId = playlist.spotifyId;
+
+  // Fetch current Spotify state
+  const [spotifyDetails, spotifyTracks] = await Promise.all([
+    spotifyService.getPlaylistDetails(spotifyId),
+    spotifyService.getPlaylistTracks(spotifyId),
+  ]);
+
+  // Detect rename
+  const nameChanged = spotifyDetails.name !== playlist.name;
+
+  // Detect description change
+  let descriptionChanged = false;
+  let composedDescription = "";
+  if (includeDescription) {
+    composedDescription = playlistService.composeDescription(playlistId);
+    descriptionChanged = spotifyDetails.description !== composedDescription;
+  }
+
+  // Detect track diff
+  const diff = playlistService.getPlaylistDiff(playlistId, spotifyTracks);
+
+  // Execute changes (skip if dry run)
+  if (!dryRun) {
+    if (nameChanged) {
+      await spotifyService.renamePlaylist(spotifyId, playlist.name);
+    }
+    if (descriptionChanged) {
+      await spotifyService.updatePlaylistDescription(spotifyId, composedDescription);
+    }
+    if (diff.toRemove.length > 0) {
+      await spotifyService.removeTracksFromPlaylist(spotifyId, diff.toRemove);
+    }
+    if (diff.toAdd.length > 0) {
+      await spotifyService.addTracksToPlaylist(spotifyId, diff.toAdd);
+    }
+  }
+
+  return {
+    playlistId: playlist.id,
+    playlistName: playlist.name,
+    renamed: nameChanged ? { from: spotifyDetails.name, to: playlist.name } : null,
+    descriptionUpdated: descriptionChanged && !dryRun,
+    tracksAdded: diff.toAdd.length,
+    tracksRemoved: diff.toRemove.length,
+    dryRun,
+  };
+}

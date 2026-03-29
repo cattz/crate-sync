@@ -321,6 +321,16 @@ export class SpotifyService {
   // Playlists — API
   // ---------------------------------------------------------------------------
 
+  /** Get a single playlist's name and description from Spotify (lightweight). */
+  async getPlaylistDetails(
+    playlistId: string,
+  ): Promise<{ name: string; description: string }> {
+    const data = (await this.fetchApi(
+      `/playlists/${playlistId}?fields=name,description`,
+    )) as { name: string; description: string | null };
+    return { name: data.name, description: data.description ?? "" };
+  }
+
   /** Get current user's playlists (handles pagination) */
   async getPlaylists(): Promise<SpotifyPlaylist[]> {
     const result: SpotifyPlaylist[] = [];
@@ -597,6 +607,14 @@ export class SpotifyService {
       method: "PUT",
       body: JSON.stringify(details),
     });
+  }
+
+  /** Update only the description of a playlist */
+  async updatePlaylistDescription(
+    playlistId: string,
+    description: string,
+  ): Promise<void> {
+    await this.updatePlaylistDetails(playlistId, { description });
   }
 
   // ---------------------------------------------------------------------------
