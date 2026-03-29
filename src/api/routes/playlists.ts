@@ -51,7 +51,23 @@ playlistRoutes.post("/sync", async (c) => {
   }
 
   const result = await spotify.syncToDb();
-  return c.json({ ok: true, ...result });
+
+  // Also sync tracks for each playlist
+  const database = getDb();
+  const allPlaylists = database.select().from(playlists).all();
+  const syncable = allPlaylists.filter((pl) => pl.spotifyId);
+
+  let tracksSynced = 0;
+  for (const pl of syncable) {
+    try {
+      const trackResult = await spotify.syncPlaylistTracks(pl.spotifyId);
+      tracksSynced += trackResult.added + trackResult.updated;
+    } catch {
+      // continue with other playlists
+    }
+  }
+
+  return c.json({ ok: true, ...result, tracksSynced });
 });
 
 // POST /api/playlists/bulk-rename
