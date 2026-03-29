@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { extname, join, basename, dirname } from "node:path";
 import { parseFile } from "music-metadata";
+import crypto from "node:crypto";
+import { eq, and } from "drizzle-orm";
 
 import type {
   SoulseekConfig,
@@ -22,12 +24,18 @@ import { FuzzyMatchStrategy } from "../matching/fuzzy.js";
 import { isShutdownRequested } from "../utils/shutdown.js";
 import { createLogger } from "../utils/logger.js";
 import { generateSearchQueries, type QueryStrategy } from "../search/query-builder.js";
+import { getDb } from "../db/client.js";
+import * as schema from "../db/schema.js";
 
 const log = createLogger("download");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export type Database = ReturnType<typeof getDb>;
+
+export type ValidationStrictness = "strict" | "moderate" | "lenient";
 
 export interface RankedResult {
   file: SlskdFile;
@@ -45,26 +53,11 @@ export interface DownloadResult {
   strategyLog?: Array<{ label: string; query: string; resultCount: number }>;
 }
 
-/** Info passed to the download review callback. */
-export interface DownloadCandidate {
+export interface DownloadItem {
   track: TrackInfo;
-  file: SlskdFile;
-  /** Parsed artist/title from the Soulseek filename. */
-  parsedTrack: TrackInfo;
-  score: number;
-  diagnostics: string;
+  dbTrackId: string;
+  playlistName: string;
 }
-
-/**
- * Review callback for download candidates.
- * Return true to accept, false to skip.
- * Returning "all" accepts this and all remaining without further prompts.
- */
-export type DownloadReviewFn = (
-  candidate: DownloadCandidate,
-  index: number,
-  total: number,
-) => Promise<boolean | "all">;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,11 +101,17 @@ function getExtension(filename: string): string {
   return ext.startsWith(".") ? ext.slice(1) : ext;
 }
 
+/** Build a rejection file_key from a Soulseek file's username and filepath. */
+function buildFileKey(username: string, filepath: string): string {
+  return `${username}:${filepath}`;
+}
+
 // ---------------------------------------------------------------------------
 // DownloadService
 // ---------------------------------------------------------------------------
 
 export class DownloadService {
+  private readonly db: Database;
   private readonly soulseek: SoulseekService;
   private readonly matcher: FuzzyMatchStrategy;
   private readonly allowedFormats: Set<string>;
@@ -120,12 +119,15 @@ export class DownloadService {
   private readonly concurrency: number;
   private readonly downloadRoot: string;
   private readonly slskdDownloadDir: string;
+  private readonly validationStrictness: ValidationStrictness;
 
   constructor(
-    private soulseekConfig: SoulseekConfig,
-    private downloadConfig: DownloadConfig,
-    private lexiconConfig: LexiconConfig,
+    db: Database,
+    soulseekConfig: SoulseekConfig,
+    downloadConfig: DownloadConfig,
+    lexiconConfig: LexiconConfig,
   ) {
+    this.db = db;
     this.soulseek = new SoulseekService(soulseekConfig);
     this.matcher = new FuzzyMatchStrategy({
       autoAcceptThreshold: 0.9,
@@ -140,27 +142,81 @@ export class DownloadService {
     this.concurrency = downloadConfig.concurrency;
     this.downloadRoot = lexiconConfig.downloadRoot;
     this.slskdDownloadDir = soulseekConfig.downloadDir;
+    this.validationStrictness = downloadConfig.validationStrictness;
+  }
+
+  // -------------------------------------------------------------------------
+  // Rejection memory
+  // -------------------------------------------------------------------------
+
+  /**
+   * Get all rejected file keys for a track in the soulseek_download context.
+   */
+  private getRejectionsForTrack(trackId: string): Set<string> {
+    const rows = this.db
+      .select({ fileKey: schema.rejections.fileKey })
+      .from(schema.rejections)
+      .where(
+        and(
+          eq(schema.rejections.trackId, trackId),
+          eq(schema.rejections.context, "soulseek_download"),
+        ),
+      )
+      .all();
+
+    return new Set(rows.map((r) => r.fileKey));
   }
 
   /**
+   * Record a rejection for a Soulseek file so it won't be tried again.
+   * Uses INSERT OR IGNORE to handle the unique constraint gracefully.
+   */
+  async recordRejection(trackId: string, fileKey: string, reason: string): Promise<void> {
+    this.db
+      .insert(schema.rejections)
+      .values({
+        id: crypto.randomUUID(),
+        trackId,
+        context: "soulseek_download",
+        fileKey,
+        reason,
+        createdAt: Date.now(),
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  // -------------------------------------------------------------------------
+  // Ranking
+  // -------------------------------------------------------------------------
+
+  /**
    * Filter by format/bitrate and rank files using fuzzy matching.
-   * Pure function — no I/O.
+   * Filters out previously rejected files for the given track.
    */
   rankResults(
     files: SlskdFile[],
     track: TrackInfo,
+    trackId: string,
   ): { ranked: RankedResult[]; diagnostics: string } {
-    // Filter by allowed formats
-    const formatFiltered = files.filter((f) =>
+    // 1. Rejection filter
+    const rejectedKeys = this.getRejectionsForTrack(trackId);
+    const rejectionFiltered = files.filter(
+      (f) => !rejectedKeys.has(buildFileKey(f.username, f.filename)),
+    );
+    const rejectionCount = files.length - rejectionFiltered.length;
+
+    // 2. Filter by allowed formats
+    const formatFiltered = rejectionFiltered.filter((f) =>
       this.allowedFormats.has(getExtension(f.filename)),
     );
 
-    // Filter by minimum bitrate (skip check for files without bitrate info)
+    // 3. Filter by minimum bitrate (skip check for files without bitrate info)
     const bitrateFiltered = formatFiltered.filter(
       (f) => f.bitRate == null || f.bitRate >= this.minBitrate,
     );
 
-    // Rank using fuzzy matching: build TrackInfo from each filename and compare
+    // 4. Rank using fuzzy matching: build TrackInfo from each filename and compare
     const expected: TrackInfo = {
       title: track.title,
       artist: track.artist,
@@ -186,13 +242,14 @@ export class DownloadService {
       }
     }
 
-    // Sort by score descending
+    // 5. Sort by score descending
     ranked.sort((a, b) => b.score - a.score);
 
-    // Build diagnostics
+    // 6. Build diagnostics
     const diag = [
       `${files.length} results`,
-      files.length - formatFiltered.length > 0 ? `${files.length - formatFiltered.length} filtered by format` : null,
+      rejectionCount > 0 ? `${rejectionCount} filtered by rejection memory` : null,
+      rejectionFiltered.length - formatFiltered.length > 0 ? `${rejectionFiltered.length - formatFiltered.length} filtered by format` : null,
       formatFiltered.length - bitrateFiltered.length > 0 ? `${formatFiltered.length - bitrateFiltered.length} filtered by bitrate (<${this.minBitrate}kbps)` : null,
       artistRejected > 0 ? `${artistRejected} rejected by artist mismatch` : null,
       `${ranked.length} candidates`,
@@ -201,11 +258,15 @@ export class DownloadService {
     return { ranked, diagnostics: diag };
   }
 
+  // -------------------------------------------------------------------------
+  // Search
+  // -------------------------------------------------------------------------
+
   /**
    * Search Soulseek for a track using multi-strategy query builder.
    * Tries strategies in order, stopping at the first that returns results.
    */
-  async searchAndRank(track: TrackInfo): Promise<{
+  async searchAndRank(track: TrackInfo, trackId: string): Promise<{
     ranked: RankedResult[];
     diagnostics: string;
     strategy?: string;
@@ -219,7 +280,7 @@ export class DownloadService {
       const files = await this.soulseek.rateLimitedSearch(strategy.query);
       log.debug(`Search returned ${files.length} files [${strategy.label}]`, { query: strategy.query });
 
-      const result = this.rankResults(files, track);
+      const result = this.rankResults(files, track, trackId);
       strategyLog.push({ label: strategy.label, query: strategy.query, resultCount: result.ranked.length });
 
       if (result.ranked.length > 0) {
@@ -274,18 +335,18 @@ export class DownloadService {
    * multi-strategy search.
    */
   async searchAndRankBatch(
-    tracks: Array<{ track: TrackInfo; dbTrackId: string }>,
+    items: DownloadItem[],
   ): Promise<Map<string, { ranked: RankedResult[]; diagnostics: string; strategy?: string; strategyLog?: Array<{ label: string; query: string; resultCount: number }> }>> {
     // Build first-strategy queries for batch
-    const queryToTrack = new Map<string, { track: TrackInfo; dbTrackId: string }>();
+    const queryToItem = new Map<string, DownloadItem>();
 
-    for (const item of tracks) {
+    for (const item of items) {
       const strategies = generateSearchQueries(item.track);
       const query = strategies[0]?.query ?? `${item.track.artist} ${item.track.title}`;
-      queryToTrack.set(query, item);
+      queryToItem.set(query, item);
     }
 
-    const queries = [...queryToTrack.keys()];
+    const queries = [...queryToItem.keys()];
     log.debug(`Starting batch search`, { count: queries.length });
 
     // POST all searches with rate-limit delays
@@ -297,12 +358,12 @@ export class DownloadService {
 
     // Rank results for each track
     const results = new Map<string, { ranked: RankedResult[]; diagnostics: string; strategy?: string; strategyLog?: Array<{ label: string; query: string; resultCount: number }> }>();
-    const needsFallback: Array<{ track: TrackInfo; dbTrackId: string }> = [];
+    const needsFallback: DownloadItem[] = [];
 
-    for (const [query, item] of queryToTrack) {
+    for (const [query, item] of queryToItem) {
       const files = searchResults.get(query) ?? [];
       log.debug(`Batch search results`, { query, fileCount: files.length });
-      const rankResult = this.rankResults(files, item.track);
+      const rankResult = this.rankResults(files, item.track, item.dbTrackId);
 
       if (rankResult.ranked.length > 0) {
         results.set(item.dbTrackId, {
@@ -321,79 +382,30 @@ export class DownloadService {
         title: item.track.title,
         artist: item.track.artist,
       });
-      const result = await this.searchAndRank(item.track);
+      const result = await this.searchAndRank(item.track, item.dbTrackId);
       results.set(item.dbTrackId, result);
     }
 
     return results;
   }
 
-  /**
-   * Download a single track: search -> rank -> download best -> validate -> move.
-   */
-  async downloadTrack(
-    track: TrackInfo,
-    playlistName: string,
-    dbTrackId: string,
-  ): Promise<DownloadResult> {
-    try {
-      // 0. Ensure playlist folder exists
-      this.ensurePlaylistFolder(playlistName);
-
-      // 1. Search and rank
-      const { ranked, diagnostics, strategy, strategyLog } = await this.searchAndRank(track);
-
-      if (ranked.length === 0) {
-        return {
-          trackId: dbTrackId,
-          success: false,
-          error: `No matching files on Soulseek (${diagnostics})`,
-          strategyLog,
-        };
-      }
-
-      // 2. Download best match
-      const best = ranked[0];
-
-      if (best.score < 0.3) {
-        return {
-          trackId: dbTrackId,
-          success: false,
-          error: `Best match score too low: ${(best.score * 100).toFixed(0)}% — "${best.file.filename}" (${diagnostics})`,
-          strategy,
-          strategyLog,
-        };
-      }
-
-      const result = await this.acquireAndMove(best.file, track, playlistName, dbTrackId);
-      return { ...result, strategy, strategyLog };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        trackId: dbTrackId,
-        success: false,
-        error: message,
-      };
-    }
-  }
+  // -------------------------------------------------------------------------
+  // Download batch (primary entry point)
+  // -------------------------------------------------------------------------
 
   /**
    * Download multiple tracks: batch search all at once, then download concurrently.
+   * This is the only public entry point for downloading.
    */
   async downloadBatch(
-    tracks: Array<{
-      track: TrackInfo;
-      playlistName: string;
-      dbTrackId: string;
-    }>,
+    items: DownloadItem[],
     onProgress?: (
       completed: number,
       total: number,
       result: DownloadResult,
     ) => void,
-    onReview?: DownloadReviewFn,
   ): Promise<DownloadResult[]> {
-    const total = tracks.length;
+    const total = items.length;
     const results: DownloadResult[] = [];
     let completed = 0;
 
@@ -402,87 +414,24 @@ export class DownloadService {
     }
 
     // 0. Create playlist folders upfront so they're visible in Lexicon/Incoming
-    const playlistNames = new Set(tracks.map((t) => t.playlistName));
+    const playlistNames = new Set(items.map((t) => t.playlistName));
     for (const name of playlistNames) {
       this.ensurePlaylistFolder(name);
     }
 
     // 1. Batch search all tracks at once
-    const batchInput = tracks.map((item) => ({
-      track: item.track,
-      dbTrackId: item.dbTrackId,
-    }));
-    const searchResults = await this.searchAndRankBatch(batchInput);
+    const searchResults = await this.searchAndRankBatch(items);
 
-    // 2. Review candidates if callback provided
-    const approved = new Set<string>(); // dbTrackIds approved for download
-    const rejected = new Set<string>(); // dbTrackIds rejected by user
-    let autoAcceptAll = false;
-
-    if (onReview) {
-      const reviewable = tracks.filter((item) => {
-        const sr = searchResults.get(item.dbTrackId);
-        return sr && sr.ranked.length > 0 && sr.ranked[0].score >= 0.3;
-      });
-
-      for (let i = 0; i < reviewable.length; i++) {
-        const item = reviewable[i];
-        const sr = searchResults.get(item.dbTrackId)!;
-        const best = sr.ranked[0];
-
-        if (autoAcceptAll) {
-          approved.add(item.dbTrackId);
-          continue;
-        }
-
-        const decision = await onReview(
-          {
-            track: item.track,
-            file: best.file,
-            parsedTrack: trackInfoFromFilename(best.file.filename),
-            score: best.score,
-            diagnostics: sr.diagnostics,
-          },
-          i,
-          reviewable.length,
-        );
-
-        if (decision === "all") {
-          autoAcceptAll = true;
-          approved.add(item.dbTrackId);
-        } else if (decision) {
-          approved.add(item.dbTrackId);
-        } else {
-          rejected.add(item.dbTrackId);
-        }
-      }
-    }
-
-    // 3. Download approved matches concurrently
+    // 2. Download concurrently with sliding-window concurrency
     const pending = new Set<Promise<void>>();
 
-    for (const item of tracks) {
+    for (const item of items) {
       if (isShutdownRequested()) {
         break;
       }
 
-      // If review was used, skip non-approved tracks
-      if (onReview && rejected.has(item.dbTrackId)) {
-        const result: DownloadResult = {
-          trackId: item.dbTrackId,
-          success: false,
-          error: "Rejected during review",
-        };
-        results.push(result);
-        completed++;
-        onProgress?.(completed, total, result);
-        continue;
-      }
-
       const task = this.downloadFromSearchResults(
-        item.track,
-        item.playlistName,
-        item.dbTrackId,
+        item,
         searchResults.get(item.dbTrackId),
       ).then((result) => {
         results.push(result);
@@ -503,14 +452,16 @@ export class DownloadService {
     return results;
   }
 
+  // -------------------------------------------------------------------------
+  // Private: single-track download from pre-computed search results
+  // -------------------------------------------------------------------------
+
   /**
    * Download a single track given pre-computed search results.
    * Used by downloadBatch after batch search completes.
    */
   private async downloadFromSearchResults(
-    track: TrackInfo,
-    playlistName: string,
-    dbTrackId: string,
+    item: DownloadItem,
     searchResult?: { ranked: RankedResult[]; diagnostics: string; strategy?: string; strategyLog?: Array<{ label: string; query: string; resultCount: number }> },
   ): Promise<DownloadResult> {
     try {
@@ -521,7 +472,7 @@ export class DownloadService {
 
       if (ranked.length === 0) {
         return {
-          trackId: dbTrackId,
+          trackId: item.dbTrackId,
           success: false,
           error: `No matching files on Soulseek (${diagnostics})`,
           strategyLog,
@@ -532,7 +483,7 @@ export class DownloadService {
 
       if (best.score < 0.3) {
         return {
-          trackId: dbTrackId,
+          trackId: item.dbTrackId,
           success: false,
           error: `Best match score too low: ${(best.score * 100).toFixed(0)}% — "${best.file.filename}" (${diagnostics})`,
           strategy,
@@ -540,23 +491,100 @@ export class DownloadService {
         };
       }
 
-      const result = await this.acquireAndMove(best.file, track, playlistName, dbTrackId);
+      const result = await this.acquireAndMove(best.file, item.track, item.playlistName, item.dbTrackId);
       return { ...result, strategy, strategyLog };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
-        trackId: dbTrackId,
+        trackId: item.dbTrackId,
         success: false,
         error: message,
       };
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Validation (configurable strictness)
+  // -------------------------------------------------------------------------
+
   /**
    * Validate a downloaded file's audio metadata against expected track info.
-   * Uses music-metadata to parse tags, then fuzzy-matches artist + title.
-   * Returns true if score > 0.5 (lenient — tags are often messy).
+   * Behavior depends on this.validationStrictness.
    */
+  async validateDownload(
+    filePath: string,
+    expected: TrackInfo,
+    trackId: string,
+    file: SlskdFile,
+  ): Promise<boolean> {
+    const fileKey = buildFileKey(file.username, file.filename);
+
+    if (this.validationStrictness === "lenient") {
+      try {
+        await parseFile(filePath);
+        return true;
+      } catch {
+        await this.recordRejection(trackId, fileKey, "validation_failed");
+        return false;
+      }
+    }
+
+    try {
+      const metadata = await parseFile(filePath);
+      const { common } = metadata;
+
+      const tagTrack: TrackInfo = {
+        title: common.title ?? "",
+        artist: common.artist ?? "",
+        album: common.album ?? undefined,
+        durationMs: metadata.format.duration
+          ? Math.round(metadata.format.duration * 1000)
+          : undefined,
+      };
+
+      if (this.validationStrictness === "strict") {
+        const matches = this.matcher.match(expected, [tagTrack]);
+        const score = matches.length > 0 ? matches[0].score : 0;
+
+        if (score < 0.7) {
+          await this.recordRejection(trackId, fileKey, "validation_failed");
+          return false;
+        }
+
+        // Check duration within 5 seconds if both have duration
+        if (expected.durationMs != null && tagTrack.durationMs != null) {
+          if (Math.abs(expected.durationMs - tagTrack.durationMs) > 5000) {
+            await this.recordRejection(trackId, fileKey, "validation_failed");
+            return false;
+          }
+        }
+
+        return true;
+      }
+
+      // Moderate mode
+      if (!metadata.format.codec) {
+        await this.recordRejection(trackId, fileKey, "validation_failed");
+        return false;
+      }
+
+      const matches = this.matcher.match(expected, [tagTrack]);
+      if (matches.length === 0 || matches[0].score <= 0.5) {
+        await this.recordRejection(trackId, fileKey, "validation_failed");
+        return false;
+      }
+
+      return true;
+    } catch {
+      await this.recordRejection(trackId, fileKey, "validation_failed");
+      return false;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Acquire, move, find
+  // -------------------------------------------------------------------------
+
   /**
    * Check if file already exists in slskd downloads, otherwise download it.
    * Then validate and move to playlist folder.
@@ -589,7 +617,7 @@ export class DownloadService {
         }
       }
 
-      const valid = await this.validateDownload(tempPath, track);
+      const valid = await this.validateDownload(tempPath, track, dbTrackId, file);
       if (!valid) {
         return {
           trackId: dbTrackId,
@@ -612,31 +640,6 @@ export class DownloadService {
         success: false,
         error: message,
       };
-    }
-  }
-
-  async validateDownload(
-    filePath: string,
-    expected: TrackInfo,
-  ): Promise<boolean> {
-    try {
-      const metadata = await parseFile(filePath);
-      const { common } = metadata;
-
-      const tagTrack: TrackInfo = {
-        title: common.title ?? "",
-        artist: common.artist ?? "",
-        album: common.album ?? undefined,
-        durationMs: metadata.format.duration
-          ? Math.round(metadata.format.duration * 1000)
-          : undefined,
-      };
-
-      const matches = this.matcher.match(expected, [tagTrack]);
-      return matches.length > 0 && matches[0].score > 0.5;
-    } catch {
-      // If we can't parse metadata, treat as invalid
-      return false;
     }
   }
 

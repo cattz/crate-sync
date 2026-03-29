@@ -7,7 +7,7 @@ import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SyncPipeline, type PhaseOneResult, type ReviewDecision } from "../services/sync-pipeline.js";
-import type { DownloadCandidate, DownloadReviewFn } from "../services/download-service.js";
+import type { DownloadResult } from "../services/download-service.js";
 import { Progress } from "../utils/progress.js";
 import { checkHealth } from "../utils/health.js";
 import { tryDetectServer, runThinClientSync } from "./sync-client.js";

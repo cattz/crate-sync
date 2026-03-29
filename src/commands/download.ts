@@ -116,7 +116,7 @@ export function registerDownloadCommands(program: Command): void {
         const matchResult = await pipeline.matchPlaylist(playlist.id);
 
         const missingTracks = matchResult.notFound;
-        const inLexicon = matchResult.found.length + matchResult.needsReview.length;
+        const inLexicon = matchResult.confirmed.length + matchResult.pending.length;
 
         // 4. Print summary
         console.log();
@@ -140,6 +140,7 @@ export function registerDownloadCommands(program: Command): void {
 
         // 6. Create DownloadService and download
         const downloadService = new DownloadService(
+          db,
           config.soulseek,
           config.download,
           config.lexicon,
@@ -301,6 +302,7 @@ export function registerDownloadCommands(program: Command): void {
 
         // 5. Download with progress
         const downloadService = new DownloadService(
+          db,
           config.soulseek,
           config.download,
           config.lexicon,

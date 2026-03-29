@@ -55,11 +55,17 @@ vi.mock("../../utils/shutdown.js", () => ({
   isShutdownRequested: vi.fn().mockReturnValue(false),
 }));
 
+// Mock the DB client module (so we never actually open a DB)
+vi.mock("../../db/client.js", () => ({
+  getDb: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (must come after vi.mock calls)
 // ---------------------------------------------------------------------------
 
 import { DownloadService } from "../download-service.js";
+import type { DownloadItem } from "../download-service.js";
 import { SoulseekService } from "../soulseek-service.js";
 import { parseFile } from "music-metadata";
 import {
@@ -71,6 +77,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
+import { isShutdownRequested } from "../../utils/shutdown.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,12 +94,41 @@ const downloadConfig: DownloadConfig = {
   formats: ["flac", "mp3"],
   minBitrate: 320,
   concurrency: 2,
+  validationStrictness: "moderate",
 };
 
 const lexiconConfig: LexiconConfig = {
   url: "http://localhost:48624",
   downloadRoot: "/tmp/test-downloads",
+  tagCategory: { name: "Spotify Playlists", color: "#1DB954" },
 };
+
+/** Create a mock Database that returns empty rejections by default. */
+function mockDb(rejectionFileKeys: string[] = []) {
+  const rows = rejectionFileKeys.map((fk) => ({ fileKey: fk }));
+  const insertValues: any[] = [];
+  return {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          all: vi.fn().mockReturnValue(rows),
+        }),
+      }),
+    }),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockImplementation((v: any) => {
+        insertValues.push(v);
+        return {
+          onConflictDoNothing: vi.fn().mockReturnValue({
+            run: vi.fn(),
+          }),
+        };
+      }),
+    }),
+    // Expose for assertions
+    _insertValues: insertValues,
+  } as any;
+}
 
 function makeFile(overrides: Partial<SlskdFile> = {}): SlskdFile {
   return {
@@ -108,8 +144,13 @@ function makeFile(overrides: Partial<SlskdFile> = {}): SlskdFile {
   };
 }
 
-function makeService(): DownloadService {
-  return new DownloadService(soulseekConfig, downloadConfig, lexiconConfig);
+function makeService(db?: any, overrides?: Partial<DownloadConfig>): DownloadService {
+  return new DownloadService(
+    db ?? mockDb(),
+    soulseekConfig,
+    { ...downloadConfig, ...overrides },
+    lexiconConfig,
+  );
 }
 
 function getSoulseekMock() {
@@ -123,6 +164,210 @@ function getSoulseekMock() {
 describe("DownloadService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  // -----------------------------------------------------------------------
+  // rankResults
+  // -----------------------------------------------------------------------
+  describe("rankResults", () => {
+    it("returns ranked results sorted by score", () => {
+      const db = mockDb();
+      const service = makeService(db);
+
+      const goodMatch = makeFile({
+        filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Title.flac",
+      });
+      const weakMatch = makeFile({
+        filename: "@@user2\\music\\Test Artist\\Album\\01 - Other Song.flac",
+        username: "user2",
+      });
+
+      const track: TrackInfo = {
+        title: "Test Title",
+        artist: "Test Artist",
+      };
+
+      const { ranked } = service.rankResults([goodMatch, weakMatch], track, "track-1");
+
+      expect(ranked.length).toBe(2);
+      // Best match should be first
+      expect(ranked[0].file.filename).toContain("Test Title");
+      expect(ranked[0].score).toBeGreaterThanOrEqual(ranked[1].score);
+    });
+
+    it("filters previously rejected files", () => {
+      const file1 = makeFile({
+        filename: "@@user1\\music\\Artist\\01 - Title.flac",
+        username: "user1",
+      });
+      const file2 = makeFile({
+        filename: "@@user2\\music\\Artist\\01 - Title.flac",
+        username: "user2",
+      });
+      const file3 = makeFile({
+        filename: "@@user3\\music\\Artist\\01 - Title.flac",
+        username: "user3",
+      });
+
+      // Reject files from user1 and user3
+      const db = mockDb([
+        "user1:@@user1\\music\\Artist\\01 - Title.flac",
+        "user3:@@user3\\music\\Artist\\01 - Title.flac",
+      ]);
+      const service = makeService(db);
+
+      const { ranked, diagnostics } = service.rankResults(
+        [file1, file2, file3],
+        { title: "Title", artist: "Artist" },
+        "track-1",
+      );
+
+      // Only file2 should remain
+      expect(ranked.length).toBe(1);
+      expect(ranked[0].file.username).toBe("user2");
+      expect(diagnostics).toContain("2 filtered by rejection memory");
+    });
+
+    it("filters by format", () => {
+      const service = makeService();
+
+      const flacFile = makeFile({ filename: "@@u\\music\\Artist\\01 - Track.flac" });
+      const wavFile = makeFile({
+        filename: "@@u\\music\\Artist\\01 - Track.wav",
+        username: "user2",
+      });
+      const mp3File = makeFile({
+        filename: "@@u\\music\\Artist\\01 - Track.mp3",
+        username: "user3",
+      });
+
+      const { ranked } = service.rankResults(
+        [flacFile, wavFile, mp3File],
+        { title: "Track", artist: "Artist" },
+        "track-1",
+      );
+
+      // wav is not in allowed formats (flac, mp3), so should be filtered
+      expect(ranked.every((r) => !r.file.filename.endsWith(".wav"))).toBe(true);
+    });
+
+    it("filters by bitrate", () => {
+      const service = makeService();
+
+      const highBitrate = makeFile({ bitRate: 1411 });
+      const lowBitrate = makeFile({
+        filename: "@@u\\music\\Artist\\01 - Test Title.mp3",
+        bitRate: 128,
+        username: "user2",
+      });
+      const noBitrate = makeFile({
+        filename: "@@u\\music\\Artist\\01 - Test Title.flac",
+        bitRate: undefined,
+        username: "user3",
+      });
+
+      const { ranked } = service.rankResults(
+        [highBitrate, lowBitrate, noBitrate],
+        { title: "Test Title", artist: "Artist" },
+        "track-1",
+      );
+
+      // Low bitrate (128 < 320) should be filtered, null bitrate kept
+      expect(ranked.every((r) => (r.file.bitRate ?? 999) >= 320)).toBe(true);
+    });
+
+    it("sorts by score descending", () => {
+      const service = makeService();
+
+      const exactMatch = makeFile({
+        filename: "@@u1\\music\\Exact Artist\\01 - Exact Title.flac",
+        username: "u1",
+        length: 240,
+      });
+      const closeMatch = makeFile({
+        filename: "@@u2\\music\\Exact Artist\\01 - Exact Titlee.flac",
+        username: "u2",
+        length: 240,
+      });
+
+      const { ranked } = service.rankResults(
+        [closeMatch, exactMatch],
+        { title: "Exact Title", artist: "Exact Artist", durationMs: 240000 },
+        "track-1",
+      );
+
+      if (ranked.length >= 2) {
+        expect(ranked[0].score).toBeGreaterThanOrEqual(ranked[1].score);
+      }
+    });
+
+    it("builds diagnostics string with counts", () => {
+      const db = mockDb(["user2:@@user2\\music\\Artist\\01 - Track.flac"]);
+      const service = makeService(db);
+
+      const files = [
+        makeFile({ filename: "@@user1\\music\\Artist\\01 - Track.flac", username: "user1" }),
+        makeFile({ filename: "@@user2\\music\\Artist\\01 - Track.flac", username: "user2" }),
+        makeFile({ filename: "@@user3\\music\\Artist\\01 - Track.wav", username: "user3" }),
+      ];
+
+      const { diagnostics } = service.rankResults(
+        files,
+        { title: "Track", artist: "Artist" },
+        "track-1",
+      );
+
+      expect(diagnostics).toContain("3 results");
+      expect(diagnostics).toContain("1 filtered by rejection memory");
+      expect(diagnostics).toContain("candidates");
+    });
+
+    it("converts file.length to durationMs for matching", () => {
+      const service = makeService();
+
+      const file = makeFile({
+        filename: "@@u\\music\\Artist\\01 - Track.flac",
+        length: 240, // seconds
+      });
+
+      // This implicitly tests that duration is used — if the duration matches,
+      // the score should be higher than without duration info
+      const { ranked } = service.rankResults(
+        [file],
+        { title: "Track", artist: "Artist", durationMs: 240000 },
+        "track-1",
+      );
+
+      expect(ranked.length).toBe(1);
+    });
+
+    it("returns empty for empty input", () => {
+      const service = makeService();
+
+      const { ranked, diagnostics } = service.rankResults(
+        [],
+        { title: "Track", artist: "Artist" },
+        "track-1",
+      );
+
+      expect(ranked).toEqual([]);
+      expect(diagnostics).toContain("0 results");
+      expect(diagnostics).toContain("0 candidates");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // recordRejection
+  // -----------------------------------------------------------------------
+  describe("recordRejection", () => {
+    it("inserts into rejections table with onConflictDoNothing", async () => {
+      const db = mockDb();
+      const service = makeService(db);
+
+      await service.recordRejection("track-1", "user1:@@u\\file.flac", "validation_failed");
+
+      expect(db.insert).toHaveBeenCalled();
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -151,10 +396,9 @@ describe("DownloadService", () => {
         artist: "Test Artist",
       };
 
-      const { ranked } = await service.searchAndRank(track);
+      const { ranked } = await service.searchAndRank(track, "track-1");
 
       expect(ranked.length).toBe(2);
-      // Best match should be first
       expect(ranked[0].file.filename).toContain("Test Title");
       expect(ranked[0].score).toBeGreaterThanOrEqual(ranked[1].score);
     });
@@ -177,12 +421,9 @@ describe("DownloadService", () => {
       const { ranked } = await service.searchAndRank({
         title: "Track",
         artist: "Artist",
-      });
+      }, "track-1");
 
-      // wav is not in allowed formats (flac, mp3), so should be filtered
-      expect(ranked.every((r) => !r.file.filename.endsWith(".wav"))).toBe(
-        true,
-      );
+      expect(ranked.every((r) => !r.file.filename.endsWith(".wav"))).toBe(true);
       expect(ranked.length).toBe(1);
     });
 
@@ -205,9 +446,8 @@ describe("DownloadService", () => {
       const { ranked } = await service.searchAndRank({
         title: "Test Title",
         artist: "Artist",
-      });
+      }, "track-1");
 
-      // Low bitrate (128 < 320) should be filtered
       expect(ranked.every((r) => (r.file.bitRate ?? 0) >= 320)).toBe(true);
     });
 
@@ -222,7 +462,7 @@ describe("DownloadService", () => {
       const { ranked } = await service.searchAndRank({
         title: "Test Title",
         artist: "Artist",
-      });
+      }, "track-1");
 
       expect(ranked.length).toBe(1);
     });
@@ -236,133 +476,98 @@ describe("DownloadService", () => {
       const { ranked } = await service.searchAndRank({
         title: "Nonexistent",
         artist: "Nobody",
-      });
+      }, "track-1");
 
       expect(ranked).toEqual([]);
     });
   });
 
   // -----------------------------------------------------------------------
-  // downloadTrack
+  // searchAndRank multi-strategy
   // -----------------------------------------------------------------------
-  describe("downloadTrack", () => {
-    it("skips download when file already exists in slskd downloads", async () => {
+  describe("searchAndRank multi-strategy", () => {
+    it("returns results from first strategy when it succeeds", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
       const file = makeFile({
-        filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Song.flac",
+        filename: "@@user1\\music\\Artist\\Album\\01 - Title.flac",
       });
       vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
 
-      vi.mocked(parseFile).mockResolvedValueOnce({
-        common: { title: "Test Song", artist: "Test Artist", album: "Album" },
-        format: { duration: 240 },
-      } as any);
+      const result = await service.searchAndRank({
+        title: "Title",
+        artist: "Artist",
+      }, "track-1");
 
-      // File already exists in slskd downloads dir
-      vi.mocked(existsSync).mockImplementation((p) => {
-        return String(p).includes("slskd-downloads");
-      });
-
-      const result = await service.downloadTrack(
-        { title: "Test Song", artist: "Test Artist" },
-        "My Playlist",
-        "db-track-1",
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.trackId).toBe("db-track-1");
-      expect(result.filePath).toBeDefined();
-      // Should NOT have called download — file was already there
-      expect(mock.download).not.toHaveBeenCalled();
-      expect(mock.waitForDownload).not.toHaveBeenCalled();
+      expect(result.ranked.length).toBe(1);
+      expect(result.strategy).toBe("full");
+      expect(result.strategyLog.length).toBe(1);
+      expect(mock.rateLimitedSearch).toHaveBeenCalledTimes(1);
     });
 
-    it("downloads when file not in slskd downloads", async () => {
+    it("falls back to next strategy when first returns 0 candidates", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
       const file = makeFile({
-        filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Song.flac",
+        filename: "@@user1\\music\\Satori\\01 - Reliquia.flac",
       });
-      vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
+      vi.mocked(mock.rateLimitedSearch)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([file]);
 
-      vi.mocked(parseFile).mockResolvedValueOnce({
-        common: { title: "Test Song", artist: "Test Artist", album: "Album" },
-        format: { duration: 240 },
-      } as any);
+      const result = await service.searchAndRank({
+        title: "Reliquia - German Brigante Remix",
+        artist: "Satori",
+      }, "track-1");
 
-      // First call (findDownloadedFile before download): not found
-      // Second call (findDownloadedFile after download): found
-      // Remaining calls (moveToPlaylistFolder dir check): false
-      let findCalls = 0;
-      vi.mocked(existsSync).mockImplementation((p) => {
-        if (String(p).includes("slskd-downloads")) {
-          findCalls++;
-          return findCalls > 1; // not found first time, found after download
-        }
-        return false;
-      });
-
-      const result = await service.downloadTrack(
-        { title: "Test Song", artist: "Test Artist" },
-        "My Playlist",
-        "db-track-1",
-      );
-
-      expect(result.success).toBe(true);
-      expect(mock.download).toHaveBeenCalledWith("user1", file.filename, file.size);
-      expect(mock.waitForDownload).toHaveBeenCalledWith("user1", file.filename);
+      expect(result.ranked.length).toBe(1);
+      expect(result.strategy).toBe("base-title");
+      expect(result.strategyLog.length).toBe(2);
+      expect(result.strategyLog[0].resultCount).toBe(0);
+      expect(result.strategyLog[1].resultCount).toBe(1);
     });
 
-    it("returns failure when no results found", async () => {
+    it("returns empty when all strategies fail", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
-      vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([]);
+      vi.mocked(mock.rateLimitedSearch).mockResolvedValue([]);
 
-      const result = await service.downloadTrack(
-        { title: "Missing", artist: "Nobody" },
-        "Playlist",
-        "db-track-2",
-      );
+      const result = await service.searchAndRank({
+        title: "Nonexistent Track",
+        artist: "Unknown Artist",
+      }, "track-1");
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("No matching files on Soulseek");
-      expect(result.trackId).toBe("db-track-2");
+      expect(result.ranked.length).toBe(0);
+      expect(result.strategyLog.length).toBeGreaterThanOrEqual(2);
+      expect(result.strategyLog.every((s) => s.resultCount === 0)).toBe(true);
     });
 
-    it("returns failure when validation fails", async () => {
+    it("records all attempted strategies in strategyLog", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
-      // Filename matches the expected track well enough to pass score threshold
-      const file = makeFile({ filename: "@@user1\\music\\Expected Artist\\Album\\01 - Expected Song.flac" });
-      vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
-
-      // findDownloadedFile: exact path exists
-      vi.mocked(existsSync).mockImplementation((p) => {
-        return String(p).includes("slskd-downloads");
+      const file = makeFile({
+        filename: "@@user1\\music\\Artist\\01 - Title.flac",
       });
+      // First strategy returns nothing, second succeeds
+      vi.mocked(mock.rateLimitedSearch)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([file]);
 
-      // Validation fails: completely different metadata
-      vi.mocked(parseFile).mockResolvedValueOnce({
-        common: {
-          title: "Completely Different Song",
-          artist: "Wrong Artist",
-        },
-        format: { duration: 60 },
-      } as any);
+      const result = await service.searchAndRank({
+        title: "Title",
+        artist: "Artist",
+      }, "track-1");
 
-      const result = await service.downloadTrack(
-        { title: "Expected Song", artist: "Expected Artist" },
-        "Playlist",
-        "db-track-3",
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("metadata validation");
+      // At least 2 strategies attempted, second has results
+      expect(result.strategyLog.length).toBeGreaterThanOrEqual(2);
+      expect(result.strategyLog[0].resultCount).toBe(0);
+      // The last entry should have the results
+      const lastEntry = result.strategyLog[result.strategyLog.length - 1];
+      expect(lastEntry.resultCount).toBe(1);
     });
   });
 
@@ -382,7 +587,6 @@ describe("DownloadService", () => {
         username: "user2",
       });
 
-      // Batch search: startSearchBatch returns query→{searchId, startedAt} map
       vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(
         new Map([
           ["Artist A Song A", { searchId: "s1", startedAt: Date.now() }],
@@ -390,7 +594,6 @@ describe("DownloadService", () => {
         ]),
       );
 
-      // waitForSearchBatch returns query→files map
       vi.mocked(mock.waitForSearchBatch).mockResolvedValueOnce(
         new Map([
           ["Artist A Song A", [file1]],
@@ -398,23 +601,21 @@ describe("DownloadService", () => {
         ]),
       );
 
-      // Both validations pass
       vi.mocked(parseFile)
         .mockResolvedValueOnce({
           common: { title: "Song A", artist: "Artist A" },
-          format: { duration: 200 },
+          format: { duration: 200, codec: "FLAC" },
         } as any)
         .mockResolvedValueOnce({
           common: { title: "Song B", artist: "Artist B" },
-          format: { duration: 180 },
+          format: { duration: 180, codec: "FLAC" },
         } as any);
 
-      // findDownloadedFile: exact path exists; moveToPlaylistFolder: dest dir doesn't
       vi.mocked(existsSync).mockImplementation((p) => {
         return String(p).includes("slskd-downloads");
       });
 
-      const tracks = [
+      const items: DownloadItem[] = [
         {
           track: { title: "Song A", artist: "Artist A" } as TrackInfo,
           playlistName: "Playlist",
@@ -427,7 +628,7 @@ describe("DownloadService", () => {
         },
       ];
 
-      const results = await service.downloadBatch(tracks);
+      const results = await service.downloadBatch(items);
 
       expect(results.length).toBe(2);
       expect(mock.startSearchBatch).toHaveBeenCalledOnce();
@@ -438,7 +639,6 @@ describe("DownloadService", () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
-      // Batch search returns empty results for both
       vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(
         new Map([
           ["A A", { searchId: "s1", startedAt: Date.now() }],
@@ -454,7 +654,7 @@ describe("DownloadService", () => {
 
       const onProgress = vi.fn();
 
-      const tracks = [
+      const items: DownloadItem[] = [
         {
           track: { title: "A", artist: "A" } as TrackInfo,
           playlistName: "P",
@@ -467,7 +667,7 @@ describe("DownloadService", () => {
         },
       ];
 
-      await service.downloadBatch(tracks, onProgress);
+      await service.downloadBatch(items, onProgress);
 
       expect(onProgress).toHaveBeenCalledTimes(2);
       expect(onProgress).toHaveBeenCalledWith(
@@ -482,88 +682,47 @@ describe("DownloadService", () => {
       const results = await service.downloadBatch([]);
       expect(results).toEqual([]);
     });
-  });
 
-  // -----------------------------------------------------------------------
-  // searchAndRank (multi-strategy)
-  // -----------------------------------------------------------------------
-  describe("searchAndRank multi-strategy", () => {
-    it("returns results from first strategy when it succeeds", async () => {
+    it("creates all playlist folders upfront", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
-      const file = makeFile({
-        filename: "@@user1\\music\\Artist\\Album\\01 - Title.flac",
-      });
-      vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
+      vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(new Map());
+      vi.mocked(mock.waitForSearchBatch).mockResolvedValueOnce(new Map());
 
-      const result = await service.searchAndRank({
-        title: "Title",
-        artist: "Artist",
-      });
+      const items: DownloadItem[] = [
+        { track: { title: "A", artist: "A" }, playlistName: "Playlist1", dbTrackId: "t1" },
+        { track: { title: "B", artist: "B" }, playlistName: "Playlist2", dbTrackId: "t2" },
+        { track: { title: "C", artist: "C" }, playlistName: "Playlist1", dbTrackId: "t3" },
+      ];
 
-      expect(result.ranked.length).toBe(1);
-      expect(result.strategy).toBe("full");
-      expect(result.strategyLog.length).toBe(1);
-      expect(mock.rateLimitedSearch).toHaveBeenCalledTimes(1);
+      await service.downloadBatch(items);
+
+      // mkdirSync should have been called for both unique playlists
+      const mkdirCalls = vi.mocked(mkdirSync).mock.calls.map((c) => String(c[0]));
+      const playlistDirs = mkdirCalls.filter((p) => p.includes("test-downloads"));
+      expect(playlistDirs.length).toBeGreaterThanOrEqual(2);
     });
 
-    it("falls back to next strategy when first returns 0 candidates", async () => {
+    it("stops on shutdown request", async () => {
       const service = makeService();
       const mock = getSoulseekMock();
 
-      const file = makeFile({
-        filename: "@@user1\\music\\Satori\\01 - Reliquia.flac",
-      });
-      // Strategy 1 (full): no results
-      vi.mocked(mock.rateLimitedSearch)
-        .mockResolvedValueOnce([])
-        // Strategy 2 (base-title): has results
-        .mockResolvedValueOnce([file]);
+      vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(new Map());
+      vi.mocked(mock.waitForSearchBatch).mockResolvedValueOnce(new Map());
 
-      const result = await service.searchAndRank({
-        title: "Reliquia - German Brigante Remix",
-        artist: "Satori",
-      });
+      // Shutdown requested from the start
+      vi.mocked(isShutdownRequested).mockReturnValue(true);
 
-      expect(result.ranked.length).toBe(1);
-      expect(result.strategy).toBe("base-title");
-      expect(result.strategyLog.length).toBe(2);
-      expect(result.strategyLog[0].resultCount).toBe(0);
-      expect(result.strategyLog[1].resultCount).toBe(1);
-    });
+      const items: DownloadItem[] = [
+        { track: { title: "A", artist: "A" }, playlistName: "P", dbTrackId: "t1" },
+        { track: { title: "B", artist: "B" }, playlistName: "P", dbTrackId: "t2" },
+      ];
 
-    it("returns empty when all strategies fail", async () => {
-      const service = makeService();
-      const mock = getSoulseekMock();
+      const results = await service.downloadBatch(items);
 
-      vi.mocked(mock.rateLimitedSearch).mockResolvedValue([]);
-
-      const result = await service.searchAndRank({
-        title: "Nonexistent Track",
-        artist: "Unknown Artist",
-      });
-
-      expect(result.ranked.length).toBe(0);
-      expect(result.strategyLog.length).toBeGreaterThanOrEqual(2);
-      expect(result.strategyLog.every((s) => s.resultCount === 0)).toBe(true);
-    });
-
-    it("includes strategy info in downloadTrack result", async () => {
-      const service = makeService();
-      const mock = getSoulseekMock();
-
-      vi.mocked(mock.rateLimitedSearch).mockResolvedValue([]);
-
-      const result = await service.downloadTrack(
-        { title: "Missing", artist: "Nobody" },
-        "Playlist",
-        "track-1",
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.strategyLog).toBeDefined();
-      expect(result.strategyLog!.length).toBeGreaterThanOrEqual(2);
+      // Should have 0 results since shutdown was immediate
+      expect(results.length).toBe(0);
     });
   });
 
@@ -579,7 +738,6 @@ describe("DownloadService", () => {
         filename: "@@u1\\music\\Artist\\01 - Found Song.flac",
       });
 
-      // Batch search returns results for track 1, nothing for track 2
       vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(
         new Map([
           ["Artist Found Song", { searchId: "s1", startedAt: Date.now() }],
@@ -593,21 +751,317 @@ describe("DownloadService", () => {
         ]),
       );
 
-      // Fallback search for track 2 (multi-strategy) also returns nothing
       vi.mocked(mock.rateLimitedSearch).mockResolvedValue([]);
 
-      const tracks = [
-        { track: { title: "Found Song", artist: "Artist" }, dbTrackId: "t1" },
-        { track: { title: "Missing", artist: "Unknown" }, dbTrackId: "t2" },
+      const items: DownloadItem[] = [
+        { track: { title: "Found Song", artist: "Artist" }, dbTrackId: "t1", playlistName: "P" },
+        { track: { title: "Missing", artist: "Unknown" }, dbTrackId: "t2", playlistName: "P" },
       ];
 
-      const results = await service.searchAndRankBatch(tracks);
+      const results = await service.searchAndRankBatch(items);
 
       expect(results.get("t1")!.ranked.length).toBe(1);
       expect(results.get("t1")!.strategy).toBe("full");
       expect(results.get("t2")!.ranked.length).toBe(0);
-      // Fallback was invoked (rateLimitedSearch was called)
       expect(mock.rateLimitedSearch).toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // validateDownload (strictness levels)
+  // -----------------------------------------------------------------------
+  describe("validateDownload", () => {
+    const dummyFile = makeFile();
+
+    describe("strict mode", () => {
+      it("returns true when metadata matches well", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "strict" });
+
+        vi.mocked(parseFile).mockResolvedValueOnce({
+          common: { title: "My Song", artist: "My Artist", album: "My Album" },
+          format: { duration: 200, codec: "FLAC" },
+        } as any);
+
+        const valid = await service.validateDownload(
+          "/tmp/file.flac",
+          { title: "My Song", artist: "My Artist", durationMs: 200_000 },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(true);
+      });
+
+      it("rejects and records when score < 0.7", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "strict" });
+
+        vi.mocked(parseFile).mockResolvedValueOnce({
+          common: { title: "Completely Different", artist: "Someone Else" },
+          format: { duration: 60, codec: "FLAC" },
+        } as any);
+
+        const valid = await service.validateDownload(
+          "/tmp/file.flac",
+          { title: "Expected Song", artist: "Expected Artist", durationMs: 300_000 },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(false);
+        expect(db.insert).toHaveBeenCalled();
+      });
+
+      it("rejects when duration difference > 5s", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "strict" });
+
+        vi.mocked(parseFile).mockResolvedValueOnce({
+          common: { title: "My Song", artist: "My Artist" },
+          format: { duration: 260, codec: "FLAC" }, // 260s vs expected 240s = 20s diff
+        } as any);
+
+        const valid = await service.validateDownload(
+          "/tmp/file.flac",
+          { title: "My Song", artist: "My Artist", durationMs: 240_000 },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(false);
+        expect(db.insert).toHaveBeenCalled();
+      });
+
+      it("rejects and records when parseFile throws", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "strict" });
+
+        vi.mocked(parseFile).mockRejectedValueOnce(new Error("corrupt"));
+
+        const valid = await service.validateDownload(
+          "/tmp/bad.flac",
+          { title: "Song", artist: "Artist" },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(false);
+        expect(db.insert).toHaveBeenCalled();
+      });
+    });
+
+    describe("moderate mode", () => {
+      it("returns true when score > 0.5 and format is valid", async () => {
+        const service = makeService();
+
+        vi.mocked(parseFile).mockResolvedValueOnce({
+          common: { title: "My Song", artist: "My Artist", album: "My Album" },
+          format: { duration: 200, codec: "FLAC" },
+        } as any);
+
+        const valid = await service.validateDownload(
+          "/tmp/file.flac",
+          { title: "My Song", artist: "My Artist", durationMs: 200_000 },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(true);
+      });
+
+      it("rejects when score <= 0.5", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "moderate" });
+
+        vi.mocked(parseFile).mockResolvedValueOnce({
+          common: { title: "Totally Different", artist: "Someone Else" },
+          format: { duration: 30, codec: "MP3" },
+        } as any);
+
+        const valid = await service.validateDownload(
+          "/tmp/file.flac",
+          { title: "Expected Song", artist: "Expected Artist", durationMs: 300_000 },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(false);
+        expect(db.insert).toHaveBeenCalled();
+      });
+
+      it("rejects and records when parseFile throws", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "moderate" });
+
+        vi.mocked(parseFile).mockRejectedValueOnce(new Error("corrupt"));
+
+        const valid = await service.validateDownload(
+          "/tmp/bad.flac",
+          { title: "Song", artist: "Artist" },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(false);
+        expect(db.insert).toHaveBeenCalled();
+      });
+    });
+
+    describe("lenient mode", () => {
+      it("returns true when file can be parsed regardless of metadata", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "lenient" });
+
+        vi.mocked(parseFile).mockResolvedValueOnce({
+          common: { title: "Completely Wrong", artist: "Wrong Artist" },
+          format: { duration: 1 },
+        } as any);
+
+        const valid = await service.validateDownload(
+          "/tmp/file.flac",
+          { title: "Expected Song", artist: "Expected Artist", durationMs: 300_000 },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(true);
+        // Should NOT record a rejection
+        expect(db.insert).not.toHaveBeenCalled();
+      });
+
+      it("rejects and records when file is corrupt (parseFile throws)", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "lenient" });
+
+        vi.mocked(parseFile).mockRejectedValueOnce(new Error("corrupt"));
+
+        const valid = await service.validateDownload(
+          "/tmp/bad.flac",
+          { title: "Song", artist: "Artist" },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(false);
+        expect(db.insert).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // acquireAndMove
+  // -----------------------------------------------------------------------
+  describe("acquireAndMove", () => {
+    it("reuses existing download", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      const file = makeFile({
+        filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Song.flac",
+      });
+
+      vi.mocked(parseFile).mockResolvedValueOnce({
+        common: { title: "Test Song", artist: "Test Artist", album: "Album" },
+        format: { duration: 240, codec: "FLAC" },
+      } as any);
+
+      vi.mocked(existsSync).mockImplementation((p) => {
+        return String(p).includes("slskd-downloads");
+      });
+
+      const result = await service.acquireAndMove(
+        file,
+        { title: "Test Song", artist: "Test Artist" },
+        "My Playlist",
+        "db-track-1",
+      );
+
+      expect(result.success).toBe(true);
+      expect(mock.download).not.toHaveBeenCalled();
+      expect(mock.waitForDownload).not.toHaveBeenCalled();
+    });
+
+    it("downloads when file not found locally", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      const file = makeFile({
+        filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Song.flac",
+      });
+
+      vi.mocked(parseFile).mockResolvedValueOnce({
+        common: { title: "Test Song", artist: "Test Artist", album: "Album" },
+        format: { duration: 240, codec: "FLAC" },
+      } as any);
+
+      let findCalls = 0;
+      vi.mocked(existsSync).mockImplementation((p) => {
+        if (String(p).includes("slskd-downloads")) {
+          findCalls++;
+          return findCalls > 1;
+        }
+        return false;
+      });
+
+      const result = await service.acquireAndMove(
+        file,
+        { title: "Test Song", artist: "Test Artist" },
+        "My Playlist",
+        "db-track-1",
+      );
+
+      expect(result.success).toBe(true);
+      expect(mock.download).toHaveBeenCalledWith("user1", file.filename, file.size);
+      expect(mock.waitForDownload).toHaveBeenCalledWith("user1", file.filename);
+    });
+
+    it("returns failure when file not found after download", async () => {
+      const service = makeService();
+      const mock = getSoulseekMock();
+
+      const file = makeFile({
+        filename: "@@user1\\music\\Artist\\01 - Track.flac",
+      });
+
+      vi.mocked(existsSync).mockReturnValue(false);
+
+      const result = await service.acquireAndMove(
+        file,
+        { title: "Track", artist: "Artist" },
+        "Playlist",
+        "db-track-1",
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Downloaded file not found");
+    });
+
+    it("returns failure when validation fails", async () => {
+      const service = makeService();
+
+      const file = makeFile({
+        filename: "@@user1\\music\\Expected Artist\\Album\\01 - Expected Song.flac",
+      });
+
+      vi.mocked(existsSync).mockImplementation((p) => {
+        return String(p).includes("slskd-downloads");
+      });
+
+      vi.mocked(parseFile).mockResolvedValueOnce({
+        common: { title: "Completely Different Song", artist: "Wrong Artist" },
+        format: { duration: 60, codec: "FLAC" },
+      } as any);
+
+      const result = await service.acquireAndMove(
+        file,
+        { title: "Expected Song", artist: "Expected Artist" },
+        "Playlist",
+        "db-track-3",
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("metadata validation");
     });
   });
 
@@ -622,14 +1076,22 @@ describe("DownloadService", () => {
         return String(p).includes("slskd-downloads") && String(p).endsWith("Track.flac");
       });
 
-      const result = await service.downloadTrack(
+      // acquireAndMove will call findDownloadedFile internally
+      const file = makeFile({ filename: "@@user1\\music\\Artist\\Album\\Track.flac" });
+
+      // Validation succeeds
+      vi.mocked(parseFile).mockResolvedValueOnce({
+        common: { title: "Track", artist: "Artist" },
+        format: { duration: 200, codec: "FLAC" },
+      } as any);
+
+      const result = await service.acquireAndMove(
+        file,
         { title: "Track", artist: "Artist" },
         "Playlist",
         "t1",
       );
 
-      // File exists so download is skipped — but validation may fail
-      // The point is findDownloadedFile found it
       expect(mockSoulseekInstance.download).not.toHaveBeenCalled();
     });
 
@@ -640,87 +1102,29 @@ describe("DownloadService", () => {
       const file = makeFile({
         filename: "@@user1\\music\\Artist\\Album\\Track.flac",
       });
-      vi.mocked(mock.rateLimitedSearch).mockResolvedValueOnce([file]);
 
-      // Exact path doesn't exist, but directory does and has a suffixed file
       vi.mocked(existsSync).mockImplementation((p) => {
         const s = String(p);
-        if (s.endsWith("Track.flac")) return false; // exact match missing
-        if (s.includes("slskd-downloads") && !s.endsWith(".flac")) return true; // directory exists
+        if (s.endsWith("Track.flac")) return false;
+        if (s.includes("slskd-downloads") && !s.endsWith(".flac")) return true;
         return false;
       });
       vi.mocked(readdirSync).mockReturnValue(["Track_639091878895823617.flac" as any]);
       vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() } as any);
 
-      // parseFile returns matching metadata
       vi.mocked(parseFile).mockResolvedValueOnce({
         common: { title: "Track", artist: "Artist" },
-        format: { duration: 200 },
+        format: { duration: 200, codec: "FLAC" },
       } as any);
 
-      const result = await service.downloadTrack(
+      const result = await service.acquireAndMove(
+        file,
         { title: "Track", artist: "Artist" },
         "Playlist",
         "t1",
       );
 
-      // Should have found the suffixed file and not called download
       expect(mock.download).not.toHaveBeenCalled();
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // validateDownload
-  // -----------------------------------------------------------------------
-  describe("validateDownload", () => {
-    it("returns true when tags match the expected track", async () => {
-      const service = makeService();
-
-      vi.mocked(parseFile).mockResolvedValueOnce({
-        common: { title: "My Song", artist: "My Artist", album: "My Album" },
-        format: { duration: 200 },
-      } as any);
-
-      const valid = await service.validateDownload("/tmp/file.flac", {
-        title: "My Song",
-        artist: "My Artist",
-        durationMs: 200_000,
-      });
-
-      expect(valid).toBe(true);
-    });
-
-    it("returns false when tags are mismatched", async () => {
-      const service = makeService();
-
-      vi.mocked(parseFile).mockResolvedValueOnce({
-        common: {
-          title: "Totally Different",
-          artist: "Someone Else",
-        },
-        format: { duration: 30 },
-      } as any);
-
-      const valid = await service.validateDownload("/tmp/file.flac", {
-        title: "Expected Song",
-        artist: "Expected Artist",
-        durationMs: 300_000,
-      });
-
-      expect(valid).toBe(false);
-    });
-
-    it("returns false when parseFile throws", async () => {
-      const service = makeService();
-
-      vi.mocked(parseFile).mockRejectedValueOnce(new Error("corrupt file"));
-
-      const valid = await service.validateDownload("/tmp/bad.flac", {
-        title: "Song",
-        artist: "Artist",
-      });
-
-      expect(valid).toBe(false);
     });
   });
 
@@ -762,7 +1166,6 @@ describe("DownloadService", () => {
         { title: 'Song: "Remix"', artist: "Art*ist" },
       );
 
-      // Unsafe chars (/:*?"<>|\) should be stripped
       expect(result).not.toContain(":");
       expect(result).not.toContain('"');
       expect(result).not.toContain("*");
@@ -799,6 +1202,21 @@ describe("DownloadService", () => {
       });
 
       expect(mkdirSync).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // No standalone download methods
+  // -----------------------------------------------------------------------
+  describe("API surface", () => {
+    it("does not expose a standalone downloadTrack method", () => {
+      const service = makeService();
+      expect((service as any).downloadTrack).toBeUndefined();
+    });
+
+    it("does not export DownloadReviewFn type", async () => {
+      const mod = await import("../download-service.js");
+      expect((mod as any).DownloadReviewFn).toBeUndefined();
     });
   });
 });

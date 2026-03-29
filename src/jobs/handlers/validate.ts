@@ -1,5 +1,6 @@
 import type { Config } from "../../config.js";
 import type { Job } from "../../db/schema.js";
+import { getDb } from "../../db/client.js";
 import { DownloadService } from "../../services/download-service.js";
 import { completeJob } from "../runner.js";
 
@@ -10,6 +11,11 @@ interface ValidatePayload {
   artist: string;
   album?: string;
   durationMs?: number;
+  file?: {
+    filename: string;
+    username: string;
+    size: number;
+  };
 }
 
 /**
@@ -17,8 +23,10 @@ interface ValidatePayload {
  */
 export async function handleValidate(job: Job, config: Config): Promise<void> {
   const payload: ValidatePayload = JSON.parse(job.payload ?? "{}");
+  const db = getDb();
 
   const downloadService = new DownloadService(
+    db,
     config.soulseek,
     config.download,
     config.lexicon,
@@ -31,7 +39,19 @@ export async function handleValidate(job: Job, config: Config): Promise<void> {
     durationMs: payload.durationMs,
   };
 
-  const valid = await downloadService.validateDownload(payload.filePath, track);
+  const slskdFile = payload.file ?? {
+    filename: payload.filePath,
+    username: "unknown",
+    size: 0,
+    code: "1",
+  };
+
+  const valid = await downloadService.validateDownload(
+    payload.filePath,
+    track,
+    payload.trackId,
+    slskdFile as any,
+  );
 
   if (!valid) {
     throw new Error(`File failed metadata validation: ${payload.filePath}`);

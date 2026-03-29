@@ -50,6 +50,7 @@ export async function handleDownload(job: Job, config: Config): Promise<void> {
   const playlistName = playlist?.name ?? "Unknown";
 
   const downloadService = new DownloadService(
+    db,
     config.soulseek,
     config.download,
     config.lexicon,

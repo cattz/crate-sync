@@ -1,5 +1,6 @@
 import type { Config } from "../../config.js";
 import type { Job } from "../../db/schema.js";
+import { getDb } from "../../db/client.js";
 import { DownloadService } from "../../services/download-service.js";
 import { completeJob, failJob, createJob } from "../runner.js";
 import { generateSearchQueries } from "../../search/query-builder.js";
@@ -39,14 +40,16 @@ export async function handleSearch(job: Job, config: Config): Promise<void> {
     return;
   }
 
+  const db = getDb();
   const downloadService = new DownloadService(
+    db,
     config.soulseek,
     config.download,
     config.lexicon,
   );
 
   // Try strategies starting from queryIndex
-  const { ranked, diagnostics, strategy, strategyLog } = await downloadService.searchAndRank(track);
+  const { ranked, diagnostics, strategy, strategyLog } = await downloadService.searchAndRank(track, payload.trackId);
 
   if (ranked.length > 0 && ranked[0].score >= 0.3) {
     // Found a good result — create download job
