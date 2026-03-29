@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg02
 title: Duplicate downloads from Soulseek
-status: todo
+status: scrapped
 type: bug
 priority: high
 created_at: 2026-03-19T18:00:00Z
@@ -33,3 +33,7 @@ Evidence in slskd/data/downloads shows the same songs being downloaded repeatedl
 1. Check downloads table for duplicate entries (same track_id with status "done")
 2. Check if download jobs are being created for tracks that already have a completed download
 3. Check wishlist scan logic for deduplication
+
+## Resolution
+
+Scrapped — download logic will be rebuilt from scratch in spec-13 (download service). Deduplication concerns should be captured as requirements/test cases there.

@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg03
 title: Review UI side-by-side track comparison
-status: todo
+status: scrapped
 type: task
 priority: normal
 created_at: 2026-03-19T18:00:00Z
@@ -29,3 +29,7 @@ Review panel shows a flat list with track name, artist, and match score. No side
 - `web/src/pages/Review.tsx`
 - `web/src/pages/Matches.tsx`
 - `src/api/routes/matches.ts`
+
+## Resolution
+
+Scrapped — review UI will be rebuilt from scratch in spec-22 (web interactive pages). Side-by-side comparison should be part of the new design.

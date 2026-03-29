@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg04
 title: Allow sort by columns in Review page
-status: todo
+status: scrapped
 type: task
 priority: normal
 created_at: 2026-03-19T18:00:00Z
@@ -16,3 +16,7 @@ Add sortable column headers to the Review/Matches page, similar to the Playlists
 
 - `web/src/pages/Matches.tsx`
 - `web/src/pages/Review.tsx`
+
+## Resolution
+
+Scrapped — review UI will be rebuilt from scratch in spec-22 (web interactive pages). Column sorting should be part of the new design.
