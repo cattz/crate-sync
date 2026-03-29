@@ -1,4 +1,4 @@
-import type { LexiconTrack, LexiconPlaylist, LexiconTagCategory, LexiconTag } from "../types/lexicon.js";
+import type { LexiconTrack, LexiconTagCategory, LexiconTag } from "../types/lexicon.js";
 import type { LexiconConfig } from "../config.js";
 import { withRetry } from "../utils/retry.js";
 
@@ -44,35 +44,6 @@ function normalizeLexiconTrack(raw: Record<string, unknown>): LexiconTrack {
     album: raw.albumTitle != null ? String(raw.albumTitle) : raw.album != null ? String(raw.album) : undefined,
     durationMs,
   };
-}
-
-function normalizeLexiconPlaylist(
-  raw: Record<string, unknown>,
-): LexiconPlaylist {
-  const trackIds = Array.isArray(raw.trackIds ?? raw.track_ids)
-    ? (raw.trackIds ?? raw.track_ids) as unknown[]
-    : [];
-  return {
-    id: normalizeId(raw.id),
-    name: String(raw.name ?? ""),
-    trackIds: trackIds.map(normalizeId),
-  };
-}
-
-/** Recursively search the playlist tree for a playlist by name */
-function findPlaylistInTree(
-  nodes: Record<string, unknown>[],
-  name: string,
-): Record<string, unknown> | null {
-  for (const node of nodes) {
-    if (String(node.name ?? "") === name) return node;
-    const children = node.playlists;
-    if (Array.isArray(children)) {
-      const found = findPlaylistInTree(children as Record<string, unknown>[], name);
-      if (found) return found;
-    }
-  }
-  return null;
 }
 
 export class LexiconService {
@@ -172,73 +143,15 @@ export class LexiconService {
     }
   }
 
-  /** Get all playlists */
-  async getPlaylists(): Promise<LexiconPlaylist[]> {
-    const raw = await this.request<unknown>("/playlists");
-    const playlists = unwrapResponse<Record<string, unknown>[]>(
-      raw,
-      "playlists",
-    );
-    return playlists.map(normalizeLexiconPlaylist);
-  }
-
-  /** Get a playlist by name (searches recursively through the tree) */
-  async getPlaylistByName(name: string): Promise<LexiconPlaylist | null> {
-    const raw = await this.request<unknown>("/playlists");
-    const tree = unwrapResponse<Record<string, unknown>[]>(raw, "playlists");
-    if (!Array.isArray(tree)) return null;
-
-    const found = findPlaylistInTree(tree, name);
-    return found ? normalizeLexiconPlaylist(found) : null;
-  }
-
-  /** Create a new playlist, then add tracks to it */
-  async createPlaylist(
-    name: string,
-    trackIds: string[],
-  ): Promise<LexiconPlaylist> {
-    const raw = await this.request<unknown>("/playlist", {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    });
-    const playlist = unwrapResponse<Record<string, unknown>>(raw, "playlist");
-    const result = normalizeLexiconPlaylist(playlist);
-
-    if (trackIds.length > 0) {
-      await this.request("/playlist-tracks", {
-        method: "PATCH",
-        body: JSON.stringify({ id: Number(result.id), trackIds: trackIds.map(Number) }),
-      });
-    }
-
-    return result;
-  }
-
-  /** Add tracks to a playlist (appends via PATCH /playlist-tracks) */
-  async addTracksToPlaylist(
-    playlistId: string,
-    trackIds: string[],
-  ): Promise<void> {
-    if (trackIds.length === 0) return;
-    await this.request("/playlist-tracks", {
-      method: "PATCH",
-      body: JSON.stringify({ id: Number(playlistId), trackIds: trackIds.map(Number) }),
-    });
-  }
-
   // -------------------------------------------------------------------------
-  // Tags
+  // Tags (low-level)
   // -------------------------------------------------------------------------
 
   /** Get all tag categories and tags */
   async getTags(): Promise<{ categories: LexiconTagCategory[]; tags: LexiconTag[] }> {
     const raw = await this.request<unknown>("/tags");
-    const data = unwrapResponse<Record<string, unknown>>(raw, "categories");
 
-    // unwrapResponse may return the inner data object; we need both categories and tags
     // The response shape is { data: { categories: [...], tags: [...] } }
-    // After unwrapResponse with key "categories", if it finds "data" first it peels it,
-    // then finds "categories". We need to get the full data object instead.
     let source: Record<string, unknown>;
     if (raw && typeof raw === "object" && "data" in (raw as Record<string, unknown>)) {
       source = (raw as Record<string, unknown>).data as Record<string, unknown>;
@@ -309,30 +222,59 @@ export class LexiconService {
     return tags.map(normalizeId);
   }
 
-  /** Set the full track list for a playlist (delete existing, then add new) */
-  async setPlaylistTracks(
-    playlistId: string,
-    trackIds: string[],
-  ): Promise<void> {
-    const id = Number(playlistId);
+  // -------------------------------------------------------------------------
+  // Tags (high-level, category-scoped)
+  // -------------------------------------------------------------------------
 
-    // Get current tracks to delete them
-    const raw = await this.request<unknown>(`/playlist?id=${playlistId}`);
-    const current = unwrapResponse<Record<string, unknown>>(raw, "playlist");
-    const existing = normalizeLexiconPlaylist(current);
+  /** Find existing category by label or create new one */
+  async ensureTagCategory(label: string, color?: string): Promise<LexiconTagCategory> {
+    const { categories } = await this.getTags();
+    const existing = categories.find((c) => c.label === label);
+    if (existing) return existing;
+    return this.createTagCategory(label, color ?? "#808080");
+  }
 
-    if (existing.trackIds.length > 0) {
-      await this.request("/playlist-tracks", {
-        method: "DELETE",
-        body: JSON.stringify({ id, trackIds: existing.trackIds.map(Number) }),
-      });
-    }
+  /** Find existing tag in category or create new one */
+  async ensureTag(categoryId: string, label: string): Promise<LexiconTag> {
+    const { tags } = await this.getTags();
+    const existing = tags.find((t) => t.categoryId === categoryId && t.label === label);
+    if (existing) return existing;
+    return this.createTag(categoryId, label);
+  }
 
-    if (trackIds.length > 0) {
-      await this.request("/playlist-tracks", {
-        method: "PATCH",
-        body: JSON.stringify({ id, trackIds: trackIds.map(Number) }),
-      });
-    }
+  /** Read only tags belonging to a specific category for a track */
+  async getTrackTagsInCategory(trackId: string, categoryId: string): Promise<LexiconTag[]> {
+    const trackTagIds = await this.getTrackTags(trackId);
+    const { tags } = await this.getTags();
+    return tags.filter((t) => trackTagIds.includes(t.id) && t.categoryId === categoryId);
+  }
+
+  /**
+   * Category-scoped tag replacement: only modifies tags in the target category,
+   * preserves all tags from other categories.
+   *
+   * Algorithm (read-filter-merge-write):
+   * 1. Read track's current tags (all categories)
+   * 2. Get all tag definitions to know which belong to which category
+   * 3. Filter OUT tags belonging to categoryId
+   * 4. Add the new tagIds
+   * 5. Write full merged set via updateTrackTags()
+   */
+  async setTrackCategoryTags(trackId: string, categoryId: string, tagIds: string[]): Promise<void> {
+    const currentTagIds = await this.getTrackTags(trackId);
+    const { tags: allTags } = await this.getTags();
+
+    // Build a set of tag IDs that belong to the target category
+    const categoryTagIds = new Set(
+      allTags.filter((t) => t.categoryId === categoryId).map((t) => t.id),
+    );
+
+    // Keep only tags NOT in the target category
+    const otherTags = currentTagIds.filter((id) => !categoryTagIds.has(id));
+
+    // Merge: other categories' tags + new tags for target category
+    const merged = [...otherTags, ...tagIds];
+
+    await this.updateTrackTags(trackId, merged);
   }
 }

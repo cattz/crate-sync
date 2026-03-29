@@ -10,6 +10,10 @@ vi.mock("../../utils/retry.js", () => ({
 const config: LexiconConfig = {
   url: "http://localhost:48624",
   downloadRoot: "/music",
+  tagCategory: {
+    name: "Spotify Playlists",
+    color: "#1DB954",
+  },
 };
 
 function mockFetch(
@@ -153,65 +157,6 @@ describe("LexiconService", () => {
     expect(track).toBeNull();
   });
 
-  // --- createPlaylist ---
-
-  it("createPlaylist sends POST then PATCH /playlist-tracks", async () => {
-    // First call: POST /playlist (create)
-    // Second call: PATCH /playlist-tracks (add tracks)
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        json: () => Promise.resolve({ id: 7, name: "My Playlist" }),
-        text: () => Promise.resolve(""),
-        headers: new Headers({ "content-type": "application/json" }),
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true, status: 204,
-        json: () => Promise.resolve(undefined),
-        text: () => Promise.resolve(""),
-        headers: new Headers(),
-      } as unknown as Response);
-    vi.stubGlobal("fetch", fetchFn);
-
-    const playlist = await svc.createPlaylist("My Playlist", ["1", "2", "3"]);
-    expect(playlist.id).toBe("7");
-    expect(playlist.name).toBe("My Playlist");
-
-    // POST should not include trackIds
-    const [, postOpts] = fetchFn.mock.calls[0];
-    expect(postOpts.method).toBe("POST");
-    expect(JSON.parse(postOpts.body)).toEqual({ name: "My Playlist" });
-
-    // PATCH should add tracks
-    const [patchUrl, patchOpts] = fetchFn.mock.calls[1];
-    expect(patchUrl).toContain("/playlist-tracks");
-    expect(patchOpts.method).toBe("PATCH");
-    expect(JSON.parse(patchOpts.body)).toEqual({ id: 7, trackIds: [1, 2, 3] });
-  });
-
-  // --- addTracksToPlaylist ---
-
-  it("addTracksToPlaylist sends PATCH /playlist-tracks directly", async () => {
-    const fetchFn = mockFetch(undefined, { status: 204 });
-
-    await svc.addTracksToPlaylist("1", ["30", "40"]);
-
-    const [url, opts] = fetchFn.mock.calls[0];
-    expect(url).toContain("/playlist-tracks");
-    expect(opts.method).toBe("PATCH");
-    const body = JSON.parse(opts.body);
-    expect(body.id).toBe(1);
-    expect(body.trackIds).toEqual([30, 40]);
-  });
-
-  it("addTracksToPlaylist does nothing for empty trackIds", async () => {
-    const fetchFn = mockFetch(undefined);
-
-    await svc.addTracksToPlaylist("1", []);
-
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
-
   // --- getTags ---
 
   it("getTags unwraps categories and tags from data wrapper", async () => {
@@ -347,142 +292,6 @@ describe("LexiconService", () => {
     expect(tracks[0].album).toBe("My Album");
   });
 
-  // --- getPlaylists ---
-
-  it("getPlaylists returns normalized playlists", async () => {
-    mockFetch({
-      playlists: [
-        { id: 1, name: "Chill", trackIds: [10, 20] },
-        { id: 2, name: "Party", trackIds: [30] },
-      ],
-    });
-    const playlists = await svc.getPlaylists();
-    expect(playlists).toHaveLength(2);
-    expect(playlists[0].id).toBe("1");
-    expect(playlists[0].name).toBe("Chill");
-    expect(playlists[0].trackIds).toEqual(["10", "20"]);
-  });
-
-  // --- getPlaylistByName ---
-
-  it("getPlaylistByName finds top-level playlist", async () => {
-    mockFetch({
-      playlists: [
-        { id: 1, name: "Chill", trackIds: [] },
-        { id: 2, name: "Party", trackIds: [10, 20] },
-      ],
-    });
-    const pl = await svc.getPlaylistByName("Party");
-    expect(pl).not.toBeNull();
-    expect(pl!.id).toBe("2");
-  });
-
-  it("getPlaylistByName finds nested playlist", async () => {
-    mockFetch({
-      playlists: [
-        {
-          id: 1, name: "Folder",
-          playlists: [
-            { id: 3, name: "Deep/House", trackIds: [100] },
-          ],
-        },
-      ],
-    });
-    const pl = await svc.getPlaylistByName("Deep/House");
-    expect(pl).not.toBeNull();
-    expect(pl!.id).toBe("3");
-  });
-
-  it("getPlaylistByName returns null when not found", async () => {
-    mockFetch({ playlists: [{ id: 1, name: "Other", trackIds: [] }] });
-    const pl = await svc.getPlaylistByName("Missing");
-    expect(pl).toBeNull();
-  });
-
-  // --- setPlaylistTracks ---
-
-  it("setPlaylistTracks deletes existing then adds new tracks", async () => {
-    // First call: GET /playlist?id=5 (returns existing tracks)
-    // Second call: DELETE /playlist-tracks (remove existing)
-    // Third call: PATCH /playlist-tracks (add new)
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        json: () => Promise.resolve({ id: 5, name: "PL", trackIds: [1, 2] }),
-        text: () => Promise.resolve(""),
-        headers: new Headers({ "content-type": "application/json" }),
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true, status: 204,
-        json: () => Promise.resolve(undefined),
-        text: () => Promise.resolve(""),
-        headers: new Headers(),
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true, status: 204,
-        json: () => Promise.resolve(undefined),
-        text: () => Promise.resolve(""),
-        headers: new Headers(),
-      } as unknown as Response);
-    vi.stubGlobal("fetch", fetchFn);
-
-    await svc.setPlaylistTracks("5", ["10", "20", "30"]);
-
-    expect(fetchFn).toHaveBeenCalledTimes(3);
-
-    // DELETE call
-    const [, delOpts] = fetchFn.mock.calls[1];
-    expect(delOpts.method).toBe("DELETE");
-    expect(JSON.parse(delOpts.body).trackIds).toEqual([1, 2]);
-
-    // PATCH call
-    const [, patchOpts] = fetchFn.mock.calls[2];
-    expect(patchOpts.method).toBe("PATCH");
-    expect(JSON.parse(patchOpts.body).trackIds).toEqual([10, 20, 30]);
-  });
-
-  it("setPlaylistTracks skips delete when playlist is empty", async () => {
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        json: () => Promise.resolve({ id: 5, name: "PL", trackIds: [] }),
-        text: () => Promise.resolve(""),
-        headers: new Headers({ "content-type": "application/json" }),
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true, status: 204,
-        json: () => Promise.resolve(undefined),
-        text: () => Promise.resolve(""),
-        headers: new Headers(),
-      } as unknown as Response);
-    vi.stubGlobal("fetch", fetchFn);
-
-    await svc.setPlaylistTracks("5", ["10"]);
-
-    // Should only be GET + PATCH (no DELETE)
-    expect(fetchFn).toHaveBeenCalledTimes(2);
-    const [, patchOpts] = fetchFn.mock.calls[1];
-    expect(patchOpts.method).toBe("PATCH");
-  });
-
-  // --- createPlaylist with no tracks ---
-
-  it("createPlaylist with empty trackIds skips PATCH", async () => {
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        json: () => Promise.resolve({ id: 7, name: "Empty" }),
-        text: () => Promise.resolve(""),
-        headers: new Headers({ "content-type": "application/json" }),
-      } as unknown as Response);
-    vi.stubGlobal("fetch", fetchFn);
-
-    const pl = await svc.createPlaylist("Empty", []);
-    expect(pl.id).toBe("7");
-    // Only POST, no PATCH
-    expect(fetchFn).toHaveBeenCalledTimes(1);
-  });
-
   // --- error handling ---
 
   it("throws on non-2xx response", async () => {
@@ -495,5 +304,288 @@ describe("LexiconService", () => {
   it("throws on non-2xx for non-404 in getTrack", async () => {
     mockFetchError(500, "Internal Server Error", "fail");
     await expect(svc.getTrack("1")).rejects.toThrow(/500/);
+  });
+
+  // =========================================================================
+  // New tag methods
+  // =========================================================================
+
+  describe("ensureTagCategory", () => {
+    it("returns existing category when found", async () => {
+      mockFetch({
+        data: {
+          categories: [{ id: 1, label: "Spotify Playlists", color: "#1DB954" }],
+          tags: [],
+        },
+      });
+
+      const cat = await svc.ensureTagCategory("Spotify Playlists");
+      expect(cat.id).toBe("1");
+      expect(cat.label).toBe("Spotify Playlists");
+    });
+
+    it("creates new category when not found", async () => {
+      // First call: getTags returns empty
+      // Second call: createTagCategory
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { categories: [], tags: [] } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ id: 5, label: "Spotify Playlists", color: "#1DB954" }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response);
+      vi.stubGlobal("fetch", fetchFn);
+
+      const cat = await svc.ensureTagCategory("Spotify Playlists", "#1DB954");
+      expect(cat.id).toBe("5");
+      expect(cat.label).toBe("Spotify Playlists");
+
+      // Verify createTagCategory was called
+      const [url, opts] = fetchFn.mock.calls[1];
+      expect(url).toContain("/tag-category");
+      expect(opts.method).toBe("POST");
+    });
+
+    it("uses default color #808080 when not provided", async () => {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { categories: [], tags: [] } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ id: 5, label: "Test", color: "#808080" }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response);
+      vi.stubGlobal("fetch", fetchFn);
+
+      await svc.ensureTagCategory("Test");
+
+      const [, opts] = fetchFn.mock.calls[1];
+      expect(JSON.parse(opts.body).color).toBe("#808080");
+    });
+  });
+
+  describe("ensureTag", () => {
+    it("returns existing tag when found", async () => {
+      mockFetch({
+        data: {
+          categories: [{ id: 1, label: "Spotify" }],
+          tags: [{ id: 10, categoryId: 1, label: "House" }],
+        },
+      });
+
+      const tag = await svc.ensureTag("1", "House");
+      expect(tag.id).toBe("10");
+      expect(tag.label).toBe("House");
+    });
+
+    it("creates new tag when not found", async () => {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { categories: [], tags: [] } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ id: 20, categoryId: 1, label: "Techno" }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response);
+      vi.stubGlobal("fetch", fetchFn);
+
+      const tag = await svc.ensureTag("1", "Techno");
+      expect(tag.id).toBe("20");
+      expect(tag.label).toBe("Techno");
+    });
+  });
+
+  describe("getTrackTagsInCategory", () => {
+    it("returns only tags from the requested category", async () => {
+      // getTrackTags returns tag IDs on the track
+      // getTags returns all definitions
+      const fetchFn = vi.fn()
+        // First call: getTrackTags -> GET /track?id=42
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { track: { id: 42, tags: [10, 20, 30] } } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        // Second call: getTags -> GET /tags
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({
+            data: {
+              categories: [
+                { id: 1, label: "Genre" },
+                { id: 2, label: "Spotify" },
+              ],
+              tags: [
+                { id: 10, categoryId: 1, label: "House" },
+                { id: 20, categoryId: 2, label: "DJP" },
+                { id: 30, categoryId: 1, label: "Techno" },
+              ],
+            },
+          }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response);
+      vi.stubGlobal("fetch", fetchFn);
+
+      const tags = await svc.getTrackTagsInCategory("42", "2");
+      expect(tags).toHaveLength(1);
+      expect(tags[0].id).toBe("20");
+      expect(tags[0].label).toBe("DJP");
+    });
+
+    it("returns empty array when track has no tags in the category", async () => {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { track: { id: 42, tags: [10] } } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({
+            data: {
+              categories: [{ id: 1, label: "Genre" }, { id: 2, label: "Spotify" }],
+              tags: [{ id: 10, categoryId: 1, label: "House" }],
+            },
+          }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response);
+      vi.stubGlobal("fetch", fetchFn);
+
+      const tags = await svc.getTrackTagsInCategory("42", "2");
+      expect(tags).toHaveLength(0);
+    });
+  });
+
+  describe("setTrackCategoryTags", () => {
+    it("preserves other categories, replaces target category tags", async () => {
+      const fetchFn = vi.fn()
+        // getTrackTags -> GET /track?id=42 (current tags: genre 10, 20 + spotify 30)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { track: { id: 42, tags: [10, 20, 30] } } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        // getTags -> GET /tags
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({
+            data: {
+              categories: [{ id: 1, label: "Genre" }, { id: 2, label: "Spotify" }],
+              tags: [
+                { id: 10, categoryId: 1, label: "House" },
+                { id: 20, categoryId: 1, label: "Techno" },
+                { id: 30, categoryId: 2, label: "OldPlaylist" },
+              ],
+            },
+          }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        // updateTrackTags -> PATCH /track
+        .mockResolvedValueOnce({
+          ok: true, status: 204,
+          json: () => Promise.resolve(undefined),
+          text: () => Promise.resolve(""),
+          headers: new Headers(),
+        } as unknown as Response);
+      vi.stubGlobal("fetch", fetchFn);
+
+      await svc.setTrackCategoryTags("42", "2", ["31", "32"]);
+
+      // Verify the PATCH call has merged tags: genre (10, 20) + new spotify (31, 32)
+      const [, opts] = fetchFn.mock.calls[2];
+      const body = JSON.parse(opts.body);
+      expect(body.id).toBe(42);
+      expect(body.edits.tags).toEqual(expect.arrayContaining([10, 20, 31, 32]));
+      expect(body.edits.tags).not.toContain(30); // Old spotify tag removed
+    });
+
+    it("works on track with no existing tags", async () => {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { track: { id: 42, tags: [] } } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { categories: [], tags: [] } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 204,
+          json: () => Promise.resolve(undefined),
+          text: () => Promise.resolve(""),
+          headers: new Headers(),
+        } as unknown as Response);
+      vi.stubGlobal("fetch", fetchFn);
+
+      await svc.setTrackCategoryTags("42", "2", ["31"]);
+
+      const [, opts] = fetchFn.mock.calls[2];
+      const body = JSON.parse(opts.body);
+      expect(body.edits.tags).toEqual([31]);
+    });
+
+    it("removes category tags when tagIds is empty", async () => {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ data: { track: { id: 42, tags: [10, 30] } } }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: () => Promise.resolve({
+            data: {
+              categories: [{ id: 1, label: "Genre" }, { id: 2, label: "Spotify" }],
+              tags: [
+                { id: 10, categoryId: 1, label: "House" },
+                { id: 30, categoryId: 2, label: "OldPlaylist" },
+              ],
+            },
+          }),
+          text: () => Promise.resolve(""),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 204,
+          json: () => Promise.resolve(undefined),
+          text: () => Promise.resolve(""),
+          headers: new Headers(),
+        } as unknown as Response);
+      vi.stubGlobal("fetch", fetchFn);
+
+      await svc.setTrackCategoryTags("42", "2", []);
+
+      const [, opts] = fetchFn.mock.calls[2];
+      const body = JSON.parse(opts.body);
+      // Only genre tag preserved, spotify tag removed
+      expect(body.edits.tags).toEqual([10]);
+    });
   });
 });

@@ -6,7 +6,6 @@ import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { createMatcher } from "../matching/index.js";
 import { LexiconService } from "./lexicon-service.js";
-import { DownloadService } from "./download-service.js";
 
 // ---------------------------------------------------------------------------
 // Dependency injection types
@@ -17,8 +16,6 @@ export interface SyncPipelineDeps {
   db?: ReturnType<typeof getDb>;
   /** Override the LexiconService factory (useful for tests). */
   lexiconService?: LexiconService;
-  /** Override the DownloadService factory (useful for tests). */
-  downloadService?: DownloadService;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,22 +33,18 @@ export interface MatchedTrack {
   method: string;
 }
 
-export interface PhaseOneResult {
+export interface MatchPlaylistResult {
   playlistName: string;
-  found: MatchedTrack[];
-  needsReview: MatchedTrack[];
+  confirmed: MatchedTrack[];
+  pending: MatchedTrack[];
   notFound: Array<{ dbTrackId: string; track: TrackInfo }>;
   total: number;
+  tagged: number;
 }
 
-export interface ReviewDecision {
-  dbTrackId: string;
-  accepted: boolean;
-}
-
-export interface PhaseTwoResult {
-  confirmed: MatchedTrack[];
-  missing: Array<{ dbTrackId: string; track: TrackInfo }>;
+export interface TagResult {
+  tagged: number;
+  skipped: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,22 +69,11 @@ export class SyncPipeline {
     return this.deps.lexiconService ?? new LexiconService(this.config.lexicon);
   }
 
-  private getDownloadService() {
-    return (
-      this.deps.downloadService ??
-      new DownloadService(
-        this.config.soulseek,
-        this.config.download,
-        this.config.lexicon,
-      )
-    );
-  }
-
   // -------------------------------------------------------------------------
-  // Phase 1 — Match all tracks in a playlist against Lexicon
+  // matchPlaylist — match all tracks, tag confirmed, park pending
   // -------------------------------------------------------------------------
 
-  async matchPlaylist(playlistId: string): Promise<PhaseOneResult> {
+  async matchPlaylist(playlistId: string): Promise<MatchPlaylistResult> {
     const db = this.getDb();
 
     // 1. Fetch playlist metadata
@@ -115,15 +97,15 @@ export class SyncPipeline {
 
     const trackIds = playlistTrackRows.map((r) => r.trackId);
 
-    // Fetch all track details in one go
+    // 3. Load all track rows for O(1) lookup
     const trackRows = await db.query.tracks.findMany();
     const trackMap = new Map(trackRows.map((t) => [t.id, t]));
 
-    // 3. Get Lexicon tracks via service
+    // 4. Get Lexicon tracks via service
     const lexicon = this.getLexiconService();
     const lexiconTracks = await lexicon.getTracks();
 
-    // Convert Lexicon tracks to TrackInfo candidates (with an ID index)
+    // Convert Lexicon tracks to TrackInfo candidates
     const lexiconCandidates: TrackInfo[] = lexiconTracks.map((lt) => ({
       title: lt.title,
       artist: lt.artist,
@@ -137,13 +119,10 @@ export class SyncPipeline {
       lexiconById.set(lexiconTracks[i].id, lexiconCandidates[i]);
     }
 
-    // 4. Build the matcher
+    // 5. Build the matcher
     const matcher = createMatcher(this.config.matching, "lexicon");
 
-    // 5. Load existing matches from DB
-    //    - Confirmed matches: reuse directly (skip re-matching)
-    //    - Rejected matches: pair-specific — only block that specific
-    //      source↔target pair, not all future matching for the source
+    // 6. Load existing matches from DB
     const existingMatches = await db
       .select()
       .from(schema.matches)
@@ -170,9 +149,9 @@ export class SyncPipeline {
       }
     }
 
-    // 6. Categorise each playlist track
-    const found: MatchedTrack[] = [];
-    const needsReview: MatchedTrack[] = [];
+    // 7. Categorise each playlist track
+    const confirmed: MatchedTrack[] = [];
+    const pending: MatchedTrack[] = [];
     const notFound: Array<{ dbTrackId: string; track: TrackInfo }> = [];
     const newMatchRows: schema.NewMatch[] = [];
 
@@ -193,7 +172,7 @@ export class SyncPipeline {
       const prev = confirmedBySource.get(dbTrackId);
 
       if (prev) {
-        found.push({
+        confirmed.push({
           dbTrackId,
           track: trackInfo,
           lexiconTrackId: prev.targetId,
@@ -241,12 +220,17 @@ export class SyncPipeline {
       };
 
       if (best.confidence === "high") {
-        found.push(matched);
+        confirmed.push(matched);
       } else if (best.confidence === "review") {
-        needsReview.push(matched);
+        pending.push(matched);
       } else {
         notFound.push({ dbTrackId, track: trackInfo });
       }
+
+      // Build target metadata for review service
+      const targetMeta = lexiconTrackId
+        ? JSON.stringify(lexiconById.get(lexiconTrackId))
+        : undefined;
 
       // Queue a new match row for persistence
       const status =
@@ -266,11 +250,13 @@ export class SyncPipeline {
           confidence: best.confidence,
           method: best.method as "isrc" | "fuzzy" | "manual",
           status,
+          targetMeta,
+          parkedAt: status === "pending" ? Date.now() : undefined,
         });
       }
     }
 
-    // 7. Persist new matches — update score/confidence on conflict,
+    // 8. Persist new matches — update score/confidence on conflict,
     //    but never downgrade a confirmed match back to pending/rejected
     if (newMatchRows.length > 0) {
       for (const row of newMatchRows) {
@@ -288,194 +274,54 @@ export class SyncPipeline {
               score: sql`excluded.score`,
               confidence: sql`excluded.confidence`,
               method: sql`excluded.method`,
+              targetMeta: sql`excluded.target_meta`,
               // Only update status if existing is not confirmed
               status: sql`CASE WHEN ${schema.matches.status} = 'confirmed' THEN 'confirmed' ELSE excluded.status END`,
+              parkedAt: sql`excluded.parked_at`,
               updatedAt: sql`excluded.updated_at`,
             },
           });
       }
     }
 
+    // 9. Tag confirmed tracks
+    const manualTags = playlist.tags ? JSON.parse(playlist.tags) as string[] : undefined;
+    const tagResult = await this.syncTags(playlist.name, confirmed, manualTags);
+
+    // 10. Return result
     return {
       playlistName: playlist.name,
-      found,
-      needsReview,
+      confirmed,
+      pending,
       notFound,
       total: trackIds.length,
+      tagged: tagResult.tagged,
     };
   }
 
   // -------------------------------------------------------------------------
-  // Phase 2 — Apply user review decisions
-  // -------------------------------------------------------------------------
-
-  applyReviewDecisions(
-    phaseOne: PhaseOneResult,
-    decisions: ReviewDecision[],
-  ): PhaseTwoResult {
-    const db = this.getDb();
-    const decisionMap = new Map(decisions.map((d) => [d.dbTrackId, d.accepted]));
-
-    const confirmed: MatchedTrack[] = [...phaseOne.found];
-    const missing: Array<{ dbTrackId: string; track: TrackInfo }> = [
-      ...phaseOne.notFound,
-    ];
-
-    for (const item of phaseOne.needsReview) {
-      const accepted = decisionMap.get(item.dbTrackId);
-
-      if (accepted === true) {
-        confirmed.push(item);
-
-        // Persist the confirmation
-        if (item.lexiconTrackId) {
-          db.update(schema.matches)
-            .set({ status: "confirmed" })
-            .where(
-              and(
-                eq(schema.matches.sourceType, "spotify"),
-                eq(schema.matches.sourceId, item.dbTrackId),
-                eq(schema.matches.targetType, "lexicon"),
-                eq(schema.matches.targetId, item.lexiconTrackId),
-              ),
-            )
-            .run();
-        }
-      } else {
-        // rejected or no decision → treat as missing
-        missing.push({ dbTrackId: item.dbTrackId, track: item.track });
-
-        if (item.lexiconTrackId) {
-          db.update(schema.matches)
-            .set({ status: "rejected" })
-            .where(
-              and(
-                eq(schema.matches.sourceType, "spotify"),
-                eq(schema.matches.sourceId, item.dbTrackId),
-                eq(schema.matches.targetType, "lexicon"),
-                eq(schema.matches.targetId, item.lexiconTrackId),
-              ),
-            )
-            .run();
-        }
-      }
-    }
-
-    return { confirmed, missing };
-  }
-
-  // -------------------------------------------------------------------------
-  // Phase 3 — Download missing tracks
-  // -------------------------------------------------------------------------
-
-  async downloadMissing(
-    phaseTwo: PhaseTwoResult,
-    playlistName: string,
-    onProgress?: (
-      completed: number,
-      total: number,
-      trackTitle: string,
-      success: boolean,
-      error?: string,
-      meta?: {
-        strategy?: string;
-        strategyLog?: Array<{ label: string; query: string; resultCount: number }>;
-        topCandidates?: Array<{ score: number; filename: string }>;
-      },
-    ) => void,
-    onReview?: import("./download-service.js").DownloadReviewFn,
-  ): Promise<{ succeeded: number; failed: number }> {
-    const downloadService = this.getDownloadService();
-
-    // Create the playlist folder upfront so it's visible in Lexicon/Incoming
-    // even if no downloads succeed
-    downloadService.ensurePlaylistFolder(playlistName);
-
-    const batchItems = phaseTwo.missing.map((m) => ({
-      track: m.track,
-      dbTrackId: m.dbTrackId,
-      playlistName,
-    }));
-
-    let succeeded = 0;
-    let failed = 0;
-
-    const results = await downloadService.downloadBatch(
-      batchItems,
-      (done, total, result) => {
-        if (result.success) succeeded++;
-        else failed++;
-
-        // Find the original track for the title
-        const item = batchItems.find((b) => b.dbTrackId === result.trackId);
-        const title = item?.track.title ?? "Unknown";
-        onProgress?.(done, total, title, result.success, result.error, {
-          strategy: result.strategy,
-          strategyLog: result.strategyLog,
-        });
-      },
-      onReview,
-    );
-
-    // Update download records in DB
-    const db = this.getDb();
-    for (const result of results) {
-      await db.insert(schema.downloads).values({
-        trackId: result.trackId,
-        status: result.success ? "done" : "failed",
-        filePath: result.filePath ?? null,
-        error: result.error ?? null,
-        startedAt: Date.now(),
-        completedAt: Date.now(),
-      });
-    }
-
-    return { succeeded, failed };
-  }
-
-  // -------------------------------------------------------------------------
-  // Phase 3b — Sync confirmed tracks to a Lexicon playlist
-  // -------------------------------------------------------------------------
-
-  async syncToLexicon(
-    playlistId: string,
-    playlistName: string,
-    allMatchedTrackIds: string[],
-  ): Promise<void> {
-    const lexicon = this.getLexiconService();
-
-    // Check if the playlist already exists in Lexicon
-    const existing = await lexicon.getPlaylistByName(playlistName);
-
-    if (existing) {
-      // Replace the full track list in Spotify order
-      await lexicon.setPlaylistTracks(existing.id, allMatchedTrackIds);
-    } else {
-      // Create a new playlist with all matched tracks
-      await lexicon.createPlaylist(playlistName, allMatchedTrackIds);
-    }
-
-    // Log the sync action
-    const db = this.getDb();
-    await db.insert(schema.syncLog).values({
-      playlistId,
-      action: "sync_to_lexicon",
-      details: `Synced ${allMatchedTrackIds.length} tracks to Lexicon playlist "${playlistName}"`,
-    });
-  }
-
-  // -------------------------------------------------------------------------
-  // Tag sync — assign Spotify playlist name segments as Lexicon custom tags
+  // syncTags — tag confirmed tracks in Lexicon under configured category
   // -------------------------------------------------------------------------
 
   async syncTags(
     playlistName: string,
     confirmedTracks: MatchedTrack[],
-  ): Promise<{ tagged: number; skipped: number }> {
+    manualTags?: string[],
+  ): Promise<TagResult> {
+    // 1. Extract tag labels from playlist name
     const segments = playlistName
       .split("/")
       .map((s) => s.trim())
       .filter(Boolean);
+
+    // 2. Merge manual tags, deduplicate
+    if (manualTags) {
+      for (const tag of manualTags) {
+        if (!segments.includes(tag)) {
+          segments.push(tag);
+        }
+      }
+    }
 
     if (segments.length === 0) {
       return { tagged: 0, skipped: 0 };
@@ -483,29 +329,21 @@ export class SyncPipeline {
 
     const lexicon = this.getLexiconService();
 
-    // Fetch all categories and tags
-    const { categories, tags } = await lexicon.getTags();
+    // 4-5. Ensure tag category exists
+    const categoryConfig = this.config.lexicon.tagCategory;
+    const category = await lexicon.ensureTagCategory(
+      categoryConfig.name,
+      categoryConfig.color,
+    );
 
-    // Find or create the "Spotify" category
-    let spotifyCategory = categories.find((c) => c.label === "Spotify");
-    if (!spotifyCategory) {
-      spotifyCategory = await lexicon.createTagCategory("Spotify", "#1DB954");
+    // 6. Ensure each tag exists under the category
+    const tagIds: string[] = [];
+    for (const label of segments) {
+      const tag = await lexicon.ensureTag(category.id, label);
+      tagIds.push(tag.id);
     }
 
-    // Find or create tags for each segment
-    const segmentTagIds: string[] = [];
-    for (const segment of segments) {
-      let tag = tags.find(
-        (t) => t.categoryId === spotifyCategory!.id && t.label === segment,
-      );
-      if (!tag) {
-        tag = await lexicon.createTag(spotifyCategory.id, segment);
-      }
-      segmentTagIds.push(tag.id);
-    }
-
-    const newTagSet = new Set(segmentTagIds);
-
+    // 7. Tag each confirmed track (category-scoped)
     let tagged = 0;
     let skipped = 0;
 
@@ -515,17 +353,12 @@ export class SyncPipeline {
         continue;
       }
 
-      const existingTags = await lexicon.getTrackTags(track.lexiconTrackId);
-      const existingSet = new Set(existingTags);
-
-      // Merge: union of existing + new
-      const merged = new Set([...existingTags, ...segmentTagIds]);
-
-      // Only update if there are new tags to add
-      if (merged.size !== existingSet.size) {
-        await lexicon.updateTrackTags(track.lexiconTrackId, [...merged]);
+      try {
+        await lexicon.setTrackCategoryTags(track.lexiconTrackId, category.id, tagIds);
         tagged++;
-      } else {
+      } catch (err) {
+        // Log and continue on individual track tagging errors
+        console.error(`Failed to tag track ${track.lexiconTrackId}:`, err);
         skipped++;
       }
     }
@@ -534,13 +367,211 @@ export class SyncPipeline {
   }
 
   // -------------------------------------------------------------------------
-  // Dry run — Phase 1 only, no side-effects
+  // dryRun — match and persist, but do NOT tag
   // -------------------------------------------------------------------------
 
-  async dryRun(playlistId: string): Promise<PhaseOneResult> {
-    // dryRun is identical to matchPlaylist — it runs Phase 1 and returns
-    // the categorised results without proceeding to review or download.
-    // Match persistence still occurs so repeated dry runs benefit from cache.
-    return this.matchPlaylist(playlistId);
+  async dryRun(playlistId: string): Promise<MatchPlaylistResult> {
+    const db = this.getDb();
+
+    // Same as matchPlaylist but without tagging
+    const playlist = await db.query.playlists.findFirst({
+      where: eq(schema.playlists.id, playlistId),
+    });
+
+    if (!playlist) {
+      throw new Error(`Playlist not found: ${playlistId}`);
+    }
+
+    const playlistTrackRows = await db
+      .select({
+        trackId: schema.playlistTracks.trackId,
+        position: schema.playlistTracks.position,
+      })
+      .from(schema.playlistTracks)
+      .where(eq(schema.playlistTracks.playlistId, playlistId))
+      .orderBy(schema.playlistTracks.position);
+
+    const trackIds = playlistTrackRows.map((r) => r.trackId);
+
+    const trackRows = await db.query.tracks.findMany();
+    const trackMap = new Map(trackRows.map((t) => [t.id, t]));
+
+    const lexicon = this.getLexiconService();
+    const lexiconTracks = await lexicon.getTracks();
+
+    const lexiconCandidates: TrackInfo[] = lexiconTracks.map((lt) => ({
+      title: lt.title,
+      artist: lt.artist,
+      album: lt.album ?? undefined,
+      durationMs: lt.durationMs ?? undefined,
+    }));
+
+    const lexiconById = new Map<string, TrackInfo>();
+    for (let i = 0; i < lexiconTracks.length; i++) {
+      lexiconById.set(lexiconTracks[i].id, lexiconCandidates[i]);
+    }
+
+    const matcher = createMatcher(this.config.matching, "lexicon");
+
+    const existingMatches = await db
+      .select()
+      .from(schema.matches)
+      .where(
+        and(
+          eq(schema.matches.sourceType, "spotify"),
+          eq(schema.matches.targetType, "lexicon"),
+        ),
+      );
+
+    const confirmedBySource = new Map<string, schema.Match>();
+    const rejectedPairs = new Set<string>();
+
+    for (const m of existingMatches) {
+      if (m.status === "confirmed") {
+        const existing = confirmedBySource.get(m.sourceId);
+        if (!existing || m.updatedAt > existing.updatedAt) {
+          confirmedBySource.set(m.sourceId, m);
+        }
+      } else if (m.status === "rejected") {
+        rejectedPairs.add(`${m.sourceId}:${m.targetId}`);
+      }
+    }
+
+    const confirmed: MatchedTrack[] = [];
+    const pendingArr: MatchedTrack[] = [];
+    const notFound: Array<{ dbTrackId: string; track: TrackInfo }> = [];
+    const newMatchRows: schema.NewMatch[] = [];
+
+    for (const dbTrackId of trackIds) {
+      const row = trackMap.get(dbTrackId);
+      if (!row) continue;
+
+      const trackInfo: TrackInfo = {
+        title: row.title,
+        artist: row.artist,
+        album: row.album ?? undefined,
+        durationMs: row.durationMs,
+        isrc: row.isrc ?? undefined,
+        uri: row.spotifyUri ?? undefined,
+      };
+
+      const prev = confirmedBySource.get(dbTrackId);
+
+      if (prev) {
+        confirmed.push({
+          dbTrackId,
+          track: trackInfo,
+          lexiconTrackId: prev.targetId,
+          lexiconTrack: lexiconById.get(prev.targetId),
+          score: prev.score,
+          confidence: prev.confidence,
+          method: prev.method,
+        });
+        continue;
+      }
+
+      const results = matcher.match(trackInfo, lexiconCandidates);
+
+      let best: (typeof results)[0] | undefined;
+      let lexiconTrackId: string | undefined;
+
+      for (const candidate of results) {
+        const lexIdx = lexiconCandidates.indexOf(candidate.candidate);
+        const candidateId = lexIdx >= 0 ? lexiconTracks[lexIdx].id : undefined;
+
+        if (candidateId && rejectedPairs.has(`${dbTrackId}:${candidateId}`)) {
+          continue;
+        }
+
+        best = candidate;
+        lexiconTrackId = candidateId;
+        break;
+      }
+
+      if (!best) {
+        notFound.push({ dbTrackId, track: trackInfo });
+        continue;
+      }
+
+      const matched: MatchedTrack = {
+        dbTrackId,
+        track: trackInfo,
+        lexiconTrackId,
+        lexiconTrack: lexiconTrackId ? lexiconById.get(lexiconTrackId) : undefined,
+        score: best.score,
+        confidence: best.confidence,
+        method: best.method,
+      };
+
+      if (best.confidence === "high") {
+        confirmed.push(matched);
+      } else if (best.confidence === "review") {
+        pendingArr.push(matched);
+      } else {
+        notFound.push({ dbTrackId, track: trackInfo });
+      }
+
+      const targetMeta = lexiconTrackId
+        ? JSON.stringify(lexiconById.get(lexiconTrackId))
+        : undefined;
+
+      const status =
+        best.confidence === "high"
+          ? ("confirmed" as const)
+          : best.confidence === "review"
+            ? ("pending" as const)
+            : ("rejected" as const);
+
+      if (lexiconTrackId) {
+        newMatchRows.push({
+          sourceType: "spotify",
+          sourceId: dbTrackId,
+          targetType: "lexicon",
+          targetId: lexiconTrackId,
+          score: best.score,
+          confidence: best.confidence,
+          method: best.method as "isrc" | "fuzzy" | "manual",
+          status,
+          targetMeta,
+          parkedAt: status === "pending" ? Date.now() : undefined,
+        });
+      }
+    }
+
+    // Persist matches (even in dry run, for cache/rejection memory)
+    if (newMatchRows.length > 0) {
+      for (const row of newMatchRows) {
+        await db
+          .insert(schema.matches)
+          .values(row)
+          .onConflictDoUpdate({
+            target: [
+              schema.matches.sourceType,
+              schema.matches.sourceId,
+              schema.matches.targetType,
+              schema.matches.targetId,
+            ],
+            set: {
+              score: sql`excluded.score`,
+              confidence: sql`excluded.confidence`,
+              method: sql`excluded.method`,
+              targetMeta: sql`excluded.target_meta`,
+              status: sql`CASE WHEN ${schema.matches.status} = 'confirmed' THEN 'confirmed' ELSE excluded.status END`,
+              parkedAt: sql`excluded.parked_at`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          });
+      }
+    }
+
+    // No tagging in dry run
+    return {
+      playlistName: playlist.name,
+      confirmed,
+      pending: pendingArr,
+      notFound,
+      total: trackIds.length,
+      tagged: 0,
+    };
   }
 }
