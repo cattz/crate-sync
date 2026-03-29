@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { getDb } from "../../db/client.js";
 import { matches, tracks } from "../../db/schema.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { loadConfig } from "../../config.js";
 import { LexiconService } from "../../services/lexicon-service.js";
+import { ReviewService } from "../../services/review-service.js";
 
 export const matchRoutes = new Hono();
 
@@ -59,23 +60,22 @@ matchRoutes.get("/", async (c) => {
 
 // PUT /api/matches/:id  { status: "confirmed" | "rejected" }
 matchRoutes.put("/:id", async (c) => {
-  const db = getDb();
   const body = await c.req.json<{ status: string }>();
 
   if (!["confirmed", "rejected"].includes(body.status)) {
     return c.json({ error: "Status must be 'confirmed' or 'rejected'" }, 400);
   }
 
-  const existing = db.select().from(matches).where(eq(matches.id, c.req.param("id"))).get();
-  if (!existing) {
-    return c.json({ error: "Match not found" }, 404);
+  const config = loadConfig();
+  const reviewService = new ReviewService(config);
+
+  if (body.status === "confirmed") {
+    await reviewService.confirm(c.req.param("id"));
+  } else {
+    await reviewService.reject(c.req.param("id"));
   }
 
-  db.update(matches)
-    .set({ status: body.status as "confirmed" | "rejected", updatedAt: Date.now() })
-    .where(eq(matches.id, c.req.param("id")))
-    .run();
-
+  const db = getDb();
   const updated = db.select().from(matches).where(eq(matches.id, c.req.param("id"))).get();
   return c.json(updated);
 });

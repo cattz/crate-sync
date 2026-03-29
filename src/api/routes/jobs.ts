@@ -161,6 +161,24 @@ jobRoutes.delete("/:id", (c) => {
   return c.json({ ok: true });
 });
 
+// POST /api/jobs/wishlist/run — trigger a wishlist run
+jobRoutes.post("/wishlist/run", (c) => {
+  const db = getDb();
+
+  const job = db
+    .insert(schema.jobs)
+    .values({
+      type: "wishlist_run",
+      status: "queued",
+      priority: 5,
+      payload: JSON.stringify({ triggeredAt: Date.now() }),
+    })
+    .returning()
+    .get();
+
+  return c.json({ ok: true, jobId: job.id });
+});
+
 // POST /api/jobs/retry-all — re-queue all failed jobs of a type
 jobRoutes.post("/retry-all", async (c) => {
   const db = getDb();

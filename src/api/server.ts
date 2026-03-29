@@ -11,6 +11,7 @@ import { downloadRoutes } from "./routes/downloads.js";
 import { statusRoutes } from "./routes/status.js";
 import { syncRoutes } from "./routes/sync.js";
 import { jobRoutes } from "./routes/jobs.js";
+import { reviewRoutes } from "./routes/review.js";
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -31,6 +32,7 @@ export function createApp(): Hono {
   app.route("/api/status", statusRoutes);
   app.route("/api/sync", syncRoutes);
   app.route("/api/jobs", jobRoutes);
+  app.route("/api/review", reviewRoutes);
 
   // Serve frontend static files in production
   const distDir = join(import.meta.dirname, "../../web/dist");

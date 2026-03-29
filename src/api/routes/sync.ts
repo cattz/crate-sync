@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { getDb } from "../../db/client.js";
 import { PlaylistService } from "../../services/playlist-service.js";
 import { loadConfig, type Config } from "../../config.js";
-import { SyncPipeline, type PhaseOneResult } from "../../services/sync-pipeline.js";
+import { SyncPipeline } from "../../services/sync-pipeline.js";
 import { syncState } from "../state.js";
 import { createJob } from "../../jobs/runner.js";
 
@@ -44,7 +44,7 @@ syncRoutes.post("/:playlistId", async (c) => {
     payload: JSON.stringify({ playlistId: playlist.id }),
   });
 
-  // Also run via the legacy in-process pipeline for SSE events
+  // Also run via the in-process pipeline for SSE events
   runSync(syncId, playlist.id, config).catch((err) => {
     const state = syncState.get(syncId);
     if (state) {
@@ -56,7 +56,7 @@ syncRoutes.post("/:playlistId", async (c) => {
   return c.json({ syncId, jobId: job.id });
 });
 
-// POST /api/sync/:playlistId/dry-run — phase 1 only, returns JSON
+// POST /api/sync/:playlistId/dry-run — match only (no tagging), returns JSON
 syncRoutes.post("/:playlistId/dry-run", async (c) => {
   const config = loadConfig();
   const svc = new PlaylistService(getDb());
@@ -67,7 +67,7 @@ syncRoutes.post("/:playlistId/dry-run", async (c) => {
   }
 
   const pipeline = new SyncPipeline(config);
-  const result = await pipeline.matchPlaylist(playlist.id);
+  const result = await pipeline.dryRun(playlist.id);
 
   return c.json(result);
 });
@@ -86,7 +86,7 @@ syncRoutes.get("/:syncId/events", (c) => {
       await stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
     }
 
-    if (state.status !== "running" && state.status !== "awaiting-review") {
+    if (state.status !== "running") {
       return; // Already done, just replay
     }
 
@@ -114,28 +114,6 @@ syncRoutes.get("/:syncId/events", (c) => {
       });
     });
   });
-});
-
-// POST /api/sync/:syncId/review — submit review decisions
-syncRoutes.post("/:syncId/review", async (c) => {
-  const state = syncState.get(c.req.param("syncId"));
-
-  if (!state) {
-    return c.json({ error: "Sync session not found" }, 404);
-  }
-
-  if (state.status !== "awaiting-review") {
-    return c.json({ error: "Sync is not awaiting review" }, 400);
-  }
-
-  const body = await c.req.json<{
-    decisions: Array<{ dbTrackId: string; accepted: boolean }>;
-  }>();
-
-  state.reviewDecisions = body.decisions;
-  state.status = "running";
-
-  return c.json({ ok: true });
 });
 
 // GET /api/sync/:syncId — get sync status
@@ -173,76 +151,23 @@ async function runSync(syncId: string, playlistId: string, config: Config) {
 
   pushEvent(syncId, "phase", { phase: "match" });
 
-  const phaseOne = await pipeline.matchPlaylist(playlistId);
+  const result = await pipeline.matchPlaylist(playlistId);
 
   pushEvent(syncId, "match-complete", {
-    found: phaseOne.found.length,
-    review: phaseOne.needsReview.length,
-    notFound: phaseOne.notFound.length,
+    confirmed: result.confirmed.length,
+    pending: result.pending.length,
+    notFound: result.notFound.length,
+    tagged: result.tagged,
   });
 
-  let phaseOneAfterReview: PhaseOneResult = phaseOne;
-
-  // If there are items needing review, pause and wait
-  if (phaseOne.needsReview.length > 0) {
-    pushEvent(syncId, "review-needed", {
-      items: phaseOne.needsReview.map((r) => ({
-        dbTrackId: r.dbTrackId,
-        title: r.track.title,
-        artist: r.track.artist,
-        score: r.score,
-        confidence: r.confidence,
-        method: r.method,
-      })),
-    });
-
-    const state = syncState.get(syncId)!;
-    state.status = "awaiting-review";
-
-    // Wait for review decisions
-    await new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        const s = syncState.get(syncId);
-        if (s && s.status === "running" && s.reviewDecisions) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 500);
-    });
-
-    const state2 = syncState.get(syncId)!;
-    const decisions = state2.reviewDecisions ?? [];
-
-    pushEvent(syncId, "phase", { phase: "review" });
-    pipeline.applyReviewDecisions(phaseOne, decisions);
-  }
-
-  // Build PhaseTwoResult from the updated phaseOne
-  const confirmed = [...phaseOne.found];
-  const missing = [...phaseOne.notFound];
-
-  pushEvent(syncId, "phase", { phase: "download" });
-
-  const downloadResult = await pipeline.downloadMissing(
-    { confirmed, missing },
-    phaseOne.playlistName,
-    (completed, total, trackTitle, success, error) => {
-      pushEvent(syncId, "download-progress", {
-        completed,
-        total,
-        trackTitle,
-        success,
-        error,
-      });
-    },
-  );
-
+  // Sync returns immediately after match+tag — pending items go to review queue
   pushEvent(syncId, "phase", { phase: "done" });
   pushEvent(syncId, "sync-complete", {
-    found: confirmed.length,
-    downloaded: downloadResult.succeeded,
-    failed: downloadResult.failed,
-    notFound: missing.length,
+    total: result.total,
+    confirmed: result.confirmed.length,
+    pending: result.pending.length,
+    notFound: result.notFound.length,
+    tagged: result.tagged,
   });
 
   const state = syncState.get(syncId);

@@ -5,14 +5,13 @@ export interface SyncEvent {
   data: unknown;
 }
 
-export type SyncStatus = "running" | "awaiting-review" | "done" | "error";
+export type SyncStatus = "running" | "done" | "error";
 
 export interface SyncState {
   playlistId: string;
   status: SyncStatus;
   events: SyncEvent[];
   listeners: Set<(event: SyncEvent) => Promise<void>>;
-  reviewDecisions?: Array<{ dbTrackId: string; accepted: boolean }>;
 }
 
 /** Active sync sessions keyed by syncId. */

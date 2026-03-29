@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../../db/client.js";
-import { tracks, matches, downloads, jobs, playlistTracks, playlists } from "../../db/schema.js";
-import { eq, like, or, and, desc, sql } from "drizzle-orm";
+import { tracks, matches, downloads, jobs, playlistTracks, playlists, rejections } from "../../db/schema.js";
+import { eq, like, or, and, desc, sql, asc } from "drizzle-orm";
 
 export const trackRoutes = new Hono();
 
@@ -35,6 +35,26 @@ trackRoutes.get("/:id", (c) => {
   }
 
   return c.json(track);
+});
+
+// GET /api/tracks/:id/rejections — rejection history for a track
+trackRoutes.get("/:id/rejections", (c) => {
+  const db = getDb();
+  const trackId = c.req.param("id");
+  const track = db.select().from(tracks).where(eq(tracks.id, trackId)).get();
+
+  if (!track) {
+    return c.json({ error: "Track not found" }, 404);
+  }
+
+  const rows = db
+    .select()
+    .from(rejections)
+    .where(eq(rejections.trackId, trackId))
+    .orderBy(desc(rejections.createdAt))
+    .all();
+
+  return c.json(rows);
 });
 
 // GET /api/tracks/:id/lifecycle — full lifecycle for a track
