@@ -5,9 +5,9 @@ status: todo
 type: task
 priority: critical
 parent: spec-E4
-depends_on: spec-16
-created_at: 2026-03-24T00:00:00Z
-updated_at: 2026-03-24T00:00:00Z
+depends_on: spec-18
+created_at: 2026-03-29T00:00:00Z
+updated_at: 2026-03-29T00:00:00Z
 ---
 
 ## Purpose
@@ -38,6 +38,7 @@ export function startServer(port: number): void
 | `statusRoutes` | `./routes/status.js` |
 | `syncRoutes` | `./routes/sync.js` |
 | `jobRoutes` | `./routes/jobs.js` |
+| `reviewRoutes` | `./routes/review.js` |
 
 ## Behavior
 
@@ -60,6 +61,7 @@ Creates and returns a fully configured `Hono` instance.
    /api/status     -> statusRoutes
    /api/sync       -> syncRoutes
    /api/jobs       -> jobRoutes
+   /api/review     -> reviewRoutes
    ```
 
 5. **Static file serving** (production only):
@@ -116,7 +118,7 @@ The `port` parameter is passed in by the caller (typically from `Config` or CLI 
 
 - **CORS**: verify `/api/*` requests include CORS headers
 - **Error handler**: verify uncaught route errors return `{ error }` with 500
-- **Route mounting**: verify all 7 route prefixes respond (e.g., `GET /api/status` returns 200)
+- **Route mounting**: verify all 8 route prefixes respond (e.g., `GET /api/status` returns 200)
 - **Route mounting order**: verify no route shadowing (e.g., `/api/playlists/sync` is not caught by `/api/playlists/:id`)
 - **Static files**: verify known file extensions return correct Content-Type
 - **SPA fallback**: verify unknown path (e.g., `/dashboard/settings`) returns `index.html` content
@@ -129,7 +131,7 @@ The `port` parameter is passed in by the caller (typically from `Config` or CLI 
 - [ ] `createApp()` returns a `Hono` instance
 - [ ] CORS middleware applied to `/api/*`
 - [ ] Global `onError` handler returns `{ error: string }` with status 500 and logs to console
-- [ ] All 7 route modules mounted at correct paths: `/api/playlists`, `/api/tracks`, `/api/matches`, `/api/downloads`, `/api/status`, `/api/sync`, `/api/jobs`
+- [ ] All 8 route modules mounted at correct paths: `/api/playlists`, `/api/tracks`, `/api/matches`, `/api/downloads`, `/api/status`, `/api/sync`, `/api/jobs`, `/api/review`
 - [ ] Static file serving from `web/dist/` with correct Content-Type mapping (html, js, css, json, svg, png, ico, fallback to octet-stream)
 - [ ] SPA fallback: non-API, non-static paths serve `index.html`
 - [ ] Root path `/` serves `index.html`

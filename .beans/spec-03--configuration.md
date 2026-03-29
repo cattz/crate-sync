@@ -4,17 +4,17 @@ title: Configuration module
 status: todo
 type: task
 priority: critical
-parent: spec-E1
+parent: spec-E0
 depends_on: spec-01
-created_at: 2026-03-24T00:00:00Z
-updated_at: 2026-03-24T00:00:00Z
+created_at: 2026-03-29T00:00:00Z
+updated_at: 2026-03-29T00:00:00Z
 ---
 
 # spec-03: Configuration module
 
 ## Purpose
 
-Provide a centralized configuration system for crate-sync that loads settings from a JSON file at `~/.config/crate-sync/config.json`, deep-merges user-provided values with sensible defaults, expands tilde (`~`) in path values, and allows saving the merged config back to disk. This module is the single source of truth for all service URLs, credentials, matching thresholds, download preferences, and job runner tuning.
+Provide a centralized configuration system for crate-sync that loads settings from a JSON file at `~/.config/crate-sync/config.json`, deep-merges user-provided values with sensible defaults, expands tilde (`~`) in path values, and allows saving the merged config back to disk. This module is the single source of truth for all service URLs, credentials, matching thresholds, download preferences, Lexicon tag configuration, and job runner tuning.
 
 ## Public Interface
 
@@ -32,6 +32,10 @@ export interface SpotifyConfig {
 export interface LexiconConfig {
   url: string;
   downloadRoot: string;
+  tagCategory: {
+    name: string;
+    color: string;
+  };
 }
 
 export interface SoulseekConfig {
@@ -51,13 +55,12 @@ export interface DownloadConfig {
   formats: string[];
   minBitrate: number;
   concurrency: number;
+  validationStrictness: "strict" | "moderate" | "lenient";
 }
 
 export interface JobRunnerConfig {
   /** Polling interval in milliseconds. Default: 1000 */
   pollIntervalMs: number;
-  /** Wishlist scan interval in milliseconds. Default: 6 hours */
-  wishlistIntervalMs: number;
 }
 
 export interface Config {
@@ -110,6 +113,10 @@ const defaults: Config = {
   lexicon: {
     url: "http://localhost:48624",
     downloadRoot: "",
+    tagCategory: {
+      name: "Spotify Playlists",
+      color: "#1DB954",
+    },
   },
   soulseek: {
     slskdUrl: "http://localhost:5030",
@@ -125,10 +132,10 @@ const defaults: Config = {
     formats: ["flac", "mp3"],
     minBitrate: 320,
     concurrency: 3,
+    validationStrictness: "moderate",
   },
   jobRunner: {
     pollIntervalMs: 1000,
-    wishlistIntervalMs: 21600000, // 6 * 60 * 60 * 1000 = 6 hours
   },
 };
 ```
@@ -166,13 +173,21 @@ The internal `mergeDefaults(partial, base)` function performs a one-level-deep m
 function mergeDefaults(partial: DeepPartial<Config>, base: Config): Config {
   const merged = {
     spotify: { ...base.spotify, ...partial.spotify },
-    lexicon: { ...base.lexicon, ...partial.lexicon },
+    lexicon: {
+      ...base.lexicon,
+      ...partial.lexicon,
+      tagCategory: {
+        ...base.lexicon.tagCategory,
+        ...partial.lexicon?.tagCategory,
+      },
+    },
     soulseek: { ...base.soulseek, ...partial.soulseek },
     matching: { ...base.matching, ...partial.matching },
     download: {
       ...base.download,
       ...partial.download,
       formats: partial.download?.formats?.filter((f): f is string => f != null) ?? base.download.formats,
+      validationStrictness: partial.download?.validationStrictness ?? base.download.validationStrictness,
     },
     jobRunner: { ...base.jobRunner, ...(partial as any).jobRunner },
   };
@@ -188,8 +203,10 @@ function mergeDefaults(partial: DeepPartial<Config>, base: Config): Config {
 **Key merge rules:**
 
 1. Each top-level section is spread: base first, then partial on top. This means any field in the user's config overrides the default for that section.
-2. **`download.formats`** gets special treatment: if the user provides a `formats` array, `null`/`undefined` entries are filtered out. If the user omits `formats` entirely, the default `["flac", "mp3"]` is used.
-3. After merging, `expandHome()` is applied to `lexicon.downloadRoot` and `soulseek.downloadDir`.
+2. **`lexicon.tagCategory`** is a nested object -- it is merged separately so partial overrides (e.g., just the `name`) preserve the defaults for the other field (e.g., `color`).
+3. **`download.formats`** gets special treatment: if the user provides a `formats` array, `null`/`undefined` entries are filtered out. If the user omits `formats` entirely, the default `["flac", "mp3"]` is used.
+4. **`download.validationStrictness`** must be one of `"strict"`, `"moderate"`, or `"lenient"`. If not provided, defaults to `"moderate"`.
+5. After merging, `expandHome()` is applied to `lexicon.downloadRoot` and `soulseek.downloadDir`.
 
 ### Tilde expansion (`expandHome`)
 
@@ -228,6 +245,8 @@ Input:  Config file does not exist at ~/.config/crate-sync/config.json
 Output: Config object matching the defaults exactly:
         - spotify.redirectUri === "http://127.0.0.1:8888/callback"
         - lexicon.url === "http://localhost:48624"
+        - lexicon.tagCategory.name === "Spotify Playlists"
+        - lexicon.tagCategory.color === "#1DB954"
         - soulseek.slskdUrl === "http://localhost:5030"
         - soulseek.searchDelayMs === 5000
         - matching.autoAcceptThreshold === 0.9
@@ -235,8 +254,8 @@ Output: Config object matching the defaults exactly:
         - download.formats === ["flac", "mp3"]
         - download.minBitrate === 320
         - download.concurrency === 3
+        - download.validationStrictness === "moderate"
         - jobRunner.pollIntervalMs === 1000
-        - jobRunner.wishlistIntervalMs === 21600000
 ```
 
 ### Test: loadConfig merges partial config over defaults
@@ -248,6 +267,15 @@ Output: Config where:
         - spotify.clientSecret === "" (default)
         - spotify.redirectUri === "http://127.0.0.1:8888/callback" (default)
         - All other sections are defaults
+```
+
+### Test: loadConfig merges partial lexicon.tagCategory over defaults
+
+```
+Input:  Config file contains: { "lexicon": { "tagCategory": { "name": "My Tags" } } }
+Output: Config where:
+        - lexicon.tagCategory.name === "My Tags"
+        - lexicon.tagCategory.color === "#1DB954" (default preserved)
 ```
 
 ### Test: loadConfig expands tilde in path fields
@@ -292,6 +320,22 @@ Output: Config where:
         - download.minBitrate === 128 (overridden)
 ```
 
+### Test: loadConfig uses provided validationStrictness
+
+```
+Input:  Config file contains: { "download": { "validationStrictness": "strict" } }
+Output: Config where:
+        - download.validationStrictness === "strict"
+```
+
+### Test: loadConfig defaults validationStrictness to "moderate"
+
+```
+Input:  Config file contains: { "download": { "minBitrate": 256 } }
+Output: Config where:
+        - download.validationStrictness === "moderate" (default)
+```
+
 ### Test: saveConfig creates parent directory and writes JSON
 
 ```
@@ -318,15 +362,17 @@ Output: SyntaxError thrown
 ## Acceptance Criteria
 
 - [ ] `SpotifyConfig` has fields: `clientId: string`, `clientSecret: string`, `redirectUri: string`
-- [ ] `LexiconConfig` has fields: `url: string`, `downloadRoot: string`
+- [ ] `LexiconConfig` has fields: `url: string`, `downloadRoot: string`, `tagCategory: { name: string, color: string }`
 - [ ] `SoulseekConfig` has fields: `slskdUrl: string`, `slskdApiKey: string`, `searchDelayMs: number`, `downloadDir: string`
 - [ ] `MatchingConfig` has fields: `autoAcceptThreshold: number`, `reviewThreshold: number`
-- [ ] `DownloadConfig` has fields: `formats: string[]`, `minBitrate: number`, `concurrency: number`
-- [ ] `JobRunnerConfig` has fields: `pollIntervalMs: number`, `wishlistIntervalMs: number`
+- [ ] `DownloadConfig` has fields: `formats: string[]`, `minBitrate: number`, `concurrency: number`, `validationStrictness: "strict" | "moderate" | "lenient"`
+- [ ] `JobRunnerConfig` has field: `pollIntervalMs: number` (no `wishlistIntervalMs` -- wishlist is manual only)
 - [ ] `Config` composes all six sub-configs: `spotify`, `lexicon`, `soulseek`, `matching`, `download`, `jobRunner`
+- [ ] `lexicon.tagCategory` defaults to `{ name: "Spotify Playlists", color: "#1DB954" }`
+- [ ] `download.validationStrictness` defaults to `"moderate"`
 - [ ] `getConfigPath()` returns `~/.config/crate-sync/config.json` (with `~` expanded to actual homedir)
 - [ ] `loadConfig()` returns full defaults when config file is missing
-- [ ] `loadConfig()` deep-merges user config over defaults (one level per section)
+- [ ] `loadConfig()` deep-merges user config over defaults (one level per section, two levels for `lexicon.tagCategory`)
 - [ ] `loadConfig()` expands `~` to homedir in `lexicon.downloadRoot` and `soulseek.downloadDir`
 - [ ] `loadConfig()` filters `null` values from `download.formats`
 - [ ] `saveConfig()` creates the parent directory recursively if it does not exist

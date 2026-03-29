@@ -1,38 +1,46 @@
 # Crate Sync — Product & Technical Specification
 
-> Version: 0.5.0-unreleased | Last updated: 2026-03-19
+> Version: 0.6.0-unreleased | Last updated: 2026-03-28
 
 ## 1. Product Overview
 
 ### 1.1 Purpose
 
-Crate Sync is a unified tool that bridges Spotify, Lexicon DJ, and Soulseek. Given a Spotify playlist, it:
+Crate Sync bridges Spotify, Lexicon DJ, and Soulseek. Given a Spotify playlist, it:
 
 1. Matches each track against a local Lexicon DJ library
-2. Presents uncertain matches for human review
-3. Downloads missing tracks from Soulseek
-4. Syncs the resulting playlist (with tags) into Lexicon
+2. Tags confirmed matches immediately in Lexicon under a configurable category
+3. Parks uncertain matches for async human review (accessible anytime)
+4. Downloads missing tracks from Soulseek (triggered by no-match or review rejection)
 
-It also provides playlist management features ported from a prior project (spoty-poty): rename, merge, duplicate detection, bulk operations, and metadata.
+It also provides playlist management: rename, bulk rename, push to Spotify (including description sync of tags + notes), and local metadata (tags, notes, pinning).
 
-### 1.2 Target User
+### 1.2 Key Behavioral Principles
+
+- **Non-blocking sync** — the pipeline matches, tags, and exits. Review happens asynchronously, not as a gate.
+- **Tags, not playlists** — Lexicon integration uses category-scoped tags only. No Lexicon playlists are created or managed.
+- **Rejection memory** — false matches (both Lexicon and Soulseek) are persisted and never repeated.
+- **Manual wishlist** — failed downloads stay failed until explicitly re-queued via `wishlist run`.
+- **Description sync** — playlist tags and notes are serialized and pushed to Spotify's description field.
+
+### 1.3 Target User
 
 A DJ who curates playlists in Spotify and needs those playlists reflected in Lexicon DJ with high-quality audio files sourced from Soulseek.
 
-### 1.3 Interfaces
+### 1.4 Interfaces
 
-The tool provides three interfaces with feature parity:
+Three interfaces with feature parity:
 
 - **CLI** — primary interface for automation and scripting
 - **Web UI** — browser-based dashboard served on localhost
-- **API** — RESTful JSON API consumed by both CLI (thin-client mode) and Web UI
+- **REST API** — JSON API consumed by both CLI (thin-client mode) and Web UI
 
-### 1.4 Origin Projects
+### 1.5 Origin Projects
 
 Crate Sync consolidates two prior projects:
 
 - **sldl-python** — Spotify-to-Lexicon sync with Soulseek downloading
-- **spoty-poty** — Spotify playlist management (rename, merge, fix duplicates)
+- **spoty-poty** — Spotify playlist management (rename, bulk operations)
 - **slsk-batchdl** — reference implementation for Soulseek search techniques (kept for reference only)
 
 ---
@@ -68,24 +76,26 @@ crate-sync/
 │   ├── config.ts                 # Config loading/saving
 │   ├── api/
 │   │   ├── server.ts             # Hono app, CORS, static files, SPA fallback
+│   │   ├── state.ts              # In-memory sync session state
 │   │   └── routes/
 │   │       ├── playlists.ts      # /api/playlists/*
 │   │       ├── tracks.ts         # /api/tracks/*
 │   │       ├── matches.ts        # /api/matches/*
 │   │       ├── downloads.ts      # /api/downloads/*
 │   │       ├── sync.ts           # /api/sync/*
+│   │       ├── review.ts         # /api/review/*
 │   │       ├── jobs.ts           # /api/jobs/*
 │   │       └── status.ts         # /api/status/*
 │   ├── commands/
-│   │   ├── auth.ts               # auth login / auth logout
-│   │   ├── db.ts                 # db sync / db clear / db export
-│   │   ├── playlists.ts          # playlists list/show/rename/delete/merge/fix-duplicates/repair/push
-│   │   ├── lexicon.ts            # lexicon list-tracks/create-playlist/sync
-│   │   ├── download.ts           # download <track>/list/retry
-│   │   ├── matches.ts            # matches list/review/clear
-│   │   ├── sync.ts               # sync [playlist] with --all/--dry-run/--verbose/--standalone/--tags
-│   │   ├── review.ts             # Interactive terminal match review
-│   │   ├── jobs.ts               # jobs list/retry/retry-all/stats + wishlist run
+│   │   ├── auth.ts               # auth login / auth status
+│   │   ├── db.ts                 # db sync / db status
+│   │   ├── playlists.ts          # playlists list/show/rename/bulk-rename/delete/push
+│   │   ├── lexicon.ts            # lexicon status / lexicon match
+│   │   ├── matches.ts            # matches list/confirm/reject
+│   │   ├── review.ts             # review list/confirm/reject/bulk-confirm/bulk-reject
+│   │   ├── sync.ts               # sync [playlist] (non-blocking)
+│   │   ├── jobs.ts               # jobs list/retry/retry-all/stats
+│   │   ├── wishlist.ts           # wishlist run
 │   │   ├── serve.ts              # serve [--port] [--no-jobs]
 │   │   └── status.ts             # status
 │   ├── db/
@@ -93,12 +103,14 @@ crate-sync/
 │   │   ├── schema.ts             # Drizzle table definitions (9 tables)
 │   │   └── migrations/           # SQL migration files + snapshots
 │   ├── services/
-│   │   ├── playlist-service.ts   # Local DB playlist operations
+│   │   ├── playlist-service.ts   # Local DB playlist CRUD + bulk rename
 │   │   ├── spotify-service.ts    # Spotify Web API client + OAuth
-│   │   ├── lexicon-service.ts    # Lexicon DJ REST API client
+│   │   ├── spotify-push.ts       # Local-to-Spotify push orchestration
+│   │   ├── lexicon-service.ts    # Lexicon DJ REST API client (tags only, no playlists)
 │   │   ├── soulseek-service.ts   # slskd REST API client
-│   │   ├── download-service.ts   # Search, rank, download, validate, move
-│   │   └── sync-pipeline.ts      # 3-phase sync orchestration
+│   │   ├── download-pipeline.ts  # Pipeline-only: search, rank, download, validate, move
+│   │   ├── sync-pipeline.ts      # Match + tag orchestration (non-blocking)
+│   │   └── review-service.ts     # Async review queue (confirm/reject/bulk)
 │   ├── matching/
 │   │   ├── types.ts              # MatchStrategy interface, MatchResult, MatchContext
 │   │   ├── isrc.ts               # ISRC exact-match strategy
@@ -112,9 +124,9 @@ crate-sync/
 │   │   ├── runner.ts             # SQLite polling job runner
 │   │   └── handlers/             # Per-type job handlers (7 types)
 │   ├── types/
-│   │   ├── common.ts             # TrackInfo, MatchResult, SyncPhase, etc.
+│   │   ├── common.ts             # TrackInfo, MatchResult, ReviewStatus, etc.
 │   │   ├── spotify.ts            # SpotifyPlaylist, SpotifyTrack
-│   │   ├── lexicon.ts            # LexiconTrack, LexiconPlaylist, LexiconTag
+│   │   ├── lexicon.ts            # LexiconTrack, LexiconTagCategory, LexiconTag
 │   │   └── soulseek.ts           # SlskdFile, SlskdSearchResult, SlskdTransfer
 │   └── utils/
 │       ├── logger.ts             # Configurable logger with file output
@@ -133,13 +145,13 @@ crate-sync/
 │   │   ├── pages/
 │   │   │   ├── Dashboard.tsx     # Stats, service status, auth UIs
 │   │   │   ├── Playlists.tsx     # Playlist list with sort/search/filter/bulk
-│   │   │   ├── PlaylistDetail.tsx # Tracks, stats, tags, notes, actions
-│   │   │   ├── Review.tsx        # Side-by-side match review
+│   │   │   ├── PlaylistDetail.tsx # Tracks, tags, notes, sync, push, description preview
+│   │   │   ├── Review.tsx        # Async review queue with badge count
 │   │   │   ├── Matches.tsx       # Match list with filters
 │   │   │   ├── Downloads.tsx     # Download list with status filters
 │   │   │   ├── Queue.tsx         # Live job queue with SSE
 │   │   │   ├── JobDetail.tsx     # Job detail with children
-│   │   │   ├── TrackDetail.tsx   # Full track lifecycle
+│   │   │   ├── TrackDetail.tsx   # Full track lifecycle + rejection history
 │   │   │   └── Settings.tsx      # Config editor
 │   │   ├── components/
 │   │   │   └── BulkToolbar.tsx   # Floating selection toolbar
@@ -152,10 +164,11 @@ crate-sync/
 │   └── crate-sync.db            # SQLite database
 ├── docs/
 │   ├── specs.md                  # This document
+│   ├── track-lifecycle.mmd      # Track lifecycle state diagram
 │   ├── slskd-api.md             # slskd API reference
 │   ├── lexicon-api.md           # Lexicon API reference
 │   └── plan-job-queue-query-builder.md
-├── .beans/                       # Work tracking (beans format)
+├── .beans/                       # Work tracking (beans format) + detailed specs
 ├── package.json
 ├── tsconfig.json
 └── CHANGELOG.md
@@ -164,40 +177,111 @@ crate-sync/
 ### 2.3 Data Flow
 
 ```
-Spotify API ──→ Local SQLite DB ──→ Lexicon DJ
+Spotify API ──→ Local SQLite DB ──→ Lexicon DJ (tags only)
                      │
                      ├── Matching Engine (ISRC / Fuzzy)
                      │
-                     ├── Human Review (CLI or Web)
+                     ├── Async Review Queue (park → confirm/reject)
                      │
                      └── Soulseek (search + download via slskd)
 ```
 
-### 2.4 Process Model
+### 2.4 Functional Groups
+
+The system is organized into 3 independent functional groups:
+
+```
+Group 1: Spotify Sync & Playlist Management
+    ├── Spotify OAuth + API client
+    ├── Local DB CRUD (list, rename, bulk-rename, delete, metadata)
+    └── Push to Spotify (renames, track changes, description sync)
+
+Group 2: Lexicon Matching & Tagging
+    ├── Matching engine (ISRC + Fuzzy composite)
+    ├── Lexicon service (tags only, category-scoped)
+    ├── Sync pipeline (match → tag confirmed → park pending → return not-found)
+    └── Review service (async confirm/reject, rejection → download queue)
+
+Group 3: Download Pipeline
+    ├── Search query builder (4 strategies)
+    ├── Soulseek service (slskd client)
+    └── Download pipeline (search → rank → download → validate → move)
+```
+
+**Dependency:** Group 1 → Group 2 → Group 3
+
+### 2.5 Process Model
 
 A single Node.js process runs both the API server and the background job runner:
 
 ```
 crate-sync serve [--port 3100] [--no-jobs]
   ├── Hono HTTP server
-  │   ├── REST API routes
+  │   ├── REST API routes (8 modules)
   │   ├── SSE streaming endpoints
   │   └── Static file serving (web/dist/)
   └── Job Runner (in-process polling loop)
-      └── Handlers: spotify_sync → match → search → download → validate → lexicon_sync
+      └── Handlers: spotify_sync → lexicon_match → search → download → validate → lexicon_tag
 ```
 
 The CLI can operate in two modes:
-- **Standalone** — runs the sync pipeline directly (default, or forced with `--standalone`)
+- **Standalone** — runs the sync pipeline directly (default)
 - **Thin client** — detects a running server and delegates via API + SSE streaming
 
 ---
 
-## 3. Database Schema
+## 3. Functional Groups
 
-All tables use UUID primary keys (generated via `crypto.randomUUID()`). Timestamps are Unix milliseconds stored as integers.
+### 3.1 Group 1: Spotify Sync & Playlist Management
 
-### 3.1 `playlists`
+**Scope:** Everything related to Spotify data and local playlist management.
+
+**Features:**
+- Spotify OAuth authentication
+- Sync all playlists + tracks from Spotify to local DB
+- List, show, rename, bulk-rename (regex), delete playlists
+- Local metadata: tags, notes, pinning
+- Push to Spotify: renames, track changes, description sync (tags + notes serialized to description)
+- Playlist ID resolution: UUID, Spotify ID, Spotify URL, or exact name
+
+**Excluded (vs. old design):** merge, duplicate detection, similarity suggestions, statistics, repair.
+
+### 3.2 Group 2: Lexicon Matching & Tagging
+
+**Scope:** Matching Spotify tracks against Lexicon library and tagging them.
+
+**Features:**
+- Non-blocking sync pipeline: match all tracks, tag confirmed ones immediately, park pending, return not-found
+- Category-scoped tagging: only touches a configurable tag category (default "Spotify Playlists" / #1DB954), preserves all other categories
+- Tag extraction: playlist name split by "/" produces tag labels (e.g., "Electronic/House/Deep" produces 3 tags), merged with manual tags
+- Rejection memory: rejected match pairs (sourceId:targetId) are persisted and skipped on re-matching; next-best candidate tried
+- Tag-on-next-sync: confirmed reviews are tagged on the next sync run, not by ReviewService
+- Async review queue: pending matches accessible anytime from CLI or Web UI
+- Review rejection auto-queues download for the track
+
+**Excluded (vs. old design):** Lexicon playlist CRUD, blocking review phase, download orchestration within the pipeline.
+
+### 3.3 Group 3: Download Pipeline
+
+**Scope:** Acquiring missing tracks from Soulseek.
+
+**Features:**
+- Pipeline-only downloads (triggered by sync not-found or review rejection; no standalone download command)
+- Multi-strategy search query builder (full → base-title → title-only → keywords)
+- Configurable validation strictness (strict / moderate / lenient)
+- Rejection memory: previously rejected Soulseek files filtered during ranking
+- Files moved to `Lexicon/Incoming/{playlist-name}/`
+- Manual wishlist only: `wishlist run` re-queues eligible failed downloads
+
+**Excluded (vs. old design):** standalone download commands, automatic wishlist backoff schedule.
+
+---
+
+## 4. Database Schema
+
+9 tables. All use UUID primary keys (`crypto.randomUUID()`). Timestamps are Unix milliseconds stored as integers.
+
+### 4.1 `playlists`
 
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
@@ -213,10 +297,10 @@ All tables use UUID primary keys (generated via `crypto.randomUUID()`). Timestam
 | notes | text | nullable | Free-form user notes |
 | pinned | integer | default 0 | 1 = pinned to top of list |
 | last_synced | integer | nullable | Unix ms of last Spotify sync |
-| created_at | integer | NOT NULL, default now | |
+| created_at | integer | NOT NULL | |
 | updated_at | integer | NOT NULL, auto-update | |
 
-### 3.2 `tracks`
+### 4.2 `tracks`
 
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
@@ -231,7 +315,7 @@ All tables use UUID primary keys (generated via `crypto.randomUUID()`). Timestam
 | created_at | integer | NOT NULL | |
 | updated_at | integer | NOT NULL | |
 
-### 3.3 `playlist_tracks` (junction)
+### 4.3 `playlist_tracks` (junction)
 
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
@@ -242,7 +326,7 @@ All tables use UUID primary keys (generated via `crypto.randomUUID()`). Timestam
 | added_at | integer | nullable | When Spotify reports it was added |
 | | | UNIQUE(playlist_id, track_id) | |
 
-### 3.4 `lexicon_tracks`
+### 4.4 `lexicon_tracks`
 
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
@@ -254,7 +338,7 @@ All tables use UUID primary keys (generated via `crypto.randomUUID()`). Timestam
 | duration_ms | integer | nullable | |
 | last_synced | integer | NOT NULL | When fetched from Lexicon |
 
-### 3.5 `matches`
+### 4.5 `matches`
 
 Records every attempted match between a source track and a target track.
 
@@ -265,15 +349,16 @@ Records every attempted match between a source track and a target track.
 | source_id | text | NOT NULL | Track ID in source system |
 | target_type | text | NOT NULL | `"spotify"` / `"lexicon"` / `"soulseek"` |
 | target_id | text | NOT NULL | Track ID in target system |
-| score | real | NOT NULL | 0.0 – 1.0 similarity score |
+| score | real | NOT NULL | 0.0 -- 1.0 similarity score |
 | confidence | text | NOT NULL | `"high"` / `"review"` / `"low"` |
 | method | text | NOT NULL | `"isrc"` / `"fuzzy"` / `"manual"` |
 | status | text | NOT NULL | `"pending"` / `"confirmed"` / `"rejected"` |
+| parked_at | integer | nullable | Unix ms when parked for async review |
 | created_at | integer | NOT NULL | |
 | updated_at | integer | NOT NULL | |
 | | | UNIQUE(source_type, source_id, target_type, target_id) | |
 
-### 3.6 `downloads`
+### 4.6 `downloads`
 
 Tracks the full lifecycle of a Soulseek download.
 
@@ -282,6 +367,7 @@ Tracks the full lifecycle of a Soulseek download.
 | id | text | PK | UUID |
 | track_id | text | FK → tracks.id, NOT NULL | |
 | playlist_id | text | FK → playlists.id, nullable | |
+| origin | text | NOT NULL | `"not_found"` / `"review_rejected"` |
 | status | text | NOT NULL | See status enum below |
 | soulseek_path | text | nullable | Source path on Soulseek |
 | file_path | text | nullable | Final local file path |
@@ -292,7 +378,23 @@ Tracks the full lifecycle of a Soulseek download.
 
 **Download status enum:** `pending` → `searching` → `downloading` → `validating` → `moving` → `done` | `failed`
 
-### 3.7 `jobs`
+### 4.7 `rejections`
+
+Persists false matches to prevent repeating mistakes (Soulseek downloads).
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| id | text | PK | UUID |
+| track_id | text | FK → tracks.id, NOT NULL | The Spotify track we wanted |
+| context | text | NOT NULL | e.g. `"soulseek_download"` |
+| file_key | text | NOT NULL | username + filepath (unique Soulseek identifier) |
+| reason | text | nullable | `"validation_failed"` / `"user_rejected"` / `"wrong_track"` |
+| created_at | integer | NOT NULL | |
+| | | UNIQUE(track_id, context, file_key) | |
+
+Note: Lexicon match rejections are stored in the `matches` table with `status: "rejected"`. The `rejections` table is specifically for Soulseek download rejections.
+
+### 4.8 `jobs`
 
 Background job queue with SQLite polling.
 
@@ -307,15 +409,16 @@ Background job queue with SQLite polling.
 | error | text | nullable | Error message if failed |
 | attempt | integer | default 0 | Current attempt number |
 | max_attempts | integer | default 3 | |
-| run_after | integer | nullable | Don't process before this timestamp |
 | parent_job_id | text | nullable | FK → jobs.id for hierarchies |
 | started_at | integer | nullable | |
 | completed_at | integer | nullable | |
 | created_at | integer | NOT NULL | |
 
-**Job types:** `spotify_sync`, `match`, `search`, `download`, `validate`, `lexicon_sync`, `wishlist_scan`
+**Job types:** `spotify_sync`, `lexicon_match`, `search`, `download`, `validate`, `lexicon_tag`, `wishlist_run`
 
-### 3.8 `sync_log`
+No `run_after` column -- failed jobs stay failed and require manual re-queueing.
+
+### 4.9 `sync_log`
 
 Audit trail for sync operations.
 
@@ -329,39 +432,43 @@ Audit trail for sync operations.
 
 ---
 
-## 4. Configuration
+## 5. Configuration
 
 **Location:** `~/.config/crate-sync/config.json`
 
 ```jsonc
 {
   "spotify": {
-    "clientId": "",                    // Spotify Developer App client ID
-    "clientSecret": "",                // Spotify Developer App client secret
+    "clientId": "",
+    "clientSecret": "",
     "redirectUri": "http://127.0.0.1:8888/callback"
   },
   "lexicon": {
-    "url": "http://localhost:48624",   // Lexicon DJ API base URL
-    "downloadRoot": ""                 // Path where downloads are moved (e.g. /Music/Incoming)
+    "url": "http://localhost:48624",
+    "downloadRoot": "",
+    "tagCategory": {
+      "name": "Spotify Playlists",
+      "color": "#1DB954"
+    }
   },
   "soulseek": {
-    "slskdUrl": "http://localhost:5030",  // slskd API base URL
-    "slskdApiKey": "",                    // slskd API key
-    "searchDelayMs": 5000,                // Delay between search requests
-    "downloadDir": ""                     // slskd download directory (host path)
+    "slskdUrl": "http://localhost:5030",
+    "slskdApiKey": "",
+    "searchDelayMs": 5000,
+    "downloadDir": ""
   },
   "matching": {
-    "autoAcceptThreshold": 0.9,        // Score >= this → auto-confirmed
-    "reviewThreshold": 0.7             // Score >= this → needs human review
+    "autoAcceptThreshold": 0.9,
+    "reviewThreshold": 0.7
   },
   "download": {
-    "formats": ["flac", "mp3"],        // Accepted audio formats
-    "minBitrate": 320,                 // Minimum bitrate filter
-    "concurrency": 3                   // Parallel downloads
+    "formats": ["flac", "mp3"],
+    "minBitrate": 320,
+    "concurrency": 3,
+    "validationStrictness": "moderate"
   },
   "jobRunner": {
-    "pollIntervalMs": 1000,            // How often to check for new jobs
-    "wishlistIntervalMs": 21600000     // Wishlist scan interval (6 hours)
+    "pollIntervalMs": 1000
   }
 }
 ```
@@ -370,9 +477,9 @@ Audit trail for sync operations.
 
 ---
 
-## 5. Matching Engine
+## 6. Matching Engine
 
-### 5.1 Strategy Architecture
+### 6.1 Strategy Architecture
 
 The matching engine uses a pluggable strategy pattern:
 
@@ -384,13 +491,13 @@ CompositeMatchStrategy
 
 The composite runs all strategies. If any returns "high" confidence, it returns immediately. Otherwise, it merges results keeping the best score per candidate.
 
-### 5.2 ISRC Strategy
+### 6.2 ISRC Strategy
 
 - Compares ISRC codes directly
 - Score = 1.0 if match, no result otherwise
 - Confidence = "high" (always)
 
-### 5.3 Fuzzy Strategy
+### 6.3 Fuzzy Strategy
 
 **Algorithms:**
 
@@ -401,7 +508,7 @@ The composite runs all strategies. If any returns "high" confidence, it returns 
 | Edit Similarity | 1 - (edit_distance / max_length) |
 | String Similarity | max(Jaccard, Edit) |
 | Artist Similarity | String similarity, but floors at 0.7 if one name contains the other (handles "feat." cases) |
-| Duration Similarity | 1 - (diff_ms / 30000)^1.5 — smooth power decay |
+| Duration Similarity | 1 - (diff_ms / 30000)^1.5 -- smooth power decay |
 
 **Text Normalization (applied before comparison):**
 
@@ -420,126 +527,130 @@ The composite runs all strategies. If any returns "high" confidence, it returns 
 **Confidence Assignment:**
 
 - score >= `autoAcceptThreshold` (default 0.9) → `"high"` (auto-confirmed)
-- score >= `reviewThreshold` (default 0.7) → `"review"` (human review required)
-- score < `reviewThreshold` → `"low"` (rejected / not found)
+- score >= `reviewThreshold` (default 0.7) → `"review"` (parked for async review)
+- score < `reviewThreshold` → `"low"` (not found / candidate for download)
 
-### 5.4 Match Persistence Rules
+### 6.4 Match Persistence Rules
 
-- Upsert by (source_type, source_id, target_type, target_id) — deduplicated
-- Never downgrade a confirmed match (if re-running match phase on a playlist, previously confirmed matches are reused)
-- Rejected matches are remembered and skipped in future runs
-
----
-
-## 6. Search System
-
-### 6.1 Multi-Strategy Query Builder
-
-`generateSearchQueries(track)` produces up to 4 search strategies, tried in order until one returns results:
-
-| # | Strategy | Example Input | Example Query |
-|---|----------|--------------|---------------|
-| 1 | Full | "Reliquia - German Brigante Remix" by "Ivory" | `"Ivory Reliquia German Brigante Remix"` |
-| 2 | Base-Title | same | `"Ivory Reliquia"` (remix suffix stripped) |
-| 3 | Title-Only | same | `"Reliquia German Brigante Remix"` |
-| 4 | Keywords | same | `"Ivory Reliquia German"` (first 2 significant words) |
-
-**Cleaning rules:**
-- Replace `" - "` with space
-- Remove all parenthetical content: `(Remix)`, `(feat. X)`, `(Extended Mix)`
-- Remove bracket content: `[...]`
-- Collapse multiple spaces
-
-**Significant words:** words > 2 characters; falls back to all words if fewer than requested.
-
-### 6.2 Result Ranking
-
-After search, results are filtered and ranked:
-1. **Format filter** — only accepted formats (default: flac, mp3)
-2. **Bitrate filter** — minimum bitrate (default: 320 kbps)
-3. **Fuzzy match** — score results against track metadata using the matching engine
-4. **Sort** — by match score descending
+- Upsert by (source_type, source_id, target_type, target_id) -- deduplicated
+- Never downgrade a confirmed match (re-runs reuse previously confirmed matches)
+- Rejected match pairs are remembered and skipped; next-best candidate tried
+- Pending matches have a `parked_at` timestamp for FIFO review ordering
 
 ---
 
 ## 7. Sync Pipeline
 
-The core workflow is a 3-phase pipeline:
+The sync pipeline is **non-blocking** -- it matches, tags, and returns. No review gate, no download orchestration within the pipeline.
 
-### Phase 1: Match
+### matchPlaylist(playlistId)
 
-1. Fetch all tracks for the target playlist from local DB
+1. Fetch playlist tracks from local DB
 2. Load entire Lexicon library (paginated, 1000 tracks/page)
-3. For each track, reuse any existing confirmed match
-4. For unmatched tracks, run matching engine (ISRC → Fuzzy composite)
-5. Categorize results:
-   - **found** — high confidence, auto-confirmed
-   - **needsReview** — review confidence, requires human decision
-   - **notFound** — low/no match, candidate for download
-6. Persist all matches to DB
+3. Reuse existing confirmed matches (skip re-matching)
+4. For unmatched tracks, run matching engine (ISRC + Fuzzy composite)
+5. Consult rejection memory: skip rejected pairs, try next-best candidate
+6. Categorize results:
+   - **confirmed** (score >= 0.9) → tagged in Lexicon immediately
+   - **pending** (score 0.7--0.9) → parked for async review
+   - **notFound** (score < 0.7) → returned for download queue
+7. Persist all matches to DB
+8. Tag confirmed tracks via `syncTags()`
 
-**Output:** `{ playlistName, found[], needsReview[], notFound[], total }`
+**Output:** `{ playlistName, confirmed[], pending[], notFound[], total, tagged }`
 
-### Phase 2: Review
+### syncTags(playlistName, confirmedTracks, manualTags?)
 
-1. Present `needsReview` items to user (CLI interactive prompt or Web UI)
-2. User accepts or rejects each match
-3. Update match status in DB
-4. Accepted matches move to "found"; rejected move to "notFound" (download candidates)
+1. Split playlist name by "/" to extract tag labels
+2. Merge with manual tags from playlist metadata, deduplicate
+3. Ensure tag category exists in Lexicon (find-or-create)
+4. Ensure each tag exists under the category (find-or-create)
+5. For each confirmed track: `setTrackCategoryTags()` (category-scoped, preserves other categories)
 
-**Output:** `{ confirmed, missing }`
+### Review Flow (decoupled)
 
-### Phase 3: Download + Lexicon Sync
+```
+matchPlaylist() →
+  confirmed (>= 0.9)  → tag immediately
+  pending (0.7–0.9)   → park for async review
+  notFound (< 0.7)    → queue for download
 
-1. For each missing track, search Soulseek using multi-strategy query builder
-2. Rank and filter results
-3. Download best candidate
-4. Validate audio metadata (title/artist match, format, bitrate)
-5. Move file to `lexicon.downloadRoot/{playlistName}/`
-6. Create/update Lexicon playlist with all confirmed track IDs
-7. Sync tags based on Spotify playlist name segments (e.g., "House / Tech / Berlin" → 3 tags under a "crate-sync" category)
+reviewConfirm(matchId) → tagged on next sync run
+reviewReject(matchId)  → auto-queue download for that track
+
+Next sync → re-matches, discovers newly imported tracks → tags them
+```
 
 ---
 
-## 8. Job Queue
+## 8. Search & Download
 
-### 8.1 Design
+### 8.1 Multi-Strategy Query Builder
 
-SQLite-polled job queue running in-process alongside the Hono server. Designed so migration to a message broker (BullMQ/Redis) is straightforward — all handlers stay identical.
+`generateSearchQueries(track)` produces up to 4 strategies, tried in order:
 
-### 8.2 Job Lifecycle
+| # | Strategy | Example |
+|---|----------|---------|
+| 1 | Full | `"Ivory Reliquia German Brigante Remix"` |
+| 2 | Base-Title | `"Ivory Reliquia"` (remix suffix stripped) |
+| 3 | Title-Only | `"Reliquia German Brigante Remix"` |
+| 4 | Keywords | `"Ivory Reliquia German"` (first 2 significant words) |
+
+### 8.2 Result Ranking
+
+After search, results are filtered and ranked:
+1. **Rejection filter** — exclude previously rejected files for this track
+2. **Format filter** — only accepted formats (default: flac, mp3)
+3. **Bitrate filter** — minimum bitrate (default: 320 kbps)
+4. **Fuzzy match** — score results against track metadata
+5. **Sort** — by match score descending
+
+### 8.3 Download Lifecycle
+
+`pending` → `searching` → `downloading` → `validating` → `moving` → `done` | `failed`
+
+Files are moved to `Lexicon/Incoming/{playlist-name}/`. Validation strictness is configurable (strict/moderate/lenient). Failed validation creates a rejection entry to avoid re-downloading the same file.
+
+---
+
+## 9. Job Queue
+
+### 9.1 Design
+
+SQLite-polled job queue running in-process alongside the Hono server. Designed so migration to a message broker (BullMQ/Redis) is straightforward -- all handlers stay identical.
+
+### 9.2 Job Lifecycle
 
 ```
 queued ──→ running ──→ done
-                  └──→ failed ──→ (re-queued with backoff) ──→ queued
+                  └──→ failed (stays failed until manual retry)
 ```
 
 **Atomic claiming:** `UPDATE jobs SET status='running' WHERE id=? AND status='queued'` prevents double-processing.
 
-**Exponential backoff:** `2^attempt * 1000` ms. Configurable max attempts (default 3).
+No automatic backoff or re-queueing. Failed jobs require explicit retry via API/CLI or `wishlist run`.
 
-### 8.3 Job Handlers
+### 9.3 Job Handlers
 
 | Type | Behavior | Creates Children |
 |------|----------|-----------------|
-| `spotify_sync` | Fetch playlist from Spotify, upsert to DB | → `match` |
-| `match` | Run `SyncPipeline.matchPlaylist()` | → `search` (for each notFound) |
+| `spotify_sync` | Fetch playlist from Spotify, upsert to DB | → `lexicon_match` |
+| `lexicon_match` | Run `SyncPipeline.matchPlaylist()` | → `search` (for each notFound) |
 | `search` | Multi-strategy Soulseek search + ranking | → `download` (if results found) |
 | `download` | Download file, validate, move to Lexicon folder | (none) |
 | `validate` | Post-download metadata validation | (none) |
-| `lexicon_sync` | Create/update Lexicon playlist + sync tags | (none) |
-| `wishlist_scan` | Re-queue failed searches past cooldown | → `search` |
+| `lexicon_tag` | Sync tags for confirmed tracks in Lexicon | (none) |
+| `wishlist_run` | Re-queue eligible failed search/download jobs | → `search` |
 
-### 8.4 Wishlist
+### 9.4 Wishlist
 
-Automatic retry system for failed searches:
-- Scans for failed search/download jobs past their cooldown period
+Manual retry system for failed downloads:
+- Triggered only via `crate-sync wishlist run` or `POST /api/wishlist/run`
+- Scans for eligible failed search/download jobs
 - Re-queues with the next query strategy
-- Backoff schedule: 1h → 6h → 24h → 7d → skip
-- Runs on a configurable interval (default: 6 hours)
-- Can be triggered manually via `crate-sync wishlist run`
+- No automatic scheduling or backoff intervals
 
-### 8.5 Event System
+### 9.5 Event System
 
 Job state changes emit events via an in-memory listener set, consumed by:
 - SSE endpoint (`GET /api/jobs/stream`) for Web UI real-time updates
@@ -547,9 +658,9 @@ Job state changes emit events via an in-memory listener set, consumed by:
 
 ---
 
-## 9. External Service Integrations
+## 10. External Service Integrations
 
-### 9.1 Spotify Web API
+### 10.1 Spotify Web API
 
 **Authentication:** OAuth 2.0 Authorization Code flow
 
@@ -562,25 +673,29 @@ Job state changes emit events via an in-memory listener set, consumed by:
 - Get playlist tracks (paginated)
 - Sync playlists + tracks to local DB (upsert by spotify_id)
 - Rename playlist
+- Update playlist details (name, description)
 - Add/remove tracks (batched in groups of 100)
 - Replace all tracks
 
-### 9.2 Lexicon DJ API
+### 10.2 Lexicon DJ API
 
 **Base URL:** Configurable (default `http://localhost:48624`)
 
-**Operations:**
+**Operations (tags only, no playlists):**
 - Ping (connectivity check)
 - Get all tracks (paginated, 1000/page)
-- Get playlist by name (recursive tree traversal)
-- Create playlist with track IDs
-- Set playlist tracks (replace all)
+- Search tracks (client-side filtering, no server search endpoint)
+- Get single track
 - Get/create tag categories and tags
 - Get/update track tags
+- Ensure tag category exists (find-or-create)
+- Ensure tag exists (find-or-create)
+- Get track tags in category (category-scoped read)
+- Set track category tags (read-filter-merge-write, preserves other categories)
 
 **Response unwrapping:** Handles multiple wrapper formats (data, content, direct array).
 
-### 9.3 Soulseek (via slskd)
+### 10.3 Soulseek (via slskd)
 
 **Base URL:** Configurable (default `http://localhost:5030`)
 
@@ -597,97 +712,52 @@ Job state changes emit events via an in-memory listener set, consumed by:
 
 ---
 
-## 10. CLI Commands
-
-### 10.1 Global
+## 11. CLI Commands
 
 ```
 crate-sync [--debug] <command>
-```
 
-`--debug` enables file logging to `./data/crate-sync.log`
-
-### 10.2 Authentication
-
-```
-crate-sync auth login       # Spotify OAuth flow (opens browser)
-crate-sync auth logout      # Clear stored tokens
-```
-
-### 10.3 Database
-
-```
-crate-sync db sync           # Sync all playlists from Spotify → local DB
-crate-sync db clear          # Delete all data
-crate-sync db export         # Export to JSON
-```
-
-### 10.4 Playlists
-
-```
-crate-sync playlists list                        # List all with track counts + IDs
-crate-sync playlists show <id>                   # Show details + tracks
-crate-sync playlists rename <id> <name> [--push] # Rename (optionally push to Spotify)
-crate-sync playlists delete <id> [--spotify]     # Delete (optionally unfollow on Spotify)
-crate-sync playlists merge <target> <source...>  # Merge tracks (dedup by track_id)
-crate-sync playlists fix-duplicates <id>         # Remove duplicate tracks
-crate-sync playlists repair <id> [--download]    # Re-match against Lexicon
-crate-sync playlists push [id] [--all]           # Push local changes to Spotify
+  status                                          Check connectivity to all external services
+  auth login                                      Start Spotify OAuth flow
+  auth status                                     Show authentication status
+  db sync                                         Sync Spotify playlists to local DB
+  db status                                       Show database statistics
+  playlists list                                  List playlists from local DB
+  playlists show <id>                             Show playlist details and tracks
+  playlists rename <id> <name>                    Rename a playlist
+  playlists bulk-rename <pattern> <replacement>   Bulk rename playlists (supports --regex)
+  playlists delete <id>                           Delete a playlist
+  playlists push [id]                             Push local changes to Spotify (--all)
+  lexicon status                                  Test Lexicon connection
+  lexicon match <playlist>                        Match playlist tracks against Lexicon library
+  matches list                                    List matches from the database
+  matches confirm <id>                            Confirm a match
+  matches reject <id>                             Reject a match
+  review list                                     List pending review items
+  review confirm <id>                             Confirm a pending review match
+  review reject <id>                              Reject a pending review match (queues download)
+  review bulk-confirm                             Bulk confirm pending matches
+  review bulk-reject                              Bulk reject pending matches (queues downloads)
+  sync [playlist]                                 Run the non-blocking sync pipeline (--all, --dry-run)
+  serve                                           Start web UI + API server + job runner (--port, --no-jobs)
+  jobs list                                       List jobs (--status, --type)
+  jobs retry <id>                                 Re-queue a failed job
+  jobs retry-all                                  Re-queue all failed jobs (--type)
+  jobs stats                                      Show job statistics
+  wishlist run                                    Manually trigger a wishlist run
 ```
 
 Playlist ID accepts: UUID, Spotify ID, Spotify URL, or exact name.
 
-### 10.5 Sync
-
-```
-crate-sync sync [playlist] [--all] [--dry-run] [--verbose] [--tags] [--standalone] [--server <url>]
-```
-
-- `--dry-run` — Phase 1 only (match report, no downloads)
-- `--verbose` — Per-track search diagnostics
-- `--tags` — Sync Lexicon tags from playlist name segments
-- `--standalone` — Force local pipeline (don't use running server)
-- `--server <url>` — Connect to specific server
-
-### 10.6 Review
-
-```
-crate-sync review            # Interactive terminal review of pending matches
-```
-
-Shows side-by-side Spotify vs Lexicon track info. Supports: y(es), n(o), a(ll), q(uit), s(kip).
-
-### 10.7 Jobs
-
-```
-crate-sync jobs list [--status <status>] [--type <type>]
-crate-sync jobs retry <id>
-crate-sync jobs retry-all [--type <type>]
-crate-sync jobs stats
-crate-sync wishlist run      # Manual wishlist scan trigger
-```
-
-### 10.8 Server
-
-```
-crate-sync serve [--port 3100] [--no-jobs]
-```
-
-Starts HTTP API + Web UI + job runner. `--no-jobs` disables the background runner.
-
-### 10.9 Status
-
-```
-crate-sync status            # Check connectivity to Spotify, Lexicon, Soulseek, DB
-```
+`--debug` enables file logging to `./data/crate-sync.log`.
 
 ---
 
-## 11. REST API
+## 12. REST API
 
 Base URL: `/api`
 
-### 11.1 Status & Configuration
+### 12.1 Status & Configuration
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -700,61 +770,69 @@ Base URL: `/api`
 | PUT | `/status/soulseek/connect` | Save + test slskd credentials |
 | DELETE | `/status/soulseek/connect` | Clear slskd credentials |
 
-### 11.2 Playlists
+### 12.2 Playlists
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/playlists` | List all playlists with track counts |
-| POST | `/playlists/sync` | Sync all from Spotify → `{added, updated, unchanged}` |
-| GET | `/playlists/duplicates` | Cross-playlist duplicate tracks |
-| GET | `/playlists/similar?threshold=0.7` | Playlist name similarity pairs |
-| GET | `/playlists/stats` | Library stats: total playlists, tracks, duration |
+| POST | `/playlists/sync` | Sync all from Spotify |
 | POST | `/playlists/bulk-rename` | Batch rename with dry-run preview |
 | GET | `/playlists/:id` | Playlist detail with trackCount + totalDurationMs |
 | PATCH | `/playlists/:id` | Update metadata (tags, notes, pinned) |
 | PUT | `/playlists/:id/rename` | Rename playlist |
-| DELETE | `/playlists/:id` | Delete playlist + junction entries |
-| POST | `/playlists/:id/push` | Push local changes to Spotify |
-| POST | `/playlists/:id/repair` | Run Phase 1 matching only |
-| POST | `/playlists/:id/merge` | Merge tracks from source playlists |
+| DELETE | `/playlists/:id` | Delete playlist |
+| POST | `/playlists/:id/push` | Push local changes to Spotify (including description) |
 | GET | `/playlists/:id/tracks` | Get tracks ordered by position |
-| GET | `/playlists/:id/duplicates` | Within-playlist duplicates |
 
-**Route ordering note:** Static segments (`/sync`, `/duplicates`, `/similar`, `/stats`, `/bulk-rename`) must be registered before parameterized `/:id` routes in Hono.
-
-### 11.3 Tracks
+### 12.3 Tracks
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/tracks?q=&limit=&offset=` | Search/list tracks |
 | GET | `/tracks/:id` | Track details |
-| GET | `/tracks/:id/lifecycle` | Full lifecycle (playlists, matches, downloads, jobs) |
+| GET | `/tracks/:id/lifecycle` | Full lifecycle (playlists, matches, downloads, jobs, rejections) |
+| GET | `/tracks/:id/rejections` | Rejection history for a track |
 
-### 11.4 Matches
+### 12.4 Matches
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/matches?status=` | List matches (enriched with source + target tracks) |
-| PUT | `/matches/:id` | Update match status (confirmed/rejected) |
+| PUT | `/matches/:id` | Update match status (confirmed/rejected; rejection auto-queues download) |
 
-### 11.5 Downloads
+### 12.5 Review
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/review` | List pending review items (optional `?playlistId=` filter) |
+| POST | `/review/:id/confirm` | Confirm a pending match |
+| POST | `/review/:id/reject` | Reject a pending match (auto-queues download) |
+| POST | `/review/bulk` | Bulk confirm or reject (`{ matchIds, action }`) |
+| GET | `/review/stats` | Review queue statistics (pending/confirmed/rejected counts) |
+
+### 12.6 Downloads
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/downloads?status=&playlistId=` | List downloads (enriched with track info) |
 | GET | `/downloads/:id` | Download detail |
 
-### 11.6 Sync
+### 12.7 Sync
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/sync/:playlistId` | Start sync → `{syncId, jobId}` |
-| POST | `/sync/:playlistId/dry-run` | Phase 1 only → `PhaseOneResult` |
-| GET | `/sync/:syncId/events` | SSE stream (phase, match-complete, review-needed, download-progress, sync-complete, error) |
-| POST | `/sync/:syncId/review` | Submit match review decisions |
+| POST | `/sync/:playlistId` | Start non-blocking sync → `{syncId, jobId}` |
+| POST | `/sync/:playlistId/dry-run` | Match phase only → match results |
+| GET | `/sync/:syncId/events` | SSE stream (phase, match-complete, download-progress, sync-complete, error) |
 | GET | `/sync/:syncId` | Sync session status |
 
-### 11.7 Jobs
+### 12.8 Wishlist
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/wishlist/run` | Manually trigger a wishlist run |
+
+### 12.9 Jobs
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -768,9 +846,9 @@ Base URL: `/api`
 
 ---
 
-## 12. Web UI
+## 13. Web UI
 
-### 12.1 Design System
+### 13.1 Design System
 
 Dark theme inspired by Spotify:
 
@@ -790,95 +868,62 @@ Dark theme inspired by Spotify:
 
 **Layout:** Fixed 180px sidebar + flexible content area. Card-based sections. All tables have hover highlighting, muted column headers, and monospace font for durations.
 
-**Components:** `.card`, `.badge` (green/yellow/red/blue/gray), `.stat-card`, `.grid-stats`, `.progress-bar`, `.modal-overlay` + `.modal`, `.bulk-toolbar`
-
-### 12.2 Pages
+### 13.2 Pages
 
 **Dashboard** (`/`)
-- Stat cards: playlists, tracks, total duration, pending matches, active downloads, queued jobs
+- Stat cards: playlists, tracks, total duration, pending reviews, active downloads, queued jobs
 - Service status table (Spotify, Lexicon, Soulseek, Database) with OK/error indicators
 - Spotify auth widget (login/logout with OAuth flow)
 - Soulseek connection widget (URL + API key)
 
 **Playlists** (`/playlists`)
-- Sortable table (Name, Tracks, Owner, Last Synced) with ▲/▼ indicators
-- Search bar (case-insensitive substring on name)
-- Ownership filter toggle (All / Own / Followed)
-- Tag filter dropdown (populated from all existing tags)
-- Pinned playlists sort to top
-- Tag badges and pin indicators on rows
+- Sortable table (Name, Tracks, Owner, Last Synced) with sort indicators
+- Search bar, ownership filter, tag filter dropdown, pinned sort to top
 - Per-row actions: View, Rename (modal), Delete (confirmation modal)
-- Checkbox multi-select with select-all and indeterminate state
-- Floating bulk toolbar: Delete Selected, Merge Selected
-- "Sync from Spotify" button with result summary
-- "Cross-Playlist Dupes" toggle with results table
-- "Similar Names" toggle with similarity pairs and merge buttons
-- "Bulk Rename" button → modal with mode selector (find-replace / prefix / suffix), dry-run preview, apply
+- Checkbox multi-select with floating bulk toolbar
+- "Sync from Spotify" button
+- "Bulk Rename" button with modal (find-replace / regex, dry-run preview, apply)
 
 **Playlist Detail** (`/playlists/:id`)
-- Header: back link, playlist name, track count
-- Pin/Unpin toggle button
-- Action buttons: Start Sync, Push to Spotify, Repair, Find Dupes, Merge Into, Rename, Delete
-- Stat cards: Tracks, Duration, Artists, Top Artist
-- Tags card: badge list with click-to-remove, add input with autocomplete suggestions
-- Notes card: textarea with save-on-blur
-- Duplicates panel (toggle)
-- Sync progress (SSE events)
-- Review panel for pending matches
-- Track table: sortable (#, Title, Artist, Album, Duration), search/filter bar, total duration summary, clickable rows → TrackDetail
+- Header: name, track count, pin toggle
+- Action buttons: Start Sync, Push to Spotify, Rename, Delete
+- Tags card with add/remove, Notes card with save-on-blur
+- Description sync preview (tags + notes serialized)
+- Sync progress (SSE events), review panel for pending matches
+- Track table: sortable, searchable, clickable rows
 
 **Review** (`/review`)
+- Sidebar badge showing pending count
 - Side-by-side Spotify vs Lexicon comparison cards
-- Fields: title, artist, album, duration, ISRC, file path
-- Score badge with percentage
-- Per-match: Confirm / Reject buttons
+- Score badge with percentage, per-match Confirm / Reject buttons
+- Reject button labeled "Reject & Queue Download"
 - Bulk: Confirm All / Reject All
+- Always accessible (not gated by sync session)
 
 **Matches** (`/matches`)
 - Status filter (all / pending / confirmed / rejected)
 - Table with source track, target track, score, confidence, status, actions
 
 **Downloads** (`/downloads`)
-- Status filter
-- Table with track info, status badge, file path, error, timestamps
-- Real-time updates (5s polling)
+- Status filter, table with track info, status badge, file path, error, timestamps
 
 **Queue** (`/queue`)
-- Stat cards by status (queued, running, done, failed)
-- Type/status filters
-- Live job table with SSE streaming
-- Per-job: Retry / Cancel buttons
-- Retry All Failed button
-- Drill-down to Job Detail
+- Stat cards by status, type/status filters, live job table with SSE
+- Per-job Retry/Cancel, Retry All Failed, drill-down to Job Detail
 
 **Job Detail** (`/queue/:id`)
-- Full job info: type, status, priority, attempt/maxAttempts
-- Payload and result as formatted JSON
-- Error message if failed
-- Child jobs list
-- Parent job link
-- Retry / Cancel buttons
+- Full job info, payload/result as JSON, error, child jobs, parent link
 
 **Track Detail** (`/tracks/:id`)
-- Spotify metadata (title, artist, album, duration, ISRC, URI)
-- Playlist membership list
-- Match history (all matches with status, score, method)
-- Download history (status, file path, errors)
-- Related jobs (found via json_extract on payload)
+- Spotify metadata, playlist membership, match history, download history
+- Rejection history (both Lexicon match rejections and Soulseek download rejections)
+- Related jobs
 
 **Settings** (`/settings`)
-- Matching thresholds editor (auto-accept, review)
-- Download config (formats, min bitrate, concurrency)
-- Service credentials (Spotify, Soulseek)
+- Matching thresholds, download config (formats, bitrate, concurrency, validation strictness)
+- Service credentials
 
-### 12.3 Frontend Architecture
-
-- **API Client** (`web/src/api/client.ts`) — typed `fetch` wrapper with error handling. All methods return typed promises. EventSource for SSE.
-- **React Query Hooks** (`web/src/api/hooks.ts`) — one hook per API operation. useQuery for reads, useMutation for writes. Automatic cache invalidation on mutations. 30s default stale time.
-- **Reusable Hooks** — `useMultiSelect` (selection state management)
-- **Reusable Components** — `BulkToolbar` (floating selection actions bar)
-
-### 12.4 Routes
+### 13.3 Routes
 
 ```
 /                → Dashboard
@@ -895,120 +940,9 @@ Dark theme inspired by Spotify:
 
 ---
 
-## 13. Services
+## 14. Build & Deployment
 
-### 13.1 PlaylistService
-
-Local database operations for playlists and tracks. Stateless — takes a DB instance in constructor.
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| getPlaylists | `(): Playlist[]` | All playlists |
-| getPlaylist | `(id: string): Playlist \| null` | By UUID, spotify_id, Spotify URL, or exact name |
-| getPlaylistTracks | `(playlistId: string): (Track & {position})[]` | Ordered by position |
-| findDuplicatesInPlaylist | `(playlistId): {track, duplicates}[]` | Groups by spotify_id, then title+artist |
-| findDuplicatesAcrossPlaylists | `(): {track, playlists}[]` | Tracks appearing in 2+ playlists |
-| createPlaylist | `(name): Playlist` | Local-only (no spotify_id) |
-| upsertPlaylist | `(data): Playlist` | Insert or update by spotify_id |
-| upsertTrack | `(data): Track` | Insert or update by spotify_id |
-| setPlaylistTracks | `(playlistId, trackIds, addedAt?): void` | Replace all entries |
-| renamePlaylist | `(playlistId, newName): void` | |
-| mergePlaylistTracks | `(targetId, sourceIds): {added, duplicatesSkipped}` | Dedup by track_id |
-| removePlaylist | `(playlistId): void` | Deletes junction entries first |
-| getPlaylistDiff | `(playlistId, spotifyTracks): {toAdd, toRemove, renamed}` | Compare local vs Spotify by URI |
-| updateSnapshotId | `(playlistId, snapshotId): void` | |
-
-### 13.2 SpotifyService
-
-Spotify Web API client with OAuth token management.
-
-| Method | Description |
-|--------|-------------|
-| getAuthUrl(state) | Generate OAuth authorization URL |
-| exchangeCode(code) | Exchange auth code for tokens |
-| isAuthenticated() | Check validity + auto-refresh |
-| getPlaylists() | All user playlists (paginated) |
-| getPlaylistTracks(playlistId) | All tracks in a playlist |
-| syncToDb() | Upsert all playlists + tracks to local DB. Returns {added, updated, unchanged} |
-| renamePlaylist(spotifyId, name) | PUT to Spotify API |
-| addTracksToPlaylist(spotifyId, uris) | Batched (100/request) |
-| removeTracksFromPlaylist(spotifyId, uris) | Batched |
-| replacePlaylistTracks(spotifyId, uris) | PUT first 100, POST remaining |
-| deletePlaylist(spotifyId) | Unfollow |
-| createPlaylist(name, description?, isPublic?) | |
-
-### 13.3 LexiconService
-
-Lexicon DJ REST API client.
-
-| Method | Description |
-|--------|-------------|
-| ping() | Test connectivity |
-| getTracks() | All tracks (paginated 1000/page) |
-| searchTracks(query) | Client-side filtering (no server search) |
-| getPlaylistByName(name) | Recursive tree traversal |
-| createPlaylist(name, trackIds) | |
-| setPlaylistTracks(playlistId, trackIds) | Replace all |
-| getTags() | All categories + tags |
-| createTagCategory(label, color) | |
-| createTag(categoryId, label) | |
-| getTrackTags(trackId) | |
-| updateTrackTags(trackId, tagIds) | |
-
-### 13.4 SoulseekService
-
-slskd REST API wrapper.
-
-| Method | Description |
-|--------|-------------|
-| ping() | Test connectivity |
-| search(query) | Blocking search with result stabilization |
-| startSearch(query) | Non-blocking, returns search ID |
-| getSearchResults(searchId) | Raw results |
-| waitForSearch(searchId) | Polls until stable (4s no change, 10s minimum) |
-| download(username, filename, targetPath) | |
-| getTransfers() | |
-| cancelTransfer(transferId) | |
-
-### 13.5 DownloadService
-
-Search, rank, download, validate, and move audio files.
-
-| Method | Description |
-|--------|-------------|
-| rankResults(files) | Filter by format/bitrate, rank by fuzzy match score |
-| downloadBatch(items, onProgress, onReview) | Full pipeline per track using query builder |
-| ensurePlaylistFolder(name) | Create `downloadRoot/name/` if needed |
-
-### 13.6 SyncPipeline
-
-3-phase sync orchestrator. Accepts dependency injection for testing.
-
-| Method | Description |
-|--------|-------------|
-| matchPlaylist(playlistId) | Phase 1: Match all tracks → {found, needsReview, notFound} |
-| applyReviewDecisions(syncId, decisions) | Phase 2: Apply user decisions |
-| downloadMissing(syncId, items, onProgress) | Phase 3: Download + validate + move |
-| syncToLexicon(playlistId) | Phase 3b: Create/update Lexicon playlist + tags |
-
----
-
-## 14. Utilities
-
-| Utility | File | Description |
-|---------|------|-------------|
-| Logger | `src/utils/logger.ts` | Configurable log level, optional file output, per-module namespaces |
-| Retry | `src/utils/retry.ts` | `withRetry()` — exponential backoff with jitter, max 3 retries, retries on network errors and 5xx/429 |
-| Progress | `src/utils/progress.ts` | Terminal progress bar (overwriting line), tracks completed/total |
-| Shutdown | `src/utils/shutdown.ts` | Graceful SIGINT/SIGTERM handler with cleanup callbacks |
-| Health | `src/utils/health.ts` | Service connectivity checks (Spotify, Lexicon, Soulseek, DB) |
-| Spotify URL | `src/utils/spotify-url.ts` | `extractPlaylistId()` — extracts ID from full Spotify URLs or passes through bare IDs |
-
----
-
-## 15. Build & Deployment
-
-### 15.1 Scripts
+### 14.1 Scripts
 
 ```bash
 pnpm dev <args>        # Run CLI in development (tsx)
@@ -1018,13 +952,13 @@ pnpm test              # Run vitest
 pnpm test:coverage     # Run with coverage
 ```
 
-### 15.2 Build Output
+### 14.2 Build Output
 
 - **CLI:** `dist/index.js` (ESM, shebang `#!/usr/bin/env node`)
 - **Web:** `web/dist/` (SPA with router)
 - Server serves `web/dist/` as static files with SPA fallback
 
-### 15.3 Runtime
+### 14.3 Runtime
 
 - Single Node.js process
 - SQLite database at `./data/crate-sync.db` (WAL mode)
@@ -1033,35 +967,74 @@ pnpm test:coverage     # Run with coverage
 
 ---
 
-## 16. Testing
+## 15. Spec Index
 
-**Framework:** Vitest with @vitest/coverage-v8
+All detailed implementation specs are in `.beans/`. Organized by epic:
 
-**Test suites:**
+### E0: Foundation
 
-| Area | Tests | Description |
-|------|-------|-------------|
-| Matching engine | ~17 tests | ISRC, fuzzy, composite, normalization |
-| Query builder | ~12 tests | Remixes, unicode, parentheses, edge cases |
-| Services | Unit tests | PlaylistService, DownloadService with mocked DB/APIs |
-| Sync pipeline | Integration | 3-phase pipeline with mocked Lexicon/Soulseek |
-| Utilities | Unit tests | Spotify URL extraction, retry logic |
+| Spec | Title |
+|------|-------|
+| spec-01 | Project scaffold and build tooling |
+| spec-02 | Type definitions |
+| spec-03 | Configuration module |
+| spec-04 | Database schema and client |
+| spec-05 | Utility modules |
+
+### E1: Spotify Sync & Playlist Management (Group 1)
+
+| Spec | Title |
+|------|-------|
+| spec-06 | Spotify service |
+| spec-07 | Playlist service (DB-only operations) |
+| spec-08 | Spotify push (local-to-Spotify sync) |
+
+### E2: Lexicon Matching & Tagging (Group 2)
+
+| Spec | Title |
+|------|-------|
+| spec-09 | Matching engine |
+| spec-10 | Lexicon service |
+| spec-11 | Sync pipeline |
+| spec-12 | Review service |
+
+### E3: Download Pipeline (Group 3)
+
+| Spec | Title |
+|------|-------|
+| spec-13 | Search query builder |
+| spec-14 | Soulseek service (slskd client) |
+| spec-15 | Download pipeline |
+
+### E4: Orchestration (spans all groups)
+
+| Spec | Title |
+|------|-------|
+| spec-16 | Job queue: runner and handlers |
+| spec-17 | API server |
+| spec-18 | API routes |
+| spec-19 | CLI: commands and entry point |
+
+### E5: Web Frontend (spans all groups)
+
+| Spec | Title |
+|------|-------|
+| spec-20 | Web frontend |
+
+### Implementation Sequencing
+
+```
+Phase A (Foundation):  01 → 02, 03, 05 (parallel) → 04
+Phase B (Group 1):     06 → 07 → 08
+Phase C (Group 2):     09 (can start in Phase A), 10 → 11 → 12
+Phase D (Group 3):     13 (can start in Phase A), 14 → 15
+Phase E (Orchestration): 16 → 17 → 18, 19
+Phase F (Web):         20
+```
 
 ---
 
-## 17. Known Issues / Remaining Work
-
-From the active beans backlog:
-
-| ID | Priority | Title | Status |
-|----|----------|-------|--------|
-| bg02 | high | Duplicate downloads from Soulseek | todo |
-| bg03 | normal | Review UI side-by-side track comparison (improvement) | todo |
-| bg04 | normal | Allow sort by columns in Review page | todo |
-
----
-
-## 18. Version History
+## 16. Version History
 
 | Version | Date | Highlights |
 |---------|------|-----------|
@@ -1069,4 +1042,5 @@ From the active beans backlog:
 | 0.2.0 | 2026-03-10 | Lexicon API fixes, push to Spotify, repair, health checks, retry, progress, graceful shutdown |
 | 0.3.0 | 2026-03-15 | Web UI (Hono + React), improved matching (Damerau-Levenshtein, normalization, context weights) |
 | 0.4.0 | 2026-03-17 | Multi-strategy query builder, job queue with SQLite polling, wishlist, queue/review/track pages, CLI thin client |
-| 0.5.0 | unreleased | Web UI playlist management: sort/search/filter, ownership, rename/delete, push/repair, merge, duplicates, track enhancements, multi-select/bulk, similarity suggestions, bulk rename, statistics, metadata (tags/notes/pinning) |
+| 0.5.0 | 2026-03-19 | Playlist management: sort/search/filter, rename/delete, push, merge, duplicates, bulk rename, metadata (tags/notes/pinning) |
+| 0.6.0 | unreleased | 3-group architecture: non-blocking sync, async review, category-scoped Lexicon tagging (no playlists), rejection memory, description sync, pipeline-only downloads, manual wishlist |

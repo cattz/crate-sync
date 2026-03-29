@@ -1,31 +1,29 @@
 ---
 # spec-E4
-title: "Sync pipeline, job queue, API, and CLI"
+title: "Orchestration: job queue, API, CLI"
 status: todo
 type: epic
-priority: critical
-created_at: 2026-03-24T00:00:00Z
-updated_at: 2026-03-24T00:00:00Z
+priority: high
+created_at: 2026-03-29T00:00:00Z
+updated_at: 2026-03-29T00:00:00Z
+depends_on: spec-E0, spec-E1, spec-E2, spec-E3
 ---
 
 ## Purpose
 
-Groups the sync pipeline, job queue, API server, and CLI — the layers that compose services into user-facing features. These modules orchestrate; they don't implement business logic directly.
+Spans all groups — job queue, API server, REST routes, and CLI commands. Thin orchestration layers that compose services into user-facing features.
 
 ## Children
 
-- spec-14: Sync pipeline
-- spec-15: Job queue: runner and handlers
-- spec-16: API routes
-- spec-17: API server
-- spec-18: CLI commands
-- spec-19: CLI entry point
+- spec-16: Job queue (runner + handlers)
+- spec-17: API server (Hono app setup)
+- spec-18: API routes (REST endpoints)
+- spec-19: CLI (commands + entry point)
 
-## Cross-Cutting Principles
+## Key Decisions
 
-- **Thin orchestration** — commands and routes are thin wrappers. Business logic lives in services and the sync pipeline. A command should be ~50 lines max.
-- **Service instantiation at call time** — routes and commands create service instances per request/invocation. No long-lived service singletons.
-- **Consistent error responses** — API routes return `{ error: string }` with appropriate HTTP status codes. CLI commands print user-friendly messages via chalk.
-- **Job handlers reuse services** — handlers call the same service methods that CLI commands use. No duplicate logic.
-- **SSE for real-time** — sync progress and job events use Server-Sent Events, not WebSocket
-- **Route ordering matters** — in Hono, static segments (e.g., `/playlists/sync`) must be registered before parameterized routes (`/playlists/:id`)
+- **Unified interface** — groups are internal organization, not user-facing
+- **Long-lived server** — always-on, web UI always available
+- **Non-blocking sync** — CLI sync prints summary and exits; review is async
+- **Manual wishlist only** — no automatic job scheduling for retries
+- **Job types**: spotify_sync, lexicon_match, lexicon_tag, search, download, validate, wishlist_run

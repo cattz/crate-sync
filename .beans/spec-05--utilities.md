@@ -4,10 +4,10 @@ title: Utility modules
 status: todo
 type: task
 priority: critical
-parent: spec-E1
+parent: spec-E0
 depends_on: spec-01
-created_at: 2026-03-24T00:00:00Z
-updated_at: 2026-03-24T00:00:00Z
+created_at: 2026-03-29T00:00:00Z
+updated_at: 2026-03-29T00:00:00Z
 ---
 
 # spec-05: Utility modules

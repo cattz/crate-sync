@@ -4,10 +4,10 @@ title: Project scaffold and build tooling
 status: todo
 type: task
 priority: critical
-parent: spec-E1
+parent: spec-E0
 depends_on:
-created_at: 2026-03-24T00:00:00Z
-updated_at: 2026-03-24T00:00:00Z
+created_at: 2026-03-29T00:00:00Z
+updated_at: 2026-03-29T00:00:00Z
 ---
 
 # spec-01: Project scaffold and build tooling
@@ -256,26 +256,26 @@ crate-sync/
       playlist-service.ts     # Playlist CRUD operations
       download-service.ts     # Download orchestration
       sync-pipeline.ts        # End-to-end sync pipeline
+      review-service.ts       # Async review queue
       __tests__/              # Service unit tests
     jobs/
       runner.ts        # SQLite-polling job runner
       handlers/
         spotify-sync.ts   # Spotify playlist sync handler
-        match.ts          # Track matching handler
+        lexicon-match.ts  # Track matching handler
         search.ts         # Soulseek search handler
         download.ts       # Download handler
         validate.ts       # Downloaded file validation handler
-        lexicon-sync.ts   # Lexicon import handler
-        wishlist-scan.ts  # Periodic wishlist re-scan handler
+        lexicon-tag.ts    # Lexicon tagging handler
+        wishlist-run.ts   # Manual wishlist re-scan handler
       __tests__/          # Job system unit tests
     commands/
       auth.ts          # `crate-sync auth` command
       playlists.ts     # `crate-sync playlists` command
       sync.ts          # `crate-sync sync` command
       sync-client.ts   # Sync client logic
-      download.ts      # `crate-sync download` command
-      matches.ts       # `crate-sync matches` command
       review.ts        # `crate-sync review` command
+      wishlist.ts      # `crate-sync wishlist` command
       lexicon.ts       # `crate-sync lexicon` command
       db.ts            # `crate-sync db` command
       jobs.ts          # `crate-sync jobs` command
@@ -288,6 +288,7 @@ crate-sync/
         playlists.ts   # /api/playlists routes
         tracks.ts      # /api/tracks routes
         matches.ts     # /api/matches routes
+        review.ts      # /api/review routes
         downloads.ts   # /api/downloads routes
         sync.ts        # /api/sync routes
         jobs.ts        # /api/jobs routes

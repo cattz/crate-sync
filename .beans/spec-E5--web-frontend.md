@@ -1,29 +1,25 @@
 ---
 # spec-E5
-title: "React web frontend"
+title: "Web frontend"
 status: todo
 type: epic
 priority: normal
-created_at: 2026-03-24T00:00:00Z
-updated_at: 2026-03-24T00:00:00Z
+created_at: 2026-03-29T00:00:00Z
+updated_at: 2026-03-29T00:00:00Z
+depends_on: spec-E4
 ---
 
 ## Purpose
 
-Groups the Vite + React SPA. Communicates with the backend exclusively via HTTP. Independent build, independent `package.json`, no shared code with the server.
+Spans all groups — React SPA consuming the API. Vite + React 19, dark Spotify-inspired theme, independent build.
 
 ## Children
 
-- spec-20: Web scaffold, API client, layout
-- spec-21: Web browsing pages
-- spec-22: Web interactive pages
+- spec-20: Web frontend (scaffold, API client, all pages)
 
-## Cross-Cutting Principles
+## Key Decisions
 
-- **API-only coupling** — the frontend NEVER imports from `src/`. All data comes via `/api/*` endpoints. Types are defined independently in `web/src/api/client.ts`.
-- **React Query for everything** — all server state managed via TanStack React Query. No manual fetch + useState patterns. Mutations invalidate relevant query keys.
-- **Dark theme** — Spotify-inspired dark palette. CSS custom properties for all colors. No Tailwind — plain CSS with utility classes.
-- **Modal pattern** — modals use `.modal-overlay` (fixed backdrop) + `.modal` (card-styled content). Click overlay to dismiss. Prevent propagation on modal content.
-- **Inline results** — action results (push, repair, merge) display inline as colored text below the action area, not in alerts or toasts.
-- **Forms** — inputs, selects, textareas styled via element selectors in globals.css. No component library.
-- **SSE for live data** — Queue page and sync progress use EventSource. Hooks manage connection lifecycle.
+- **Single spec** — scaffold, browsing pages, and interactive pages merged into one spec (one build unit)
+- **Review always accessible** — sidebar badge with pending count, non-blocking flow
+- **No merge/dupes/similarity/statistics** — removed from prior design
+- **Rejection history visible** — Track Detail page shows match and download rejections

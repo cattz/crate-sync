@@ -1,6 +1,6 @@
 flowchart TD
     SP["☁️ Spotify Playlist"] -->|"crate-sync db sync"| LOCAL[("💾 Local SQLite DB")]
-    LOCAL -->|"Phase 1: Match each track"| ISRC{"ISRC\nexact match?"}
+    LOCAL -->|"Match each track"| ISRC{"ISRC\nexact match?"}
 
     %% ── Matching ──
     ISRC -->|"Yes · score = 1.0"| HIGH["✅ Confirmed match"]
@@ -8,17 +8,23 @@ flowchart TD
 
     FUZZY --> SCORE{"Match\nscore?"}
     SCORE -->|"≥ 0.9 · high confidence"| HIGH
-    SCORE -->|"0.7 – 0.9 · needs review"| SHOW
+    SCORE -->|"0.7 – 0.9 · needs review"| PARKED
     SCORE -->|"< 0.7 · no match"| NOTFOUND["❌ Not in Lexicon"]
 
-    %% ── Human Review ──
-    SHOW["👤 Human Review\nside-by-side comparison\nSpotify track ↔ Lexicon track"]
-    SHOW --> DECIDE{"Accept?"}
-    DECIDE -->|"✓ Yes"| HIGH
-    DECIDE -->|"✗ No"| NOTFOUND
+    %% ── Rejection Memory ──
+    SCORE -.->|"previously rejected pair?\nskip, try next-best"| SCORE
+
+    %% ── Async Review (non-blocking) ──
+    PARKED["⏸️ Parked for Review\nasync · non-blocking\npipeline continues"]
+    PARKED -->|"✓ Confirm (later)"| HIGH
+    PARKED -->|"✗ Reject (later)"| NOTFOUND
+
+    %% ── Tag in Lexicon ──
+    HIGH -->|"Tag in Lexicon"| TAGS["🏷️ Tag track\nunder configured category\ne.g. Spotify Playlists / House / Tech"]
+    TAGS --> DONE(("🎵 Track tagged\nin Lexicon"))
 
     %% ── Search on Soulseek ──
-    NOTFOUND -->|"Phase 3: Search & Download"| S1
+    NOTFOUND -->|"Search & Download"| S1
 
     S1["🔎 Strategy 1\nartist + full title"]
     S1 -->|"results found"| RANK
@@ -37,22 +43,18 @@ flowchart TD
     S4 -->|"0 results"| WISHLIST
 
     %% ── Rank & Download ──
-    RANK["📊 Rank & Filter\nformat: flac/mp3\nbitrate ≥ 320 kbps\nfuzzy score vs metadata"]
+    RANK["📊 Rank & Filter\nformat: flac/mp3\nbitrate ≥ 320 kbps\nfuzzy score vs metadata\nfilter rejected files"]
     RANK --> DOWNLOAD["⬇️ Download\nfrom Soulseek via slskd"]
-    DOWNLOAD --> VALIDATE{"🔬 Validate\nmetadata?"}
-    VALIDATE -->|"✓ title/artist match\nformat OK"| MOVE["📁 Move to\nLexicon/Incoming/playlist-name/"]
-    VALIDATE -->|"✗ wrong track\nor corrupt"| WISHLIST
+    DOWNLOAD --> VALIDATE{"🔬 Validate\nmetadata?\n(configurable strictness)"}
+    VALIDATE -->|"✓ valid"| MOVE["📁 Move to\nLexicon/Incoming/playlist-name/"]
+    VALIDATE -->|"✗ wrong track"| REJECT_DL["🚫 Record rejection\nnever download this file\nfor this track again"]
+    REJECT_DL --> WISHLIST
 
-    MOVE --> HIGH
+    MOVE -->|"Lexicon auto-imports\nnext sync re-matches"| HIGH
 
-    %% ── Wishlist (retry) ──
-    WISHLIST["⏳ Wishlist\nretry schedule:\n1h → 6h → 24h → 7d"]
-    WISHLIST -->|"cooldown expired"| S1
-
-    %% ── Lexicon Sync ──
-    HIGH -->|"Phase 3b: Sync to Lexicon"| LEXICON_PL["🎧 Create / update\nLexicon DJ playlist"]
-    LEXICON_PL --> TAGS["🏷️ Sync tags\nfrom playlist name segments\ne.g. House / Tech → 2 tags"]
-    TAGS --> DONE(("🎵 Track synced\nin Lexicon"))
+    %% ── Wishlist (manual retry) ──
+    WISHLIST["⏳ Wishlist\nmanual retry only"]
+    WISHLIST -->|"wishlist run"| S1
 
     %% ── Styling ──
     style SP fill:#1db954,color:#000,stroke:#1db954
@@ -61,7 +63,9 @@ flowchart TD
     style NOTFOUND fill:#e74c3c,color:#fff,stroke:#e74c3c
     style WISHLIST fill:#f39c12,color:#000,stroke:#f39c12
     style DONE fill:#3498db,color:#fff,stroke:#3498db
-    style SHOW fill:#2c3e50,color:#fff,stroke:#f39c12
+    style PARKED fill:#2c3e50,color:#fff,stroke:#f39c12
     style RANK fill:#2c3e50,color:#fff,stroke:#3498db
     style DOWNLOAD fill:#2c3e50,color:#fff,stroke:#3498db
     style MOVE fill:#2c3e50,color:#fff,stroke:#27ae60
+    style REJECT_DL fill:#e74c3c,color:#fff,stroke:#e74c3c
+    style TAGS fill:#1db954,color:#000,stroke:#1db954

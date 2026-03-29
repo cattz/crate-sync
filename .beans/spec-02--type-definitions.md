@@ -4,10 +4,10 @@ title: Type definitions
 status: todo
 type: task
 priority: critical
-parent: spec-E1
+parent: spec-E0
 depends_on: spec-01
-created_at: 2026-03-24T00:00:00Z
-updated_at: 2026-03-24T00:00:00Z
+created_at: 2026-03-29T00:00:00Z
+updated_at: 2026-03-29T00:00:00Z
 ---
 
 # spec-02: Type definitions
@@ -49,6 +49,8 @@ export type DownloadStatus =
   | "failed";
 
 export type MatchStatus = "pending" | "confirmed" | "rejected";
+
+export type ReviewStatus = "pending" | "confirmed" | "rejected";
 ```
 
 #### `TrackInfo`
@@ -108,6 +110,16 @@ Human review status for a match.
 | `"pending"` | Awaiting human review |
 | `"confirmed"` | Human confirmed the match is correct |
 | `"rejected"` | Human rejected the match as incorrect |
+
+#### `ReviewStatus`
+
+Status for async review items. Used by the review service to track pending/confirmed/rejected matches that are parked for human review outside the main pipeline flow.
+
+| Value | Description |
+|---|---|
+| `"pending"` | Match is parked, awaiting async review |
+| `"confirmed"` | Reviewer confirmed the match -- track will be tagged on next sync |
+| `"rejected"` | Reviewer rejected the match -- track is auto-queued for download |
 
 ---
 
@@ -182,12 +194,6 @@ export interface LexiconTrack {
   tags?: string[];
 }
 
-export interface LexiconPlaylist {
-  id: string;
-  name: string;
-  trackIds: string[];
-}
-
 export interface LexiconTagCategory {
   id: string;
   label: string;
@@ -198,6 +204,11 @@ export interface LexiconTag {
   id: string;
   categoryId: string;
   label: string;
+}
+
+export interface LexiconTagConfig {
+  categoryName: string;
+  color: string;
 }
 ```
 
@@ -214,16 +225,6 @@ Represents a track in the Lexicon DJ library.
 | `album` | `string` | No | Album name from metadata |
 | `durationMs` | `number` | No | Duration in milliseconds |
 | `tags` | `string[]` | No | Array of tag labels applied to this track |
-
-#### `LexiconPlaylist`
-
-Represents a playlist in Lexicon DJ.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `id` | `string` | Yes | Lexicon internal playlist ID |
-| `name` | `string` | Yes | Playlist name |
-| `trackIds` | `string[]` | Yes | Ordered array of Lexicon track IDs |
 
 #### `LexiconTagCategory`
 
@@ -244,6 +245,15 @@ A single tag within a category.
 | `id` | `string` | Yes | Tag ID |
 | `categoryId` | `string` | Yes | Parent category ID |
 | `label` | `string` | Yes | Tag label (e.g., `"Techno"`) |
+
+#### `LexiconTagConfig`
+
+Configuration for the Lexicon tag category that crate-sync manages. Used to identify which tag category to create/use in Lexicon for playlist-to-tag mapping.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `categoryName` | `string` | Yes | Name of the tag category in Lexicon (e.g., `"Spotify Playlists"`) |
+| `color` | `string` | Yes | Hex color code for the category (e.g., `"#1DB954"` -- Spotify green) |
 
 ---
 
@@ -331,8 +341,9 @@ All types are compile-time only. They have no runtime behavior. They are used fo
 
 1. **Service layer contracts** -- Spotify, Lexicon, and Soulseek service classes accept/return these types.
 2. **Matching engine input/output** -- `TrackInfo` is the universal input format; `MatchResult` is the output.
-3. **Status tracking** -- `DownloadStatus`, `MatchStatus`, and `SyncPhase` are used in the database schema (as text enum columns) and in CLI/API output.
+3. **Status tracking** -- `DownloadStatus`, `MatchStatus`, `ReviewStatus`, and `SyncPhase` are used in the database schema (as text enum columns) and in CLI/API output.
 4. **Type narrowing** -- Confidence levels (`"high" | "review" | "low"`) drive automatic accept/reject logic based on configured thresholds.
+5. **Lexicon tag configuration** -- `LexiconTagConfig` is used by the configuration module (spec-03) and the Lexicon service (spec-10) to manage category-scoped tagging.
 
 ## Error Handling
 
@@ -375,20 +386,30 @@ const result: MatchResult = {
   confidence: "high",
   method: "isrc",
 };
+
+const tagConfig: LexiconTagConfig = {
+  categoryName: "Spotify Playlists",
+  color: "#1DB954",
+};
+
+const reviewStatus: ReviewStatus = "pending";
 ```
 
 ## Acceptance Criteria
 
-- [ ] `src/types/common.ts` exports `TrackInfo`, `MatchResult`, `SyncPhase`, `DownloadStatus`, `MatchStatus` with exact field definitions
+- [ ] `src/types/common.ts` exports `TrackInfo`, `MatchResult`, `SyncPhase`, `DownloadStatus`, `MatchStatus`, `ReviewStatus` with exact field definitions
 - [ ] `src/types/spotify.ts` exports `SpotifyPlaylist` and `SpotifyTrack` with exact field definitions
-- [ ] `src/types/lexicon.ts` exports `LexiconTrack`, `LexiconPlaylist`, `LexiconTagCategory`, `LexiconTag` with exact field definitions
+- [ ] `src/types/lexicon.ts` exports `LexiconTrack`, `LexiconTagCategory`, `LexiconTag`, `LexiconTagConfig` with exact field definitions
+- [ ] `src/types/lexicon.ts` does NOT export `LexiconPlaylist` (removed -- Lexicon playlists are not used)
 - [ ] `src/types/soulseek.ts` exports `SlskdFile`, `SlskdSearchResult`, `SlskdTransfer` with exact field definitions
 - [ ] All optional fields are marked with `?` in TypeScript
 - [ ] `MatchResult.confidence` is a string literal union, not a plain `string`
 - [ ] `DownloadStatus` includes all seven states: pending, searching, downloading, validating, moving, done, failed
 - [ ] `MatchStatus` includes all three states: pending, confirmed, rejected
+- [ ] `ReviewStatus` includes all three states: pending, confirmed, rejected
 - [ ] `SyncPhase` includes all three phases: match, review, download
 - [ ] `SpotifyTrack.artists` is `string[]` (array), while `SpotifyTrack.artist` is `string` (single primary artist)
 - [ ] `SlskdFile.length` is duration in seconds (number), not a string
+- [ ] `LexiconTagConfig` has `categoryName: string` and `color: string` (both required)
 - [ ] No runtime imports exist in any type file -- these are pure type definitions
 - [ ] `pnpm lint` passes with all types in use

@@ -4,17 +4,17 @@ title: Database schema and client
 status: todo
 type: task
 priority: critical
-parent: spec-E1
+parent: spec-E0
 depends_on: spec-01
-created_at: 2026-03-24T00:00:00Z
-updated_at: 2026-03-24T00:00:00Z
+created_at: 2026-03-29T00:00:00Z
+updated_at: 2026-03-29T00:00:00Z
 ---
 
 # spec-04: Database schema and client
 
 ## Purpose
 
-Define the complete SQLite database schema for crate-sync using Drizzle ORM, along with the singleton database client that manages connections, enables WAL mode, and auto-runs migrations. The schema stores Spotify playlists and tracks, Lexicon DJ library tracks, cross-service match records, download tasks, background jobs, and an audit sync log. This spec also defines a single consolidated initial migration that combines all existing incremental migrations.
+Define the complete SQLite database schema for crate-sync using Drizzle ORM, along with the singleton database client that manages connections, enables WAL mode, and auto-runs migrations. The schema stores Spotify playlists and tracks, Lexicon DJ library tracks, cross-service match records, download tasks, Soulseek download rejections, background jobs, and an audit sync log. This spec also defines a single consolidated initial migration that combines all existing incremental migrations.
 
 ## Public Interface
 
@@ -37,6 +37,7 @@ export const playlistTracks: SQLiteTable;
 export const lexiconTracks: SQLiteTable;
 export const matches: SQLiteTable;
 export const downloads: SQLiteTable;
+export const rejections: SQLiteTable;
 export const jobs: SQLiteTable;
 export const syncLog: SQLiteTable;
 ```
@@ -61,6 +62,9 @@ export type NewMatch = InferInsertModel<typeof matches>;
 
 export type Download = InferSelectModel<typeof downloads>;
 export type NewDownload = InferInsertModel<typeof downloads>;
+
+export type Rejection = InferSelectModel<typeof rejections>;
+export type NewRejection = InferInsertModel<typeof rejections>;
 
 export type Job = InferSelectModel<typeof jobs>;
 export type NewJob = InferInsertModel<typeof jobs>;
@@ -175,6 +179,7 @@ export function closeDb(): void;
 | `confidence` | `TEXT` | `text("confidence", { enum: ["high", "review", "low"] })` | `NOT NULL` | -- |
 | `method` | `TEXT` | `text("method", { enum: ["isrc", "fuzzy", "manual"] })` | `NOT NULL` | -- |
 | `status` | `TEXT` | `text("status", { enum: ["pending", "confirmed", "rejected"] })` | `NOT NULL` | -- |
+| `parked_at` | `INTEGER` | `integer("parked_at")` | -- | -- |
 | `created_at` | `INTEGER` | `integer("created_at")` | `NOT NULL` | `Date.now()` |
 | `updated_at` | `INTEGER` | `integer("updated_at")` | `NOT NULL` | `Date.now()` (auto-updated) |
 
@@ -184,6 +189,7 @@ export function closeDb(): void;
 - `confidence` enum values: `"high"`, `"review"`, `"low"`.
 - `method` enum values: `"isrc"`, `"fuzzy"`, `"manual"`.
 - `status` enum values: `"pending"`, `"confirmed"`, `"rejected"`.
+- `parked_at` is a nullable timestamp (epoch ms). When a match with `"review"` confidence is created, `parked_at` is set to `Date.now()` to indicate it is parked for async review. `null` means the match was not parked (either auto-confirmed or already resolved).
 
 ### Table: `downloads`
 
@@ -192,6 +198,7 @@ export function closeDb(): void;
 | `id` | `TEXT` | `text("id")` | `PRIMARY KEY` | `crypto.randomUUID()` |
 | `track_id` | `TEXT` | `text("track_id")` | `NOT NULL`, `FK -> tracks.id` | -- |
 | `playlist_id` | `TEXT` | `text("playlist_id")` | `FK -> playlists.id` | -- |
+| `origin` | `TEXT` | `text("origin", { enum: ["not_found", "review_rejected"] })` | `NOT NULL` | -- |
 | `status` | `TEXT` | `text("status", { enum: [...] })` | `NOT NULL` | -- |
 | `soulseek_path` | `TEXT` | `text("soulseek_path")` | -- | -- |
 | `file_path` | `TEXT` | `text("file_path")` | -- | -- |
@@ -200,9 +207,31 @@ export function closeDb(): void;
 | `completed_at` | `INTEGER` | `integer("completed_at")` | -- | -- |
 | `created_at` | `INTEGER` | `integer("created_at")` | `NOT NULL` | `Date.now()` |
 
+- `origin` enum values: `"not_found"` (track had no Lexicon match), `"review_rejected"` (user rejected the proposed Lexicon match).
 - `status` enum values: `"pending"`, `"searching"`, `"downloading"`, `"validating"`, `"moving"`, `"done"`, `"failed"`.
 - Foreign keys: `track_id -> tracks.id`, `playlist_id -> playlists.id` (nullable).
 - No `updated_at` column on this table.
+
+### Table: `rejections`
+
+| Column | SQL Type | Drizzle Type | Constraints | Default |
+|---|---|---|---|---|
+| `id` | `TEXT` | `text("id")` | `PRIMARY KEY` | `crypto.randomUUID()` |
+| `track_id` | `TEXT` | `text("track_id")` | `NOT NULL`, `FK -> tracks.id` | -- |
+| `context` | `TEXT` | `text("context")` | `NOT NULL` | -- |
+| `file_key` | `TEXT` | `text("file_key")` | `NOT NULL` | -- |
+| `reason` | `TEXT` | `text("reason")` | -- | -- |
+| `created_at` | `INTEGER` | `integer("created_at")` | `NOT NULL` | `Date.now()` |
+
+- Composite unique index: `rejection_uniq` on `(track_id, context, file_key)`.
+- Foreign key: `track_id -> tracks.id`.
+- `context` identifies where the rejection originated. Currently only `"soulseek_download"` is used, but the column is a plain text to allow future contexts.
+- `file_key` is a string that uniquely identifies the rejected file within the context. For Soulseek downloads, this is `"<username>/<filepath>"` (the username and remote file path concatenated with a separator).
+- `reason` is an optional human/machine-readable reason for the rejection:
+  - `"validation_failed"` -- post-download audio validation failed (wrong duration, corrupt file, etc.)
+  - `"user_rejected"` -- user manually rejected the download after review
+  - `"wrong_track"` -- the downloaded file turned out to be a different track
+- No `updated_at` column on this table (rejections are immutable once created).
 
 ### Table: `jobs`
 
@@ -217,18 +246,17 @@ export function closeDb(): void;
 | `error` | `TEXT` | `text("error")` | -- | -- |
 | `attempt` | `INTEGER` | `integer("attempt")` | `NOT NULL` | `0` |
 | `max_attempts` | `INTEGER` | `integer("max_attempts")` | `NOT NULL` | `3` |
-| `run_after` | `INTEGER` | `integer("run_after")` | -- | -- |
 | `parent_job_id` | `TEXT` | `text("parent_job_id")` | -- | -- |
 | `started_at` | `INTEGER` | `integer("started_at")` | -- | -- |
 | `completed_at` | `INTEGER` | `integer("completed_at")` | -- | -- |
 | `created_at` | `INTEGER` | `integer("created_at")` | `NOT NULL` | `Date.now()` |
 
-- `type` enum values: `"spotify_sync"`, `"match"`, `"search"`, `"download"`, `"validate"`, `"lexicon_sync"`, `"wishlist_scan"`.
+- `type` enum values: `"spotify_sync"`, `"lexicon_match"`, `"search"`, `"download"`, `"validate"`, `"lexicon_tag"`, `"wishlist_run"`.
 - `status` enum values: `"queued"`, `"running"`, `"done"`, `"failed"`.
 - `payload` and `result` are JSON-stringified text fields.
-- `run_after` is a timestamp (epoch ms) -- the job should not be picked up before this time.
 - `parent_job_id` is a self-referencing text field (not a formal FK) for job hierarchies.
 - No `updated_at` column on this table.
+- No `run_after` column -- automatic retry scheduling with backoff is removed. Failed jobs stay as `"failed"` and require manual intervention or re-queueing.
 
 ### Table: `sync_log`
 
@@ -262,6 +290,7 @@ Note: Not all tables use `updatedAt`. Only `playlists`, `tracks`, and `matches` 
 | `playlist_track_uniq` | `playlist_tracks` | `playlist_id, track_id` | UNIQUE (explicit `uniqueIndex`) |
 | `lexicon_tracks_file_path_unique` | `lexicon_tracks` | `file_path` | UNIQUE (automatic from `.unique()`) |
 | `match_pair_uniq` | `matches` | `source_type, source_id, target_type, target_id` | UNIQUE (explicit `uniqueIndex`) |
+| `rejection_uniq` | `rejections` | `track_id, context, file_key` | UNIQUE (explicit `uniqueIndex`) |
 
 ### Foreign keys summary
 
@@ -271,11 +300,12 @@ Note: Not all tables use `updatedAt`. Only `playlists`, `tracks`, and `matches` 
 | `playlist_tracks` | `track_id` | `tracks` | `id` | no action | no action |
 | `downloads` | `track_id` | `tracks` | `id` | no action | no action |
 | `downloads` | `playlist_id` | `playlists` | `id` | no action | no action |
+| `rejections` | `track_id` | `tracks` | `id` | no action | no action |
 | `sync_log` | `playlist_id` | `playlists` | `id` | no action | no action |
 
 ### Consolidated initial migration
 
-Combine all 5 existing migrations (0000 through 0004) into a single `0000_initial.sql`:
+Combine all existing migrations into a single `0000_initial.sql`:
 
 ```sql
 -- 0000_initial.sql
@@ -353,6 +383,7 @@ CREATE TABLE `matches` (
   `confidence` text NOT NULL,
   `method` text NOT NULL,
   `status` text NOT NULL,
+  `parked_at` integer,
   `created_at` integer NOT NULL,
   `updated_at` integer NOT NULL
 );
@@ -364,6 +395,7 @@ CREATE TABLE `downloads` (
   `id` text PRIMARY KEY NOT NULL,
   `track_id` text NOT NULL,
   `playlist_id` text,
+  `origin` text NOT NULL,
   `status` text NOT NULL,
   `soulseek_path` text,
   `file_path` text,
@@ -376,6 +408,19 @@ CREATE TABLE `downloads` (
 );
 --> statement-breakpoint
 
+CREATE TABLE `rejections` (
+  `id` text PRIMARY KEY NOT NULL,
+  `track_id` text NOT NULL,
+  `context` text NOT NULL,
+  `file_key` text NOT NULL,
+  `reason` text,
+  `created_at` integer NOT NULL,
+  FOREIGN KEY (`track_id`) REFERENCES `tracks`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `rejection_uniq` ON `rejections` (`track_id`,`context`,`file_key`);
+--> statement-breakpoint
+
 CREATE TABLE `jobs` (
   `id` text PRIMARY KEY NOT NULL,
   `type` text NOT NULL,
@@ -386,7 +431,6 @@ CREATE TABLE `jobs` (
   `error` text,
   `attempt` integer DEFAULT 0 NOT NULL,
   `max_attempts` integer DEFAULT 3 NOT NULL,
-  `run_after` integer,
   `parent_job_id` text,
   `started_at` integer,
   `completed_at` integer,
@@ -522,15 +566,68 @@ Output: Second insert throws a UNIQUE constraint error
 Cleanup: closeDb()
 ```
 
+### Test: matches table supports parked_at column
+
+```
+Input:  Insert a match with parked_at = Date.now()
+Output: Select returns the match with parked_at as a number (epoch ms)
+
+Input:  Insert a match with parked_at = null
+Output: Select returns the match with parked_at === null
+Cleanup: closeDb()
+```
+
+### Test: downloads table requires origin column
+
+```
+Input:  Insert a download with origin = "not_found"
+Output: Select returns the download with origin === "not_found"
+
+Input:  Insert a download with origin = "review_rejected"
+Output: Select returns the download with origin === "review_rejected"
+Cleanup: closeDb()
+```
+
+### Test: rejections table enforces unique constraint
+
+```
+Input:  Insert { trackId: "t1", context: "soulseek_download", fileKey: "user1/path/file.flac" } twice
+Output: Second insert throws a UNIQUE constraint error
+Cleanup: closeDb()
+```
+
+### Test: rejections table allows different files for same track
+
+```
+Input:  Insert { trackId: "t1", context: "soulseek_download", fileKey: "user1/path/file.flac" }
+        Insert { trackId: "t1", context: "soulseek_download", fileKey: "user2/path/file.mp3" }
+Output: Both inserts succeed
+Cleanup: closeDb()
+```
+
+### Test: jobs table has no run_after column
+
+```
+Input:  Inspect the jobs table schema
+Output: No column named "run_after" exists
+Cleanup: closeDb()
+```
+
 ## Acceptance Criteria
 
 - [ ] `playlists` table has all 14 columns with correct types, constraints, and defaults
 - [ ] `tracks` table has all 10 columns with correct types, constraints, and defaults
 - [ ] `playlist_tracks` table has all 5 columns with composite unique index and two foreign keys
 - [ ] `lexicon_tracks` table has all 7 columns with unique `file_path`
-- [ ] `matches` table has all 10 columns with composite unique index and enum constraints
-- [ ] `downloads` table has all 10 columns with two foreign keys and status enum
-- [ ] `jobs` table has all 14 columns with type and status enums and correct defaults (priority=0, attempt=0, max_attempts=3)
+- [ ] `matches` table has all 12 columns (including `parked_at`) with composite unique index and enum constraints
+- [ ] `matches.parked_at` is an integer (nullable) for async review timestamps
+- [ ] `downloads` table has all 11 columns (including `origin`) with two foreign keys and status enum
+- [ ] `downloads.origin` is a NOT NULL text column with enum values `"not_found"` and `"review_rejected"`
+- [ ] `rejections` table has all 6 columns with foreign key to tracks and composite unique index on `(track_id, context, file_key)`
+- [ ] `rejections.reason` is nullable text (optional)
+- [ ] `jobs` table has all 13 columns with type and status enums and correct defaults (priority=0, attempt=0, max_attempts=3)
+- [ ] `jobs` table does NOT have a `run_after` column (no automatic retry scheduling)
+- [ ] `jobs.type` enum includes: `"spotify_sync"`, `"lexicon_match"`, `"search"`, `"download"`, `"validate"`, `"lexicon_tag"`, `"wishlist_run"`
 - [ ] `sync_log` table has all 5 columns with foreign key to playlists
 - [ ] All `id` columns use `crypto.randomUUID()` as the default function
 - [ ] All `created_at` columns use `Date.now()` as the default function
@@ -543,5 +640,5 @@ Cleanup: closeDb()
 - [ ] `closeDb()` closes the underlying SQLite connection and resets the singleton
 - [ ] `closeDb()` is a no-op when no connection is open
 - [ ] A single consolidated migration file reproduces the complete schema
-- [ ] Inferred select and insert types are exported for all 8 tables
+- [ ] Inferred select and insert types are exported for all 9 tables (including `Rejection` and `NewRejection`)
 - [ ] `JobType` and `JobStatus` utility types are exported
