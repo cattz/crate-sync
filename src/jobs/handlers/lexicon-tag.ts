@@ -6,17 +6,16 @@ import * as schema from "../../db/schema.js";
 import { SyncPipeline } from "../../services/sync-pipeline.js";
 import { completeJob } from "../runner.js";
 
-interface LexiconSyncPayload {
+interface LexiconTagPayload {
   playlistId: string;
-  /** If provided, sync tags too. */
-  syncTags?: boolean;
 }
 
 /**
- * Sync confirmed matches to Lexicon playlist + tags.
+ * Tag confirmed matches under the configured Lexicon category.
+ * No Lexicon playlist creation — only category-scoped tagging.
  */
-export async function handleLexiconSync(job: Job, config: Config): Promise<void> {
-  const payload: LexiconSyncPayload = JSON.parse(job.payload ?? "{}");
+export async function handleLexiconTag(job: Job, config: Config): Promise<void> {
+  const payload: LexiconTagPayload = JSON.parse(job.payload ?? "{}");
   const db = getDb();
 
   const playlist = await db.query.playlists.findFirst({
@@ -27,7 +26,7 @@ export async function handleLexiconSync(job: Job, config: Config): Promise<void>
     throw new Error(`Playlist not found: ${payload.playlistId}`);
   }
 
-  // Get all confirmed matches for tracks in this playlist
+  // Get all track IDs for this playlist
   const playlistTrackRows = db
     .select({ trackId: schema.playlistTracks.trackId })
     .from(schema.playlistTracks)
@@ -36,6 +35,7 @@ export async function handleLexiconSync(job: Job, config: Config): Promise<void>
 
   const trackIds = new Set(playlistTrackRows.map((r) => r.trackId));
 
+  // Get confirmed matches filtered to this playlist's tracks
   const confirmedMatches = db
     .select()
     .from(schema.matches)
@@ -49,30 +49,23 @@ export async function handleLexiconSync(job: Job, config: Config): Promise<void>
     .all()
     .filter((m) => trackIds.has(m.sourceId));
 
-  const lexiconTrackIds = confirmedMatches
-    .map((m) => m.targetId)
-    .filter(Boolean);
-
-  if (lexiconTrackIds.length === 0) {
-    completeJob(job.id, { synced: 0 });
+  if (confirmedMatches.length === 0) {
+    completeJob(job.id, { tagged: 0 });
     return;
   }
 
+  // Build MatchedTrack objects for syncTags
+  const confirmedTracks = confirmedMatches.map((m) => ({
+    dbTrackId: m.sourceId,
+    lexiconTrackId: m.targetId,
+    track: { title: "", artist: "" },
+    score: m.score,
+    confidence: m.confidence as "high" | "review" | "low",
+    method: m.method,
+  }));
+
   const pipeline = new SyncPipeline(config);
-  await pipeline.syncToLexicon(payload.playlistId, playlist.name, lexiconTrackIds);
+  await pipeline.syncTags(playlist.name, confirmedTracks);
 
-  // Optionally sync tags
-  if (payload.syncTags) {
-    const confirmedTracks = confirmedMatches.map((m) => ({
-      dbTrackId: m.sourceId,
-      lexiconTrackId: m.targetId,
-      track: { title: "", artist: "" },
-      score: m.score,
-      confidence: m.confidence as "high" | "review" | "low",
-      method: m.method,
-    }));
-    await pipeline.syncTags(playlist.name, confirmedTracks);
-  }
-
-  completeJob(job.id, { synced: lexiconTrackIds.length });
+  completeJob(job.id, { tagged: confirmedMatches.length });
 }

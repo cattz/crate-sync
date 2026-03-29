@@ -33,7 +33,7 @@ export async function handleSpotifySync(job: Job, config: Config): Promise<void>
 
   // Create a match job for this playlist
   createJob({
-    type: "match",
+    type: "lexicon_match",
     status: "queued",
     priority: 5,
     payload: JSON.stringify({ playlistId: payload.playlistId }),

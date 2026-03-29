@@ -3,21 +3,21 @@ import type { Job } from "../../db/schema.js";
 import { SyncPipeline } from "../../services/sync-pipeline.js";
 import { completeJob, createJob } from "../runner.js";
 
-interface MatchPayload {
+interface LexiconMatchPayload {
   playlistId: string;
 }
 
 /**
- * Run matchPlaylist(), auto-confirm high-confidence matches, and create
- * search jobs for not-found tracks.
+ * Run matchPlaylist() and create search jobs for not-found tracks.
+ * Confirmed tracks are tagged immediately by the sync pipeline.
+ * Pending matches are parked for async review.
  */
-export async function handleMatch(job: Job, config: Config): Promise<void> {
-  const payload: MatchPayload = JSON.parse(job.payload ?? "{}");
+export async function handleLexiconMatch(job: Job, config: Config): Promise<void> {
+  const payload: LexiconMatchPayload = JSON.parse(job.payload ?? "{}");
   const pipeline = new SyncPipeline(config);
 
   const result = await pipeline.matchPlaylist(payload.playlistId);
 
-  // Auto-apply high-confidence decisions (they're already confirmed by matchPlaylist)
   // Create search jobs for tracks not found in Lexicon
   for (const item of result.notFound) {
     createJob({
@@ -39,8 +39,8 @@ export async function handleMatch(job: Job, config: Config): Promise<void> {
 
   completeJob(job.id, {
     playlistId: payload.playlistId,
-    found: result.found.length,
-    needsReview: result.needsReview.length,
+    confirmed: result.confirmed.length,
+    pending: result.pending.length,
     notFound: result.notFound.length,
     total: result.total,
   });

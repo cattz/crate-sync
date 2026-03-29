@@ -1,15 +1,15 @@
-import { eq, and, lte, sql, desc, asc } from "drizzle-orm";
+import { eq, and, sql, desc, asc } from "drizzle-orm";
 import type { Config } from "../config.js";
 import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { createLogger } from "../utils/logger.js";
 import { handleSpotifySync } from "./handlers/spotify-sync.js";
-import { handleMatch } from "./handlers/match.js";
+import { handleLexiconMatch } from "./handlers/lexicon-match.js";
 import { handleSearch } from "./handlers/search.js";
 import { handleDownload } from "./handlers/download.js";
 import { handleValidate } from "./handlers/validate.js";
-import { handleLexiconSync } from "./handlers/lexicon-sync.js";
-import { handleWishlistScan } from "./handlers/wishlist-scan.js";
+import { handleLexiconTag } from "./handlers/lexicon-tag.js";
+import { handleWishlistRun } from "./handlers/wishlist-run.js";
 
 const log = createLogger("job-runner");
 
@@ -20,12 +20,12 @@ export type JobHandler = (
 
 const handlers: Record<string, JobHandler> = {
   spotify_sync: handleSpotifySync,
-  match: handleMatch,
+  lexicon_match: handleLexiconMatch,
   search: handleSearch,
   download: handleDownload,
   validate: handleValidate,
-  lexicon_sync: handleLexiconSync,
-  wishlist_scan: handleWishlistScan,
+  lexicon_tag: handleLexiconTag,
+  wishlist_run: handleWishlistRun,
 };
 
 /** Emit a job event for SSE listeners. */
@@ -58,18 +58,11 @@ function emitJobEvent(jobId: string, type: string, status: string, payload?: unk
  * Uses UPDATE ... WHERE status='queued' to prevent double-processing.
  */
 function claimNextJob(db: ReturnType<typeof getDb>): schema.Job | undefined {
-  const now = Date.now();
-
   // Find the next eligible job
   const candidate = db
     .select()
     .from(schema.jobs)
-    .where(
-      and(
-        eq(schema.jobs.status, "queued"),
-        sql`(${schema.jobs.runAfter} IS NULL OR ${schema.jobs.runAfter} <= ${now})`,
-      ),
-    )
+    .where(eq(schema.jobs.status, "queued"))
     .orderBy(desc(schema.jobs.priority), asc(schema.jobs.createdAt))
     .limit(1)
     .get();
@@ -79,7 +72,7 @@ function claimNextJob(db: ReturnType<typeof getDb>): schema.Job | undefined {
   // Atomically claim it
   const result = db
     .update(schema.jobs)
-    .set({ status: "running", startedAt: now })
+    .set({ status: "running", startedAt: Date.now() })
     .where(
       and(
         eq(schema.jobs.id, candidate.id),
@@ -109,41 +102,25 @@ export function completeJob(jobId: string, result?: unknown): void {
 }
 
 /**
- * Mark a job as failed. If below max_attempts, re-queue with backoff.
+ * Mark a job as failed. Failed jobs stay failed — no automatic requeue.
  */
-export function failJob(jobId: string, error: string, requeue = true): void {
+export function failJob(jobId: string, error: string): void {
   const db = getDb();
   const job = db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId)).get();
   if (!job) return;
 
   const nextAttempt = job.attempt + 1;
 
-  if (requeue && nextAttempt < job.maxAttempts) {
-    // Re-queue with exponential backoff
-    const backoffMs = getBackoffMs(nextAttempt);
-    db.update(schema.jobs)
-      .set({
-        status: "queued",
-        error,
-        attempt: nextAttempt,
-        runAfter: Date.now() + backoffMs,
-        completedAt: Date.now(),
-      })
-      .where(eq(schema.jobs.id, jobId))
-      .run();
-    emitJobEvent(jobId, "job-requeued", "queued", { error, attempt: nextAttempt, backoffMs });
-  } else {
-    db.update(schema.jobs)
-      .set({
-        status: "failed",
-        error,
-        attempt: nextAttempt,
-        completedAt: Date.now(),
-      })
-      .where(eq(schema.jobs.id, jobId))
-      .run();
-    emitJobEvent(jobId, "job-failed", "failed", { error });
-  }
+  db.update(schema.jobs)
+    .set({
+      status: "failed",
+      error,
+      attempt: nextAttempt,
+      completedAt: Date.now(),
+    })
+    .where(eq(schema.jobs.id, jobId))
+    .run();
+  emitJobEvent(jobId, "job-failed", "failed", { error });
 }
 
 /**
@@ -160,22 +137,8 @@ export function createJob(
     .get();
 }
 
-/**
- * Backoff schedule: 1h → 6h → 24h → 7d
- */
-function getBackoffMs(attempt: number): number {
-  const schedule = [
-    1 * 60 * 60 * 1000,    // 1 hour
-    6 * 60 * 60 * 1000,    // 6 hours
-    24 * 60 * 60 * 1000,   // 24 hours
-    7 * 24 * 60 * 60 * 1000, // 7 days
-  ];
-  return schedule[Math.min(attempt - 1, schedule.length - 1)];
-}
-
 let running = false;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
-let wishlistTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Start the job runner polling loop.
@@ -187,7 +150,6 @@ export function startJobRunner(config: Config): void {
 
   log.info("Job runner started", {
     pollIntervalMs: config.jobRunner.pollIntervalMs,
-    wishlistIntervalMs: config.jobRunner.wishlistIntervalMs,
   });
 
   async function poll() {
@@ -203,7 +165,7 @@ export function startJobRunner(config: Config): void {
 
         const handler = handlers[job.type];
         if (!handler) {
-          failJob(job.id, `Unknown job type: ${job.type}`, false);
+          failJob(job.id, `Unknown job type: ${job.type}`);
         } else {
           try {
             await handler(job, config);
@@ -227,16 +189,6 @@ export function startJobRunner(config: Config): void {
 
   // Start polling
   poll();
-
-  // Start wishlist scanner
-  wishlistTimer = setInterval(() => {
-    createJob({
-      type: "wishlist_scan",
-      status: "queued",
-      priority: -1, // low priority
-      payload: null,
-    });
-  }, config.jobRunner.wishlistIntervalMs);
 }
 
 /**
@@ -247,10 +199,6 @@ export function stopJobRunner(): void {
   if (pollTimer) {
     clearTimeout(pollTimer);
     pollTimer = null;
-  }
-  if (wishlistTimer) {
-    clearInterval(wishlistTimer);
-    wishlistTimer = null;
   }
   log.info("Job runner stopped");
 }

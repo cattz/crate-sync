@@ -4,7 +4,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import Database from "better-sqlite3";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import crypto from "node:crypto";
 
 import * as schema from "../../db/schema.js";
@@ -31,10 +31,10 @@ vi.mock("../../services/lexicon-service.js", () => ({
   LexiconService: vi.fn().mockImplementation(function () {
     return {
       getTracks: vi.fn().mockResolvedValue([]),
-      getPlaylistByName: vi.fn().mockResolvedValue(null),
-      createPlaylist: vi.fn().mockResolvedValue({ id: "lp1", name: "Test", trackIds: [] }),
-      setPlaylistTracks: vi.fn().mockResolvedValue(undefined),
       getTags: vi.fn().mockResolvedValue({ categories: [], tags: [] }),
+      ensureTagCategory: vi.fn().mockResolvedValue({ id: "cat1", name: "Playlist" }),
+      ensureTag: vi.fn().mockResolvedValue({ id: "tag1", name: "Test" }),
+      setTrackCategoryTags: vi.fn().mockResolvedValue(undefined),
     };
   }),
 }));
@@ -64,17 +64,17 @@ vi.mock("node:fs", () => ({
   statSync: vi.fn().mockReturnValue({ mtimeMs: 0 }),
 }));
 
-import { handleMatch } from "../handlers/match.js";
-import { handleWishlistScan } from "../handlers/wishlist-scan.js";
-import { handleLexiconSync } from "../handlers/lexicon-sync.js";
+import { handleLexiconMatch } from "../handlers/lexicon-match.js";
+import { handleWishlistRun } from "../handlers/wishlist-run.js";
+import { handleLexiconTag } from "../handlers/lexicon-tag.js";
 
 const TEST_CONFIG: Config = {
   spotify: { clientId: "", clientSecret: "", redirectUri: "" },
-  lexicon: { url: "http://localhost:48624", downloadRoot: "/tmp/test-dl" },
+  lexicon: { url: "http://localhost:48624", downloadRoot: "/tmp/test-dl", tagCategory: "Playlist" },
   soulseek: { slskdUrl: "http://localhost:5030", slskdApiKey: "test", searchDelayMs: 0, downloadDir: "/tmp/slskd" },
   matching: { autoAcceptThreshold: 0.9, reviewThreshold: 0.7 },
   download: { formats: ["flac", "mp3"], minBitrate: 320, concurrency: 2 },
-  jobRunner: { pollIntervalMs: 1000, wishlistIntervalMs: 6 * 60 * 60 * 1000 },
+  jobRunner: { pollIntervalMs: 1000 },
 };
 
 function freshDb() {
@@ -151,19 +151,19 @@ describe("Job Handlers", () => {
     sqlite.close();
   });
 
-  describe("handleMatch", () => {
+  describe("handleLexiconMatch", () => {
     it("creates search jobs for unmatched tracks", async () => {
-      const { playlistId, trackIds } = seedPlaylist("Test Playlist", [
+      const { playlistId } = seedPlaylist("Test Playlist", [
         { title: "Song A", artist: "Artist A" },
         { title: "Song B", artist: "Artist B" },
       ]);
 
       const job = makeJob({
-        type: "match",
+        type: "lexicon_match",
         payload: JSON.stringify({ playlistId }),
       });
 
-      await handleMatch(job, TEST_CONFIG);
+      await handleLexiconMatch(job, TEST_CONFIG);
 
       // Should have created search jobs for tracks not found in Lexicon (which is empty)
       const searchJobs = testDb
@@ -208,11 +208,11 @@ describe("Job Handlers", () => {
       }).run();
 
       const job = makeJob({
-        type: "match",
+        type: "lexicon_match",
         payload: JSON.stringify({ playlistId }),
       });
 
-      await handleMatch(job, TEST_CONFIG);
+      await handleLexiconMatch(job, TEST_CONFIG);
 
       const searchJobs = testDb
         .select()
@@ -225,15 +225,14 @@ describe("Job Handlers", () => {
       const result = JSON.parse(
         testDb.select().from(schema.jobs).where(eq(schema.jobs.id, job.id)).get()!.result!,
       );
-      expect(result.found).toBe(1);
+      expect(result.confirmed).toBe(1);
       expect(result.notFound).toBe(0);
     });
   });
 
-  describe("handleWishlistScan", () => {
-    it("re-queues failed jobs past cooldown", async () => {
-      // Create a failed search job completed 2 hours ago (past 1h cooldown for attempt 1)
-      const failedJob = makeJob({
+  describe("handleWishlistRun", () => {
+    it("re-queues all failed search/download jobs", async () => {
+      const failedSearch = makeJob({
         type: "search",
         status: "failed" as any,
         attempt: 1,
@@ -242,65 +241,73 @@ describe("Job Handlers", () => {
       });
 
       testDb.update(schema.jobs)
-        .set({
-          status: "failed",
-          completedAt: Date.now() - 2 * 60 * 60 * 1000, // 2 hours ago
-        })
-        .where(eq(schema.jobs.id, failedJob.id))
+        .set({ status: "failed", completedAt: Date.now() - 1000 })
+        .where(eq(schema.jobs.id, failedSearch.id))
         .run();
 
-      const scanJob = makeJob({ type: "wishlist_scan" });
-      await handleWishlistScan(scanJob, TEST_CONFIG);
-
-      // The failed job should be re-queued
-      const updated = testDb
-        .select()
-        .from(schema.jobs)
-        .where(eq(schema.jobs.id, failedJob.id))
-        .get();
-
-      expect(updated!.status).toBe("queued");
-    });
-
-    it("skips failed jobs still in cooldown", async () => {
-      const failedJob = makeJob({
-        type: "search",
+      const failedDownload = makeJob({
+        type: "download",
         status: "failed" as any,
-        attempt: 1,
+        attempt: 2,
         maxAttempts: 3,
+        payload: JSON.stringify({ trackId: "t2" }),
       });
 
-      // Completed just now — still in cooldown
       testDb.update(schema.jobs)
-        .set({ status: "failed", completedAt: Date.now() })
-        .where(eq(schema.jobs.id, failedJob.id))
+        .set({ status: "failed", completedAt: Date.now() - 1000 })
+        .where(eq(schema.jobs.id, failedDownload.id))
         .run();
 
-      const scanJob = makeJob({ type: "wishlist_scan" });
-      await handleWishlistScan(scanJob, TEST_CONFIG);
+      const wishlistJob = makeJob({ type: "wishlist_run" });
+      await handleWishlistRun(wishlistJob, TEST_CONFIG);
 
-      const updated = testDb
+      // Both failed jobs should be re-queued
+      const updatedSearch = testDb
         .select()
         .from(schema.jobs)
-        .where(eq(schema.jobs.id, failedJob.id))
+        .where(eq(schema.jobs.id, failedSearch.id))
         .get();
+      expect(updatedSearch!.status).toBe("queued");
+      expect(updatedSearch!.error).toBeNull();
 
-      expect(updated!.status).toBe("failed"); // still failed
+      const updatedDownload = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, failedDownload.id))
+        .get();
+      expect(updatedDownload!.status).toBe("queued");
+
+      // Wishlist job itself should be completed
+      const wishlistResult = JSON.parse(
+        testDb.select().from(schema.jobs).where(eq(schema.jobs.id, wishlistJob.id)).get()!.result!,
+      );
+      expect(wishlistResult.requeued).toBe(2);
+    });
+
+    it("completes with requeued: 0 when no eligible jobs", async () => {
+      const wishlistJob = makeJob({ type: "wishlist_run" });
+      await handleWishlistRun(wishlistJob, TEST_CONFIG);
+
+      const result = JSON.parse(
+        testDb.select().from(schema.jobs).where(eq(schema.jobs.id, wishlistJob.id)).get()!.result!,
+      );
+      expect(result.scanned).toBe(0);
+      expect(result.requeued).toBe(0);
     });
   });
 
-  describe("handleLexiconSync", () => {
-    it("completes with 0 synced when no confirmed matches", async () => {
+  describe("handleLexiconTag", () => {
+    it("completes with tagged: 0 when no confirmed matches", async () => {
       const { playlistId } = seedPlaylist("Empty", [
         { title: "Unmatched", artist: "Nobody" },
       ]);
 
       const job = makeJob({
-        type: "lexicon_sync",
+        type: "lexicon_tag",
         payload: JSON.stringify({ playlistId }),
       });
 
-      await handleLexiconSync(job, TEST_CONFIG);
+      await handleLexiconTag(job, TEST_CONFIG);
 
       const updated = testDb
         .select()
@@ -309,7 +316,55 @@ describe("Job Handlers", () => {
         .get();
 
       expect(updated!.status).toBe("done");
-      expect(JSON.parse(updated!.result!).synced).toBe(0);
+      expect(JSON.parse(updated!.result!).tagged).toBe(0);
+    });
+
+    it("tags confirmed matches under configured category", async () => {
+      const { playlistId, trackIds } = seedPlaylist("TagTest", [
+        { title: "Matched Song", artist: "Known Artist" },
+      ]);
+
+      // Pre-insert a confirmed match
+      testDb.insert(schema.matches).values({
+        id: crypto.randomUUID(),
+        sourceType: "spotify",
+        sourceId: trackIds[0],
+        targetType: "lexicon",
+        targetId: "lex-456",
+        score: 0.95,
+        confidence: "high",
+        method: "fuzzy",
+        status: "confirmed",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }).run();
+
+      const job = makeJob({
+        type: "lexicon_tag",
+        payload: JSON.stringify({ playlistId }),
+      });
+
+      await handleLexiconTag(job, TEST_CONFIG);
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+
+      expect(updated!.status).toBe("done");
+      expect(JSON.parse(updated!.result!).tagged).toBe(1);
+    });
+
+    it("throws when playlist not found", async () => {
+      const job = makeJob({
+        type: "lexicon_tag",
+        payload: JSON.stringify({ playlistId: "nonexistent" }),
+      });
+
+      await expect(handleLexiconTag(job, TEST_CONFIG)).rejects.toThrow(
+        "Playlist not found: nonexistent",
+      );
     });
   });
 });

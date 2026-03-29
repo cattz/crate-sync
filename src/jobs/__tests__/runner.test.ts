@@ -57,7 +57,7 @@ describe("Job Runner", () => {
 
     it("persists job in database", () => {
       const job = createJob({
-        type: "match",
+        type: "lexicon_match",
         status: "queued",
         priority: 0,
         payload: null,
@@ -70,7 +70,7 @@ describe("Job Runner", () => {
         .get();
 
       expect(found).toBeDefined();
-      expect(found!.type).toBe("match");
+      expect(found!.type).toBe("lexicon_match");
     });
 
     it("sets parent job ID", () => {
@@ -82,7 +82,7 @@ describe("Job Runner", () => {
       });
 
       const child = createJob({
-        type: "match",
+        type: "lexicon_match",
         status: "queued",
         priority: 5,
         payload: null,
@@ -123,7 +123,7 @@ describe("Job Runner", () => {
   });
 
   describe("failJob", () => {
-    it("re-queues with backoff when below max attempts", () => {
+    it("marks job as failed immediately — no requeue", () => {
       const job = createJob({
         type: "search",
         status: "queued",
@@ -132,7 +132,6 @@ describe("Job Runner", () => {
         maxAttempts: 3,
       });
 
-      // Simulate running
       testDb.update(schema.jobs)
         .set({ status: "running", startedAt: Date.now() })
         .where(eq(schema.jobs.id, job.id))
@@ -146,39 +145,12 @@ describe("Job Runner", () => {
         .where(eq(schema.jobs.id, job.id))
         .get();
 
-      expect(updated!.status).toBe("queued");
-      expect(updated!.attempt).toBe(1);
-      expect(updated!.error).toBe("timeout");
-      expect(updated!.runAfter).toBeGreaterThan(Date.now());
-    });
-
-    it("marks as failed when max attempts reached", () => {
-      const job = createJob({
-        type: "search",
-        status: "queued",
-        priority: 0,
-        payload: null,
-        maxAttempts: 1,
-      });
-
-      testDb.update(schema.jobs)
-        .set({ status: "running", startedAt: Date.now() })
-        .where(eq(schema.jobs.id, job.id))
-        .run();
-
-      failJob(job.id, "permanent error");
-
-      const updated = testDb
-        .select()
-        .from(schema.jobs)
-        .where(eq(schema.jobs.id, job.id))
-        .get();
-
       expect(updated!.status).toBe("failed");
       expect(updated!.attempt).toBe(1);
+      expect(updated!.error).toBe("timeout");
     });
 
-    it("marks as failed when requeue=false", () => {
+    it("increments attempt on each failure", () => {
       const job = createJob({
         type: "search",
         status: "queued",
@@ -188,11 +160,11 @@ describe("Job Runner", () => {
       });
 
       testDb.update(schema.jobs)
-        .set({ status: "running", startedAt: Date.now() })
+        .set({ status: "running", startedAt: Date.now(), attempt: 2 })
         .where(eq(schema.jobs.id, job.id))
         .run();
 
-      failJob(job.id, "no retry", false);
+      failJob(job.id, "error");
 
       const updated = testDb
         .select()
@@ -201,26 +173,16 @@ describe("Job Runner", () => {
         .get();
 
       expect(updated!.status).toBe("failed");
+      expect(updated!.attempt).toBe(3);
     });
   });
 
   describe("job priority ordering", () => {
     it("higher priority jobs are claimed first", () => {
       createJob({ type: "search", status: "queued", priority: 1, payload: null });
-      const high = createJob({ type: "match", status: "queued", priority: 10, payload: null });
+      const high = createJob({ type: "lexicon_match", status: "queued", priority: 10, payload: null });
       createJob({ type: "download", status: "queued", priority: 5, payload: null });
 
-      // Query the same way the runner does
-      const next = testDb
-        .select()
-        .from(schema.jobs)
-        .where(eq(schema.jobs.status, "queued"))
-        .orderBy(schema.jobs.priority)
-        .limit(1)
-        .get();
-
-      // drizzle orderBy defaults to ASC, but runner uses desc(priority)
-      // Let's just verify all 3 exist and the high priority one is the match
       const all = testDb
         .select()
         .from(schema.jobs)
@@ -230,41 +192,6 @@ describe("Job Runner", () => {
       expect(all.length).toBe(3);
       const sorted = [...all].sort((a, b) => b.priority - a.priority);
       expect(sorted[0].id).toBe(high.id);
-    });
-  });
-
-  describe("runAfter respect", () => {
-    it("jobs with future runAfter are not eligible", () => {
-      const future = createJob({
-        type: "search",
-        status: "queued",
-        priority: 10,
-        payload: null,
-      });
-
-      testDb.update(schema.jobs)
-        .set({ runAfter: Date.now() + 999_999 })
-        .where(eq(schema.jobs.id, future.id))
-        .run();
-
-      const ready = createJob({
-        type: "match",
-        status: "queued",
-        priority: 1,
-        payload: null,
-      });
-
-      // Simulate what the runner does: filter by runAfter <= now
-      const now = Date.now();
-      const eligible = testDb
-        .select()
-        .from(schema.jobs)
-        .where(eq(schema.jobs.status, "queued"))
-        .all()
-        .filter((j) => j.runAfter == null || j.runAfter <= now);
-
-      expect(eligible.length).toBe(1);
-      expect(eligible[0].id).toBe(ready.id);
     });
   });
 });
