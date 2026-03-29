@@ -1,0 +1,67 @@
+flowchart TD
+    SP["☁️ Spotify Playlist"] -->|"crate-sync db sync"| LOCAL[("💾 Local SQLite DB")]
+    LOCAL -->|"Phase 1: Match each track"| ISRC{"ISRC\nexact match?"}
+
+    %% ── Matching ──
+    ISRC -->|"Yes · score = 1.0"| HIGH["✅ Confirmed match"]
+    ISRC -->|"No ISRC"| FUZZY["🔍 Fuzzy Match\ntitle · artist · album · duration\nweighted scoring"]
+
+    FUZZY --> SCORE{"Match\nscore?"}
+    SCORE -->|"≥ 0.9 · high confidence"| HIGH
+    SCORE -->|"0.7 – 0.9 · needs review"| SHOW
+    SCORE -->|"< 0.7 · no match"| NOTFOUND["❌ Not in Lexicon"]
+
+    %% ── Human Review ──
+    SHOW["👤 Human Review\nside-by-side comparison\nSpotify track ↔ Lexicon track"]
+    SHOW --> DECIDE{"Accept?"}
+    DECIDE -->|"✓ Yes"| HIGH
+    DECIDE -->|"✗ No"| NOTFOUND
+
+    %% ── Search on Soulseek ──
+    NOTFOUND -->|"Phase 3: Search & Download"| S1
+
+    S1["🔎 Strategy 1\nartist + full title"]
+    S1 -->|"results found"| RANK
+    S1 -->|"0 results"| S2
+
+    S2["🔎 Strategy 2\nartist + base title\n(remix suffix stripped)"]
+    S2 -->|"results found"| RANK
+    S2 -->|"0 results"| S3
+
+    S3["🔎 Strategy 3\ntitle only"]
+    S3 -->|"results found"| RANK
+    S3 -->|"0 results"| S4
+
+    S4["🔎 Strategy 4\nartist + first 2 keywords"]
+    S4 -->|"results found"| RANK
+    S4 -->|"0 results"| WISHLIST
+
+    %% ── Rank & Download ──
+    RANK["📊 Rank & Filter\nformat: flac/mp3\nbitrate ≥ 320 kbps\nfuzzy score vs metadata"]
+    RANK --> DOWNLOAD["⬇️ Download\nfrom Soulseek via slskd"]
+    DOWNLOAD --> VALIDATE{"🔬 Validate\nmetadata?"}
+    VALIDATE -->|"✓ title/artist match\nformat OK"| MOVE["📁 Move to\nLexicon/Incoming/playlist-name/"]
+    VALIDATE -->|"✗ wrong track\nor corrupt"| WISHLIST
+
+    MOVE --> HIGH
+
+    %% ── Wishlist (retry) ──
+    WISHLIST["⏳ Wishlist\nretry schedule:\n1h → 6h → 24h → 7d"]
+    WISHLIST -->|"cooldown expired"| S1
+
+    %% ── Lexicon Sync ──
+    HIGH -->|"Phase 3b: Sync to Lexicon"| LEXICON_PL["🎧 Create / update\nLexicon DJ playlist"]
+    LEXICON_PL --> TAGS["🏷️ Sync tags\nfrom playlist name segments\ne.g. House / Tech → 2 tags"]
+    TAGS --> DONE(("🎵 Track synced\nin Lexicon"))
+
+    %% ── Styling ──
+    style SP fill:#1db954,color:#000,stroke:#1db954
+    style LOCAL fill:#1a1a1a,color:#e0e0e0,stroke:#555
+    style HIGH fill:#27ae60,color:#fff,stroke:#27ae60
+    style NOTFOUND fill:#e74c3c,color:#fff,stroke:#e74c3c
+    style WISHLIST fill:#f39c12,color:#000,stroke:#f39c12
+    style DONE fill:#3498db,color:#fff,stroke:#3498db
+    style SHOW fill:#2c3e50,color:#fff,stroke:#f39c12
+    style RANK fill:#2c3e50,color:#fff,stroke:#3498db
+    style DOWNLOAD fill:#2c3e50,color:#fff,stroke:#3498db
+    style MOVE fill:#2c3e50,color:#fff,stroke:#27ae60
