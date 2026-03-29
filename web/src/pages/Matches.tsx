@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { useMatches, useUpdateMatch } from "../api/hooks.js";
+import { useMatches } from "../api/hooks.js";
 
 export function Matches() {
   const [filter, setFilter] = useState<string>("");
   const { data: matches, isLoading } = useMatches(filter || undefined);
-  const updateMatch = useUpdateMatch();
 
   if (isLoading) return <p className="text-muted">Loading matches...</p>;
 
@@ -31,7 +30,6 @@ export function Matches() {
               <th>Method</th>
               <th>Confidence</th>
               <th>Status</th>
-              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -40,7 +38,7 @@ export function Matches() {
                 <td>
                   {m.sourceTrack ? (
                     <span className="inline-track">
-                      {m.sourceTrack.title} <span className="artist">— {m.sourceTrack.artist}</span>
+                      {m.sourceTrack.title} <span className="artist">\u2014 {m.sourceTrack.artist}</span>
                     </span>
                   ) : (
                     <span className="text-muted">{m.sourceId}</span>
@@ -76,30 +74,11 @@ export function Matches() {
                     {m.status}
                   </span>
                 </td>
-                <td>
-                  {m.status === "pending" && (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => updateMatch.mutate({ id: m.id, status: "confirmed" })}
-                        disabled={updateMatch.isPending}
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        className="danger"
-                        onClick={() => updateMatch.mutate({ id: m.id, status: "rejected" })}
-                        disabled={updateMatch.isPending}
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  )}
-                </td>
               </tr>
             ))}
             {matches?.length === 0 && (
               <tr>
-                <td colSpan={6} className="text-muted">
+                <td colSpan={5} className="text-muted">
                   No matches found.
                 </td>
               </tr>

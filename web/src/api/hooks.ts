@@ -5,10 +5,6 @@ export function usePlaylists() {
   return useQuery({ queryKey: ["playlists"], queryFn: api.getPlaylists });
 }
 
-export function usePlaylistStats() {
-  return useQuery({ queryKey: ["playlist-stats"], queryFn: api.getPlaylistStats });
-}
-
 export function usePlaylist(id: string) {
   return useQuery({ queryKey: ["playlist", id], queryFn: () => api.getPlaylist(id) });
 }
@@ -69,28 +65,9 @@ export function useSyncPlaylists() {
   });
 }
 
-export function useMergePlaylists() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ targetId, sourceIds }: { targetId: string; sourceIds: string[] }) =>
-      api.mergePlaylists(targetId, sourceIds),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["playlists"] });
-      qc.invalidateQueries({ queryKey: ["playlist"] });
-      qc.invalidateQueries({ queryKey: ["playlist-tracks"] });
-    },
-  });
-}
-
 export function usePushPlaylist() {
   return useMutation({
     mutationFn: (id: string) => api.pushPlaylist(id),
-  });
-}
-
-export function useRepairPlaylist() {
-  return useMutation({
-    mutationFn: (id: string) => api.repairPlaylist(id),
   });
 }
 
@@ -98,42 +75,77 @@ export function usePlaylistTracks(id: string) {
   return useQuery({ queryKey: ["playlist-tracks", id], queryFn: () => api.getPlaylistTracks(id) });
 }
 
-export function usePlaylistDuplicates(id: string, enabled: boolean) {
+// Review hooks
+
+export function useReviewPending() {
+  return useQuery({ queryKey: ["review-pending"], queryFn: api.getReviewPending });
+}
+
+export function useReviewStats() {
   return useQuery({
-    queryKey: ["playlist-duplicates", id],
-    queryFn: () => api.getPlaylistDuplicates(id),
-    enabled,
+    queryKey: ["review-stats"],
+    queryFn: api.getReviewStats,
+    refetchInterval: 10000,
   });
 }
 
-export function useCrossPlaylistDuplicates(enabled: boolean) {
-  return useQuery({
-    queryKey: ["cross-playlist-duplicates"],
-    queryFn: api.getCrossPlaylistDuplicates,
-    enabled,
+export function useConfirmReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.confirmReview(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["review-pending"] });
+      qc.invalidateQueries({ queryKey: ["review-stats"] });
+      qc.invalidateQueries({ queryKey: ["matches"] });
+    },
   });
 }
 
-export function useSimilarPlaylists(threshold: number, enabled: boolean) {
-  return useQuery({
-    queryKey: ["similar-playlists", threshold],
-    queryFn: () => api.getSimilarPlaylists(threshold),
-    enabled,
+export function useRejectReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.rejectReview(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["review-pending"] });
+      qc.invalidateQueries({ queryKey: ["review-stats"] });
+      qc.invalidateQueries({ queryKey: ["matches"] });
+      qc.invalidateQueries({ queryKey: ["downloads"] });
+    },
   });
 }
+
+export function useBulkConfirmReviews() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api.bulkConfirmReviews(ids),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["review-pending"] });
+      qc.invalidateQueries({ queryKey: ["review-stats"] });
+      qc.invalidateQueries({ queryKey: ["matches"] });
+    },
+  });
+}
+
+export function useBulkRejectReviews() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api.bulkRejectReviews(ids),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["review-pending"] });
+      qc.invalidateQueries({ queryKey: ["review-stats"] });
+      qc.invalidateQueries({ queryKey: ["matches"] });
+      qc.invalidateQueries({ queryKey: ["downloads"] });
+    },
+  });
+}
+
+// Match hooks
 
 export function useMatches(status?: string) {
   return useQuery({ queryKey: ["matches", status], queryFn: () => api.getMatches(status) });
 }
 
-export function useUpdateMatch() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: "confirmed" | "rejected" }) =>
-      api.updateMatch(id, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["matches"] }),
-  });
-}
+// Download hooks
 
 export function useDownloads(status?: string) {
   return useQuery({
@@ -142,6 +154,21 @@ export function useDownloads(status?: string) {
     refetchInterval: 5000,
   });
 }
+
+// Wishlist
+
+export function useWishlistRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.runWishlist,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job-stats"] });
+    },
+  });
+}
+
+// Status hooks
 
 export function useStatus() {
   return useQuery({ queryKey: ["status"], queryFn: api.getStatus });
@@ -206,6 +233,8 @@ export function useDisconnectSoulseek() {
   });
 }
 
+// Sync hooks
+
 export function useStartSync() {
   return useMutation({
     mutationFn: (playlistId: string) => api.startSync(playlistId),
@@ -224,6 +253,14 @@ export function useTrackLifecycle(id: string) {
   return useQuery({
     queryKey: ["track-lifecycle", id],
     queryFn: () => api.getTrackLifecycle(id),
+    enabled: !!id,
+  });
+}
+
+export function useTrackRejections(id: string) {
+  return useQuery({
+    queryKey: ["track-rejections", id],
+    queryFn: () => api.getTrackRejections(id),
     enabled: !!id,
   });
 }

@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from "react-router";
-import { useStatus } from "./api/hooks.js";
+import { useStatus, useReviewStats } from "./api/hooks.js";
 
 function StatusDot({ ok }: { ok: boolean }) {
   return (
@@ -18,6 +18,7 @@ function StatusDot({ ok }: { ok: boolean }) {
 
 export function App() {
   const { data: status } = useStatus();
+  const { data: reviewStats } = useReviewStats();
 
   return (
     <div className="app">
@@ -32,6 +33,9 @@ export function App() {
           </NavLink>
           <NavLink to="/review" className={({ isActive }) => (isActive ? "active" : "")}>
             Review
+            {reviewStats && reviewStats.pending > 0 && (
+              <span className="badge badge-yellow review-badge">{reviewStats.pending}</span>
+            )}
           </NavLink>
           <NavLink to="/matches" className={({ isActive }) => (isActive ? "active" : "")}>
             Matches

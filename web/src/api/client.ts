@@ -17,7 +17,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   // Playlists
   getPlaylists: () => request<Playlist[]>("/playlists"),
-  getPlaylistStats: () => request<LibraryStats>("/playlists/stats"),
   getPlaylist: (id: string) => request<Playlist>(`/playlists/${id}`),
   getPlaylistTracks: (id: string) => request<Track[]>(`/playlists/${id}/tracks`),
   renamePlaylist: (id: string, name: string) =>
@@ -26,43 +25,51 @@ export const api = {
     request<{ ok: boolean }>(`/playlists/${id}`, { method: "DELETE" }),
   pushPlaylist: (id: string) =>
     request<PushResult>(`/playlists/${id}/push`, { method: "POST" }),
-  repairPlaylist: (id: string) =>
-    request<RepairResult>(`/playlists/${id}/repair`, { method: "POST" }),
   updatePlaylistMeta: (id: string, meta: PlaylistMeta) =>
     request<{ ok: boolean }>(`/playlists/${id}`, { method: "PATCH", body: JSON.stringify(meta) }),
-  mergePlaylists: (targetId: string, sourceIds: string[]) =>
-    request<{ ok: boolean; added: number; duplicatesSkipped: number }>(`/playlists/${targetId}/merge`, {
-      method: "POST",
-      body: JSON.stringify({ sourceIds }),
-    }),
   bulkRename: (params: BulkRenameParams) =>
     request<BulkRenameResult>("/playlists/bulk-rename", {
       method: "POST",
       body: JSON.stringify(params),
     }),
   syncPlaylists: () =>
-    request<{ ok: boolean; added: number; updated: number; unchanged: number }>("/playlists/sync", { method: "POST" }),
-  getPlaylistDuplicates: (id: string) =>
-    request<DuplicateGroup[]>(`/playlists/${id}/duplicates`),
-  getCrossPlaylistDuplicates: () =>
-    request<CrossPlaylistDuplicate[]>("/playlists/duplicates"),
-  getSimilarPlaylists: (threshold?: number) =>
-    request<SimilarPair[]>(`/playlists/similar${threshold != null ? `?threshold=${threshold}` : ""}`),
+    request<SyncResult>("/playlists/sync", { method: "POST" }),
 
   // Tracks
   getTracks: (q?: string) => request<Track[]>(`/tracks${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   getTrack: (id: string) => request<Track>(`/tracks/${id}`),
   getTrackLifecycle: (id: string) => request<TrackLifecycle>(`/tracks/${id}/lifecycle`),
+  getTrackRejections: (id: string) => request<Rejection[]>(`/tracks/${id}/rejections`),
+
+  // Review
+  getReviewPending: () => request<PendingReviewItem[]>("/review"),
+  getReviewStats: () => request<ReviewStats>("/review/stats"),
+  confirmReview: (id: string) =>
+    request<{ ok: boolean }>(`/review/${id}/confirm`, { method: "POST" }),
+  rejectReview: (id: string) =>
+    request<{ ok: boolean }>(`/review/${id}/reject`, { method: "POST" }),
+  bulkConfirmReviews: (ids: string[]) =>
+    request<{ ok: boolean; count: number }>("/review/bulk", {
+      method: "POST",
+      body: JSON.stringify({ action: "confirm", ids }),
+    }),
+  bulkRejectReviews: (ids: string[]) =>
+    request<{ ok: boolean; count: number }>("/review/bulk", {
+      method: "POST",
+      body: JSON.stringify({ action: "reject", ids }),
+    }),
 
   // Matches
   getMatches: (status?: string) =>
     request<MatchWithTrack[]>(`/matches${status ? `?status=${status}` : ""}`),
-  updateMatch: (id: string, status: "confirmed" | "rejected") =>
-    request<Match>(`/matches/${id}`, { method: "PUT", body: JSON.stringify({ status }) }),
 
   // Downloads
   getDownloads: (status?: string) =>
     request<DownloadWithTrack[]>(`/downloads${status ? `?status=${status}` : ""}`),
+
+  // Wishlist
+  runWishlist: () =>
+    request<{ ok: boolean; jobId: string }>("/wishlist/run", { method: "POST" }),
 
   // Status
   getStatus: () => request<HealthStatus>("/status"),
@@ -91,13 +98,8 @@ export const api = {
   startSync: (playlistId: string) =>
     request<{ syncId: string; jobId?: string }>(`/sync/${playlistId}`, { method: "POST" }),
   dryRunSync: (playlistId: string) =>
-    request<PhaseOneResult>(`/sync/${playlistId}/dry-run`, { method: "POST" }),
+    request<DryRunResult>(`/sync/${playlistId}/dry-run`, { method: "POST" }),
   getSyncStatus: (syncId: string) => request<SyncStatus>(`/sync/${syncId}`),
-  submitReview: (syncId: string, decisions: ReviewDecision[]) =>
-    request<{ ok: boolean }>(`/sync/${syncId}/review`, {
-      method: "POST",
-      body: JSON.stringify({ decisions }),
-    }),
   syncEvents: (syncId: string) => new EventSource(`${BASE}/sync/${syncId}/events`),
 
   // Jobs
@@ -139,16 +141,9 @@ export interface Playlist {
   notes: string | null;
   pinned: number | null;
   lastSynced: number | null;
-  totalDurationMs?: number;
   trackCount: number;
   createdAt: number;
   updatedAt: number;
-}
-
-export interface LibraryStats {
-  totalPlaylists: number;
-  totalTracks: number;
-  totalDurationMs: number;
 }
 
 export interface PlaylistMeta {
@@ -181,6 +176,7 @@ export interface Match {
   confidence: "high" | "review" | "low";
   method: string;
   status: "pending" | "confirmed" | "rejected";
+  parkedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -200,10 +196,38 @@ export interface MatchWithTrack extends Match {
   targetTrack: LexiconTrack | null;
 }
 
+export interface PendingReviewItem {
+  matchId: string;
+  spotifyTrack: Track;
+  lexiconTrack: LexiconTrack;
+  score: number;
+  confidence: string;
+  method: string;
+  playlistName: string;
+  parkedAt: number;
+}
+
+export interface ReviewStats {
+  pending: number;
+  confirmedToday: number;
+  rejectedToday: number;
+}
+
+export interface Rejection {
+  id: string;
+  trackId: string;
+  context: "lexicon_match" | "soulseek_download";
+  fileKey: string | null;
+  targetTrackId: string | null;
+  reason: string | null;
+  createdAt: number;
+}
+
 export interface DownloadWithTrack {
   id: string;
   trackId: string;
   playlistId: string | null;
+  origin: "not_found" | "review_rejected";
   status: string;
   soulseekPath: string | null;
   filePath: string | null;
@@ -223,10 +247,10 @@ export interface HealthStatus {
 
 export interface AppConfig {
   matching: { autoAcceptThreshold: number; reviewThreshold: number };
-  download: { formats: string[]; minBitrate: number; concurrency: number };
+  download: { formats: string[]; minBitrate: number; concurrency: number; validationStrictness: string };
 }
 
-export interface PhaseOneResult {
+export interface DryRunResult {
   playlistName: string;
   found: MatchedTrack[];
   needsReview: MatchedTrack[];
@@ -246,13 +270,15 @@ export interface MatchedTrack {
 export interface SyncStatus {
   syncId: string;
   playlistId: string;
-  status: "running" | "awaiting-review" | "done" | "error";
+  status: "running" | "done" | "error";
   eventCount: number;
 }
 
-export interface ReviewDecision {
-  dbTrackId: string;
-  accepted: boolean;
+export interface SyncResult {
+  ok: boolean;
+  added: number;
+  updated: number;
+  unchanged: number;
 }
 
 // Track lifecycle
@@ -309,37 +335,9 @@ export interface PushResult {
   message?: string;
 }
 
-export interface RepairResult {
-  ok: boolean;
-  playlistName: string;
-  total: number;
-  found: number;
-  needsReview: number;
-  notFound: number;
-}
-
-export interface DuplicateGroup {
-  track: Track;
-  duplicates: Track[];
-}
-
-export interface CrossPlaylistDuplicate {
-  track: Track;
-  playlists: Playlist[];
-}
-
-export interface SimilarPair {
-  a: Playlist;
-  b: Playlist;
-  score: number;
-}
-
 export interface BulkRenameParams {
-  mode: "find-replace" | "prefix" | "suffix";
-  find?: string;
-  replace?: string;
-  value?: string;
-  action?: "add" | "remove";
+  pattern: string;
+  replacement: string;
   dryRun: boolean;
 }
 

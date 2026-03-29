@@ -1,15 +1,18 @@
 import { useState } from "react";
-import { useStatus, usePlaylists, usePlaylistStats, useMatches, useDownloads, useJobStats, useStartSpotifyLogin, useSpotifyAuthStatus, useSpotifyLogout, useConnectSoulseek, useDisconnectSoulseek } from "../api/hooks.js";
+import { useStatus, usePlaylists, useReviewStats, useDownloads, useJobStats, useStartSpotifyLogin, useSpotifyAuthStatus, useSpotifyLogout, useConnectSoulseek, useDisconnectSoulseek } from "../api/hooks.js";
 
 export function Dashboard() {
   const { data: status, isLoading: statusLoading } = useStatus();
   const { data: playlists } = usePlaylists();
-  const { data: pendingMatches } = useMatches("pending");
+  const { data: reviewStats } = useReviewStats();
   const { data: recentDownloads } = useDownloads();
   const { data: jobStats } = useJobStats();
-  const { data: libraryStats } = usePlaylistStats();
 
   if (statusLoading) return <p className="text-muted">Loading...</p>;
+
+  const activeDownloads = (recentDownloads ?? []).filter(
+    (d) => d.status === "downloading" || d.status === "searching",
+  ).length;
 
   return (
     <>
@@ -18,36 +21,24 @@ export function Dashboard() {
       <div className="grid-stats">
         <div className="stat-card">
           <div className="label">Playlists</div>
-          <div className="value">{libraryStats?.totalPlaylists ?? playlists?.length ?? 0}</div>
+          <div className="value">{playlists?.length ?? 0}</div>
         </div>
         <div className="stat-card">
-          <div className="label">Total Tracks</div>
-          <div className="value">{libraryStats?.totalTracks ?? (status?.database.ok ? status.database.tracks : "\u2014")}</div>
+          <div className="label">Tracks</div>
+          <div className="value">{status?.database.ok ? status.database.tracks : "\u2014"}</div>
         </div>
         <div className="stat-card">
-          <div className="label">Total Duration</div>
-          <div className="value">{libraryStats ? formatLibraryDuration(libraryStats.totalDurationMs) : "\u2014"}</div>
+          <div className="label">Pending Reviews</div>
+          <div className="value">{reviewStats?.pending ?? 0}</div>
         </div>
         <div className="stat-card">
-          <div className="label">Pending Matches</div>
-          <div className="value">{pendingMatches?.length ?? 0}</div>
+          <div className="label">Active Downloads</div>
+          <div className="value">{activeDownloads}</div>
         </div>
         <div className="stat-card">
-          <div className="label">Downloads</div>
-          <div className="value">{recentDownloads?.length ?? 0}</div>
+          <div className="label">Queued Jobs</div>
+          <div className="value">{jobStats?.byStatus.queued ?? 0}</div>
         </div>
-        {jobStats && (
-          <>
-            <div className="stat-card">
-              <div className="label">Jobs Running</div>
-              <div className="value">{jobStats.byStatus.running ?? 0}</div>
-            </div>
-            <div className="stat-card">
-              <div className="label">Jobs Failed</div>
-              <div className="value">{jobStats.byStatus.failed ?? 0}</div>
-            </div>
-          </>
-        )}
       </div>
 
       <div className="card">
@@ -80,15 +71,6 @@ export function Dashboard() {
       </div>
     </>
   );
-}
-
-function formatLibraryDuration(ms: number) {
-  const hours = Math.floor(ms / 3600000);
-  const mins = Math.floor((ms % 3600000) / 60000);
-  const parts: string[] = [];
-  if (hours > 0) parts.push(`${hours}h`);
-  parts.push(`${mins}m`);
-  return parts.join(" ");
 }
 
 function ServiceRow({

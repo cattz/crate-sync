@@ -2,7 +2,6 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { loadConfig } from "../config.js";
 import { getDb } from "../db/client.js";
-import * as schema from "../db/schema.js";
 import { LexiconService } from "../services/lexicon-service.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SyncPipeline } from "../services/sync-pipeline.js";
@@ -47,7 +46,7 @@ export function registerLexiconCommands(program: Command): void {
         // Check Lexicon reachability before matching
         const health = await checkHealth(config);
         if (!health.lexicon.ok) {
-          console.log(chalk.red(`Lexicon not available — ${health.lexicon.error}`));
+          console.log(chalk.red(`Lexicon not available \u2014 ${health.lexicon.error}`));
           return;
         }
 
@@ -57,7 +56,6 @@ export function registerLexiconCommands(program: Command): void {
         // Resolve playlist by ID, spotify ID, or name
         let resolved = playlistService.getPlaylist(playlist);
         if (!resolved) {
-          // Try by name
           const all = playlistService.getPlaylists();
           resolved = all.find(
             (p) => p.name.toLowerCase() === playlist.toLowerCase(),
@@ -79,17 +77,17 @@ export function registerLexiconCommands(program: Command): void {
         console.log(chalk.bold("Match results"));
         console.log();
         console.log(`  Total tracks    ${chalk.cyan(String(result.total))}`);
-        console.log(`  Found           ${chalk.green(String(result.found.length))}`);
-        console.log(`  Needs review    ${chalk.yellow(String(result.needsReview.length))}`);
+        console.log(`  Confirmed       ${chalk.green(String(result.confirmed.length))}`);
+        console.log(`  Pending review  ${chalk.yellow(String(result.pending.length))}`);
         console.log(`  Not found       ${chalk.red(String(result.notFound.length))}`);
 
-        if (result.needsReview.length > 0) {
+        if (result.pending.length > 0) {
           console.log();
-          console.log(chalk.bold("Needs review:"));
-          for (const item of result.needsReview) {
+          console.log(chalk.bold("Pending review:"));
+          for (const item of result.pending) {
             const score = (item.score * 100).toFixed(0);
             console.log(
-              `  ${chalk.yellow(`${score}%`)}  ${item.track.title} — ${chalk.dim(item.track.artist)}`,
+              `  ${chalk.yellow(`${score}%`)}  ${item.track.title} \u2014 ${chalk.dim(item.track.artist)}`,
             );
           }
         }
@@ -99,37 +97,13 @@ export function registerLexiconCommands(program: Command): void {
           console.log(chalk.bold("Not found:"));
           for (const item of result.notFound) {
             console.log(
-              `  ${chalk.red("x")}  ${item.track.title} — ${chalk.dim(item.track.artist)}`,
+              `  ${chalk.red("x")}  ${item.track.title} \u2014 ${chalk.dim(item.track.artist)}`,
             );
           }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.log(chalk.red(`Match failed: ${message}`));
-      }
-    });
-
-  lexicon
-    .command("sync <playlist>")
-    .description("Sync matched tracks to a Lexicon playlist")
-    .action(async (playlist: string) => {
-      try {
-        const config = loadConfig();
-        const health = await checkHealth(config);
-        if (!health.lexicon.ok) {
-          console.log(chalk.red(`Lexicon not available — ${health.lexicon.error}`));
-          return;
-        }
-
-        console.log(chalk.yellow("Not yet implemented."));
-        console.log(
-          chalk.dim(
-            `Will create/update a Lexicon playlist with confirmed matches for "${playlist}".`,
-          ),
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.log(chalk.red(`Sync failed: ${message}`));
       }
     });
 }

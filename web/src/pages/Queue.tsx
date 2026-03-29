@@ -12,12 +12,12 @@ const statusBadge: Record<string, string> = {
 
 const typeLabel: Record<string, string> = {
   spotify_sync: "Spotify Sync",
-  match: "Match",
+  lexicon_match: "Lexicon Match",
+  lexicon_tag: "Lexicon Tag",
   search: "Search",
   download: "Download",
   validate: "Validate",
-  lexicon_sync: "Lexicon Sync",
-  wishlist_scan: "Wishlist",
+  wishlist_run: "Wishlist",
 };
 
 function formatTime(ms: number | null) {
@@ -124,12 +124,12 @@ export function Queue() {
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">All Types</option>
             <option value="spotify_sync">Spotify Sync</option>
-            <option value="match">Match</option>
+            <option value="lexicon_match">Lexicon Match</option>
+            <option value="lexicon_tag">Lexicon Tag</option>
             <option value="search">Search</option>
             <option value="download">Download</option>
             <option value="validate">Validate</option>
-            <option value="lexicon_sync">Lexicon Sync</option>
-            <option value="wishlist_scan">Wishlist</option>
+            <option value="wishlist_run">Wishlist</option>
           </select>
           {statusFilter === "failed" && (
             <button

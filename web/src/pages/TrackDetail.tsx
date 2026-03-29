@@ -1,5 +1,5 @@
 import { useParams, Link } from "react-router";
-import { useTrackLifecycle } from "../api/hooks.js";
+import { useTrackLifecycle, useTrackRejections } from "../api/hooks.js";
 
 const matchStatusBadge: Record<string, string> = {
   pending: "badge-yellow",
@@ -45,11 +45,15 @@ function formatTime(ms: number | null) {
 export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading } = useTrackLifecycle(id!);
+  const { data: rejections } = useTrackRejections(id!);
 
   if (isLoading) return <p className="text-muted">Loading track...</p>;
   if (!data) return <p className="text-muted">Track not found.</p>;
 
   const { track, playlists, matches, downloads, jobs } = data;
+
+  const matchRejections = (rejections ?? []).filter((r) => r.context === "lexicon_match");
+  const downloadRejections = (rejections ?? []).filter((r) => r.context === "soulseek_download");
 
   return (
     <>
@@ -132,7 +136,7 @@ export function TrackDetail() {
         ) : (
           <table>
             <thead>
-              <tr><th>Status</th><th>File</th><th>Error</th><th>When</th></tr>
+              <tr><th>Status</th><th>File</th><th>Origin</th><th>Error</th><th>When</th></tr>
             </thead>
             <tbody>
               {downloads.map((d) => (
@@ -145,6 +149,9 @@ export function TrackDetail() {
                   <td className="mono text-sm" style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {d.filePath ?? d.soulseekPath ?? "\u2014"}
                   </td>
+                  <td>
+                    <span className="badge badge-gray">{d.origin}</span>
+                  </td>
                   <td className="text-sm" style={{ color: "var(--danger)" }}>
                     {d.error ?? ""}
                   </td>
@@ -153,6 +160,58 @@ export function TrackDetail() {
               ))}
             </tbody>
           </table>
+        )}
+      </div>
+
+      {/* Rejection History */}
+      <div className="card">
+        <h3 style={{ marginBottom: "0.4rem" }}>Rejection History ({(rejections ?? []).length})</h3>
+        {(!rejections || rejections.length === 0) ? (
+          <p className="text-muted">No rejection history for this track.</p>
+        ) : (
+          <>
+            <h4 className="text-muted" style={{ fontSize: "0.85rem", marginBottom: "0.3rem", marginTop: "0.3rem" }}>Match Rejections</h4>
+            {matchRejections.length === 0 ? (
+              <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>No match rejections.</p>
+            ) : (
+              <table style={{ marginBottom: "0.5rem" }}>
+                <thead>
+                  <tr><th>Target Track ID</th><th>Reason</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                  {matchRejections.map((r) => (
+                    <tr key={r.id}>
+                      <td className="mono text-sm">{r.targetTrackId?.slice(0, 12) ?? "\u2014"}</td>
+                      <td className="text-sm">{r.reason ?? "\u2014"}</td>
+                      <td className="text-muted text-sm">{formatTime(r.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <h4 className="text-muted" style={{ fontSize: "0.85rem", marginBottom: "0.3rem" }}>Download Rejections</h4>
+            {downloadRejections.length === 0 ? (
+              <p className="text-muted text-sm">No download rejections.</p>
+            ) : (
+              <table>
+                <thead>
+                  <tr><th>File Key</th><th>Reason</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                  {downloadRejections.map((r) => (
+                    <tr key={r.id}>
+                      <td className="mono text-sm" style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {r.fileKey ?? "\u2014"}
+                      </td>
+                      <td className="text-sm">{r.reason ?? "\u2014"}</td>
+                      <td className="text-muted text-sm">{formatTime(r.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
         )}
       </div>
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router";
-import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useRepairPlaylist, useMergePlaylists, usePlaylistDuplicates, useUpdatePlaylistMeta } from "../api/hooks.js";
-import { api, type ReviewDecision, type Playlist } from "../api/client.js";
+import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useUpdatePlaylistMeta } from "../api/hooks.js";
+import { api } from "../api/client.js";
 
 function formatDuration(ms: number) {
   const min = Math.floor(ms / 60000);
@@ -16,15 +16,6 @@ function formatTotalDuration(ms: number, count: number) {
   if (hours > 0) parts.push(`${hours}h`);
   parts.push(`${mins}m`);
   return `${parts.join(" ")} across ${count} tracks`;
-}
-
-function formatDurationShort(ms: number) {
-  const hours = Math.floor(ms / 3600000);
-  const mins = Math.floor((ms % 3600000) / 60000);
-  const parts: string[] = [];
-  if (hours > 0) parts.push(`${hours}h`);
-  parts.push(`${mins}m`);
-  return parts.join(" ");
 }
 
 type TrackSortKey = "position" | "title" | "artist" | "album" | "durationMs";
@@ -45,26 +36,19 @@ export function PlaylistDetail() {
   const rename = useRenamePlaylist();
   const del = useDeletePlaylist();
   const push = usePushPlaylist();
-  const repair = useRepairPlaylist();
+  const updateMeta = useUpdatePlaylistMeta();
+  const { data: allPlaylists } = usePlaylists();
 
   const [syncId, setSyncId] = useState<string | null>(null);
   const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
   const [syncPhase, setSyncPhase] = useState<string | null>(null);
-  const [reviewItems, setReviewItems] = useState<
-    Array<{ dbTrackId: string; title: string; artist: string; score: number }>
-  >([]);
-  const merge = useMergePlaylists();
-  const updateMeta = useUpdatePlaylistMeta();
-  const { data: allPlaylists } = usePlaylists();
-  const [mergeOpen, setMergeOpen] = useState(false);
+
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [trackSearch, setTrackSearch] = useState("");
   const [trackSortKey, setTrackSortKey] = useState<TrackSortKey>("position");
   const [trackSortDir, setTrackSortDir] = useState<SortDir>("asc");
-  const [showDupes, setShowDupes] = useState(false);
-  const dupes = usePlaylistDuplicates(id!, showDupes);
   const [notesValue, setNotesValue] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState("");
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
@@ -80,10 +64,9 @@ export function PlaylistDetail() {
       setSyncEvents((prev) => [...prev, { type, data }]);
 
       if (type === "phase") setSyncPhase(data.phase);
-      if (type === "review-needed") setReviewItems(data.items);
     };
 
-    for (const evt of ["phase", "match-complete", "review-needed", "download-progress", "sync-complete", "error"]) {
+    for (const evt of ["phase", "match-complete", "download-progress", "sync-complete", "error"]) {
       es.addEventListener(evt, handler(evt));
     }
 
@@ -94,19 +77,9 @@ export function PlaylistDetail() {
     if (!id) return;
     setSyncEvents([]);
     setSyncPhase(null);
-    setReviewItems([]);
     const result = await startSync.mutateAsync(id);
     setSyncId(result.syncId);
   }, [id, startSync]);
-
-  const handleSubmitReview = useCallback(
-    async (decisions: ReviewDecision[]) => {
-      if (!syncId) return;
-      await api.submitReview(syncId, decisions);
-      setReviewItems([]);
-    },
-    [syncId],
-  );
 
   function handleTrackSort(key: TrackSortKey) {
     if (key === trackSortKey) {
@@ -149,23 +122,6 @@ export function PlaylistDetail() {
     () => (tracks ?? []).reduce((sum, t) => sum + t.durationMs, 0),
     [tracks],
   );
-
-  const { uniqueArtists, topArtist } = useMemo(() => {
-    if (!tracks || tracks.length === 0) return { uniqueArtists: 0, topArtist: "\u2014" };
-    const counts = new Map<string, number>();
-    for (const t of tracks) {
-      counts.set(t.artist, (counts.get(t.artist) ?? 0) + 1);
-    }
-    let best = "";
-    let bestCount = 0;
-    for (const [artist, count] of counts) {
-      if (count > bestCount) {
-        best = artist;
-        bestCount = count;
-      }
-    }
-    return { uniqueArtists: counts.size, topArtist: best || "\u2014" };
-  }, [tracks]);
 
   // Tag helpers
   const currentTags: string[] = useMemo(() => {
@@ -250,18 +206,6 @@ export function PlaylistDetail() {
             {push.isPending ? "Pushing..." : "Push to Spotify"}
           </button>
           <button
-            onClick={() => repair.mutate(playlist.id)}
-            disabled={repair.isPending}
-          >
-            {repair.isPending ? "Repairing..." : "Repair"}
-          </button>
-          <button onClick={() => setShowDupes(!showDupes)}>
-            {showDupes ? "Hide Dupes" : "Find Dupes"}
-          </button>
-          <button onClick={() => setMergeOpen(true)}>
-            Merge Into
-          </button>
-          <button
             onClick={() => { setNewName(playlist.name); setRenameOpen(true); }}
             disabled={playlist.isOwned === 0}
           >
@@ -277,25 +221,6 @@ export function PlaylistDetail() {
         </div>
       </div>
 
-      <div className="grid-stats">
-        <div className="stat-card">
-          <span className="label">Tracks</span>
-          <span className="value">{tracks?.length ?? 0}</span>
-        </div>
-        <div className="stat-card">
-          <span className="label">Duration</span>
-          <span className="value">{formatDurationShort(totalDurationMs)}</span>
-        </div>
-        <div className="stat-card">
-          <span className="label">Artists</span>
-          <span className="value">{uniqueArtists}</span>
-        </div>
-        <div className="stat-card">
-          <span className="label">Top Artist</span>
-          <span className="value">{topArtist}</span>
-        </div>
-      </div>
-
       {/* Push result */}
       {push.isSuccess && (
         <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
@@ -305,30 +230,6 @@ export function PlaylistDetail() {
       {push.isError && (
         <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
           Push failed: {push.error.message}
-        </div>
-      )}
-
-      {/* Repair result */}
-      {repair.isSuccess && (
-        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
-          Repair: {repair.data.found} matched, {repair.data.needsReview} need review, {repair.data.notFound} not found ({repair.data.total} total)
-        </div>
-      )}
-      {repair.isError && (
-        <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
-          Repair failed: {repair.error.message}
-        </div>
-      )}
-
-      {/* Merge result */}
-      {merge.isSuccess && (
-        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
-          Merge: {merge.data.added} added, {merge.data.duplicatesSkipped} duplicates skipped
-        </div>
-      )}
-      {merge.isError && (
-        <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
-          Merge failed: {merge.error.message}
         </div>
       )}
 
@@ -346,7 +247,7 @@ export function PlaylistDetail() {
         <div style={{ position: "relative", maxWidth: 260 }}>
           <input
             type="text"
-            placeholder="Add tag…"
+            placeholder="Add tag\u2026"
             value={tagInput}
             onChange={(e) => { setTagInput(e.target.value); setShowTagSuggestions(true); }}
             onKeyDown={(e) => {
@@ -410,35 +311,9 @@ export function PlaylistDetail() {
               handleSaveNotes(val);
             }
           }}
-          placeholder="Add notes about this playlist…"
+          placeholder="Add notes about this playlist\u2026"
         />
       </div>
-
-      {/* Duplicates */}
-      {showDupes && dupes.isLoading && (
-        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>Scanning for duplicates...</p>
-      )}
-      {showDupes && dupes.data && dupes.data.length === 0 && (
-        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
-          No duplicates found.
-        </div>
-      )}
-      {showDupes && dupes.data && dupes.data.length > 0 && (
-        <div className="card mb-2">
-          <h3 style={{ marginBottom: "0.3rem" }}>Duplicates ({dupes.data.length} groups)</h3>
-          {dupes.data.map((group) => (
-            <div key={group.track.id} style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border)" }}>
-              <div>
-                <strong>{group.track.title}</strong>
-                <span className="text-muted"> \u2014 {group.track.artist}</span>
-                <span className="badge badge-yellow" style={{ marginLeft: "0.5rem" }}>
-                  {group.duplicates.length + 1}x
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Sync progress */}
       {syncEvents.length > 0 && (
@@ -455,14 +330,6 @@ export function PlaylistDetail() {
         </div>
       )}
 
-      {/* Review UI */}
-      {reviewItems.length > 0 && (
-        <div className="card mb-2">
-          <h3 style={{ marginBottom: "0.4rem" }}>Review Matches</h3>
-          <ReviewPanel items={reviewItems} onSubmit={handleSubmitReview} />
-        </div>
-      )}
-
       {/* Track list */}
       <div className="card">
         <div className="flex items-center justify-between" style={{ marginBottom: "0.5rem" }}>
@@ -471,7 +338,7 @@ export function PlaylistDetail() {
           </span>
           <input
             type="text"
-            placeholder="Filter by title or artist…"
+            placeholder="Filter by title or artist\u2026"
             value={trackSearch}
             onChange={(e) => setTrackSearch(e.target.value)}
             style={{ width: 220 }}
@@ -536,19 +403,6 @@ export function PlaylistDetail() {
         </div>
       )}
 
-      {/* Merge modal */}
-      {mergeOpen && playlist && (
-        <MergeModal
-          targetId={playlist.id}
-          onMerge={async (sourceIds) => {
-            await merge.mutateAsync({ targetId: playlist.id, sourceIds });
-            setMergeOpen(false);
-          }}
-          onClose={() => setMergeOpen(false)}
-          isPending={merge.isPending}
-        />
-      )}
-
       {/* Delete modal */}
       {deleteOpen && (
         <div className="modal-overlay" onClick={() => setDeleteOpen(false)}>
@@ -594,156 +448,5 @@ function ThSort({
     <th onClick={() => onSort(sortKey)} style={{ cursor: "pointer", userSelect: "none" }}>
       {label} {active === sortKey ? (dir === "asc" ? "\u25B2" : "\u25BC") : ""}
     </th>
-  );
-}
-
-function ReviewPanel({
-  items,
-  onSubmit,
-}: {
-  items: Array<{ dbTrackId: string; title: string; artist: string; score: number }>;
-  onSubmit: (decisions: ReviewDecision[]) => void;
-}) {
-  const [decisions, setDecisions] = useState<Record<string, boolean>>({});
-
-  const toggle = (id: string, accepted: boolean) => {
-    setDecisions((prev) => ({ ...prev, [id]: accepted }));
-  };
-
-  const handleSubmit = () => {
-    const result: ReviewDecision[] = items.map((item) => ({
-      dbTrackId: item.dbTrackId,
-      accepted: decisions[item.dbTrackId] ?? false,
-    }));
-    onSubmit(result);
-  };
-
-  return (
-    <>
-      {items.map((item) => (
-        <div
-          key={item.dbTrackId}
-          className="flex items-center justify-between"
-          style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}
-        >
-          <div>
-            <span>{item.title}</span>
-            <span className="text-muted"> \u2014 {item.artist}</span>
-            <span className="badge badge-yellow" style={{ marginLeft: "0.5rem" }}>
-              {(item.score * 100).toFixed(0)}%
-            </span>
-          </div>
-          <div className="flex gap-1">
-            <button
-              className={decisions[item.dbTrackId] === true ? "primary" : ""}
-              onClick={() => toggle(item.dbTrackId, true)}
-            >
-              Accept
-            </button>
-            <button
-              className={decisions[item.dbTrackId] === false ? "danger" : ""}
-              onClick={() => toggle(item.dbTrackId, false)}
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      ))}
-      <div style={{ marginTop: "0.75rem" }}>
-        <button className="primary" onClick={handleSubmit}>
-          Submit Decisions
-        </button>
-      </div>
-    </>
-  );
-}
-
-function MergeModal({
-  targetId,
-  onMerge,
-  onClose,
-  isPending,
-}: {
-  targetId: string;
-  onMerge: (sourceIds: string[]) => void;
-  onClose: () => void;
-  isPending: boolean;
-}) {
-  const { data: allPlaylists } = usePlaylists();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
-
-  const available = useMemo(() => {
-    if (!allPlaylists) return [];
-    let list = allPlaylists.filter((p) => p.id !== targetId);
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter((p) => p.name.toLowerCase().includes(q));
-    }
-    return list;
-  }, [allPlaylists, targetId, search]);
-
-  const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 400, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
-        <h3 style={{ marginBottom: "0.5rem" }}>Merge Into This Playlist</h3>
-        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>
-          Select playlists whose tracks will be merged in. Duplicates are skipped.
-        </p>
-        <input
-          type="text"
-          placeholder="Filter playlists…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ width: "100%", marginBottom: "0.5rem" }}
-          autoFocus
-        />
-        <div style={{ flex: 1, overflow: "auto", maxHeight: 300, border: "1px solid var(--border)", borderRadius: "var(--radius)" }}>
-          {available.map((p) => (
-            <label
-              key={p.id}
-              className="flex items-center"
-              style={{
-                padding: "0.35rem 0.5rem",
-                cursor: "pointer",
-                background: selected.has(p.id) ? "var(--bg-hover)" : "transparent",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(p.id)}
-                onChange={() => toggle(p.id)}
-                style={{ marginRight: "0.5rem" }}
-              />
-              <span>{p.name}</span>
-              <span className="text-muted text-sm" style={{ marginLeft: "auto" }}>{p.trackCount} tracks</span>
-            </label>
-          ))}
-          {available.length === 0 && (
-            <div className="text-muted text-sm" style={{ padding: "0.5rem" }}>No playlists found.</div>
-          )}
-        </div>
-        <div className="flex gap-1" style={{ justifyContent: "flex-end", marginTop: "0.5rem" }}>
-          <button onClick={onClose}>Cancel</button>
-          <button
-            className="primary"
-            disabled={isPending || selected.size === 0}
-            onClick={() => onMerge([...selected])}
-          >
-            {isPending ? "Merging..." : `Merge ${selected.size} playlist${selected.size !== 1 ? "s" : ""}`}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }

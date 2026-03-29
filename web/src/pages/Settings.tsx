@@ -10,6 +10,7 @@ export function Settings() {
   const [formats, setFormats] = useState("flac, mp3");
   const [minBitrate, setMinBitrate] = useState(320);
   const [concurrency, setConcurrency] = useState(3);
+  const [validationStrictness, setValidationStrictness] = useState("normal");
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -19,6 +20,7 @@ export function Settings() {
       setFormats(config.download.formats.join(", "));
       setMinBitrate(config.download.minBitrate);
       setConcurrency(config.download.concurrency);
+      setValidationStrictness(config.download.validationStrictness);
     }
   }, [config]);
 
@@ -29,6 +31,7 @@ export function Settings() {
         formats: formats.split(",").map((f) => f.trim()).filter(Boolean),
         minBitrate,
         concurrency,
+        validationStrictness,
       },
     });
     setSaved(true);
@@ -75,7 +78,7 @@ export function Settings() {
       <div className="card">
         <h3 style={{ marginBottom: "0.5rem" }}>Download Settings</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", maxWidth: 700 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "1rem", maxWidth: 900 }}>
           <div>
             <label className="text-muted text-sm">Formats</label>
             <input
@@ -105,6 +108,18 @@ export function Settings() {
               onChange={(e) => setConcurrency(Number(e.target.value))}
               style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
             />
+          </div>
+          <div>
+            <label className="text-muted text-sm">Validation Strictness</label>
+            <select
+              value={validationStrictness}
+              onChange={(e) => setValidationStrictness(e.target.value)}
+              style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
+            >
+              <option value="strict">Strict</option>
+              <option value="normal">Normal</option>
+              <option value="relaxed">Relaxed</option>
+            </select>
           </div>
         </div>
       </div>

@@ -324,6 +324,36 @@ td.wrap {
   max-width: 460px;
 }
 
+/* Review badge */
+.sidebar .review-badge {
+  display: inline-block;
+  margin-left: 0.3rem;
+  font-size: 0.7rem;
+  vertical-align: middle;
+}
+
+/* Side-by-side comparison */
+.comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.comparison-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+
+.comparison-panel h4 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
 /* Bulk toolbar */
 .bulk-toolbar {
   position: fixed;

@@ -122,7 +122,7 @@ export function registerJobCommands(program: Command): void {
       }
 
       db.update(schema.jobs)
-        .set({ status: "queued", error: null, runAfter: null })
+        .set({ status: "queued", error: null })
         .where(eq(schema.jobs.id, job.id))
         .run();
 
@@ -144,7 +144,7 @@ export function registerJobCommands(program: Command): void {
 
       const result = db
         .update(schema.jobs)
-        .set({ status: "queued", error: null, runAfter: null })
+        .set({ status: "queued", error: null })
         .where(and(...conditions))
         .returning()
         .all();
@@ -202,7 +202,7 @@ export function registerJobCommands(program: Command): void {
       const job = db
         .insert(schema.jobs)
         .values({
-          type: "wishlist_scan",
+          type: "wishlist_run",
           status: "queued",
           priority: -1,
           payload: null,
@@ -210,7 +210,7 @@ export function registerJobCommands(program: Command): void {
         .returning()
         .get();
 
-      console.log(chalk.green(`Created wishlist scan job: ${job.id.slice(0, 8)}`));
+      console.log(chalk.green(`Created wishlist run job: ${job.id.slice(0, 8)}`));
       console.log(chalk.dim("The job runner will pick it up shortly."));
     });
 }
