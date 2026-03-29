@@ -452,7 +452,7 @@ export function Playlists() {
         <table>
           <thead>
             <tr>
-              <th className="col-check">
+              <th>
                 <input
                   type="checkbox"
                   checked={filtered.length > 0 && selection.count === filtered.length}
@@ -469,10 +469,10 @@ export function Playlists() {
                 />
               </th>
               <SortHeader label="Name" sortKey="name" active={sortKey === "name"} direction={sortDir} onSort={handleSort} />
-              <SortHeader label="Tracks" sortKey="trackCount" active={sortKey === "trackCount"} direction={sortDir} onSort={handleSort} className="col-sm" />
-              {ownership !== "own" && <SortHeader label="Owner" sortKey="ownerName" active={sortKey === "ownerName"} direction={sortDir} onSort={handleSort} className="col-md" />}
-              <SortHeader label="Last Synced" sortKey="lastSynced" active={sortKey === "lastSynced"} direction={sortDir} onSort={handleSort} className="col-md" />
-              <th className="col-lg"></th>
+              <SortHeader label="Tracks" sortKey="trackCount" active={sortKey === "trackCount"} direction={sortDir} onSort={handleSort} />
+              {ownership !== "own" && <SortHeader label="Owner" sortKey="ownerName" active={sortKey === "ownerName"} direction={sortDir} onSort={handleSort} />}
+              <SortHeader label="Last Synced" sortKey="lastSynced" active={sortKey === "lastSynced"} direction={sortDir} onSort={handleSort} />
+              <th></th>
             </tr>
           </thead>
           <tbody>

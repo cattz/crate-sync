@@ -26,10 +26,10 @@ export function Matches() {
           <thead>
             <tr>
               <th>Source Track</th>
-              <th className="col-sm">Score</th>
-              <th className="col-sm">Method</th>
-              <th className="col-sm">Confidence</th>
-              <th className="col-sm">Status</th>
+              <th>Score</th>
+              <th>Method</th>
+              <th>Confidence</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>

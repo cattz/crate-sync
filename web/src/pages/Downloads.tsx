@@ -58,11 +58,11 @@ export function Downloads() {
           <thead>
             <tr>
               <th>Track</th>
-              <th className="col-sm">Status</th>
-              <th className="col-sm">Origin</th>
+              <th>Status</th>
+              <th>Origin</th>
               <th>File</th>
               <th>Error</th>
-              <th className="col-md">Completed</th>
+              <th>Completed</th>
             </tr>
           </thead>
           <tbody>
@@ -85,7 +85,7 @@ export function Downloads() {
                 <td>
                   <span className="badge badge-gray">{d.origin}</span>
                 </td>
-                <td className="text-muted text-sm mono" style={{ maxWidth: 350, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <td className="text-muted text-sm mono col-truncate">
                   {d.filePath ?? "—"}
                 </td>
                 <td className="text-sm" style={{ color: "var(--danger)" }}>
