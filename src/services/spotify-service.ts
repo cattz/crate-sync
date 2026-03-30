@@ -272,12 +272,19 @@ export class SpotifyService {
         );
       }
 
-      // 204 No Content
+      // 204 No Content or empty body
       if (response.status === 204) {
         return undefined;
       }
 
-      return response.json();
+      const text = await response.text();
+      if (!text) return undefined;
+
+      try {
+        return JSON.parse(text);
+      } catch {
+        return undefined;
+      }
     });
   }
 
