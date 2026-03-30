@@ -102,19 +102,27 @@ export function PlaylistDetail() {
     if (!syncId) return;
 
     const es = api.syncEvents(syncId);
+    let closed = false;
 
     const handler = (type: string) => (e: MessageEvent) => {
+      if (closed) return;
       const data = JSON.parse(e.data);
-      setSyncEvents((prev) => [...prev, { type, data }]);
+      // Replace events instead of accumulating — keep only last 4 events
+      setSyncEvents((prev) => [...prev.slice(-3), { type, data }]);
 
       if (type === "phase") setSyncPhase(data.phase);
+      if (type === "sync-complete" || type === "error") {
+        setSyncPhase("done");
+        closed = true;
+        es.close();
+      }
     };
 
     for (const evt of ["phase", "match-complete", "download-progress", "sync-complete", "error"]) {
       es.addEventListener(evt, handler(evt));
     }
 
-    return () => es.close();
+    return () => { closed = true; es.close(); };
   }, [syncId]);
 
   const handleStartSync = useCallback(async () => {
