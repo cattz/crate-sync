@@ -286,7 +286,7 @@ export function PlaylistDetail() {
       {/* Push result */}
       {push.isSuccess && (
         <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
-          Push: {push.data.message ?? `${push.data.added} added, ${push.data.removed} removed${push.data.renamed ? ", renamed" : ""}${push.data.descriptionUpdated ? ", description updated" : ""}`}
+          Push: {push.data.tracksAdded} added, {push.data.tracksRemoved} removed{push.data.renamed ? ", renamed" : ""}{push.data.descriptionUpdated ? ", description updated" : ""}
         </div>
       )}
       {push.isError && (
