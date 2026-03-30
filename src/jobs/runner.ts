@@ -121,7 +121,8 @@ export function failJob(jobId: string, error: string): void {
     })
     .where(eq(schema.jobs.id, jobId))
     .run();
-  emitJobEvent(jobId, "job-failed", "failed", { error }, job.type);
+  const jobPayload = job.payload ? JSON.parse(job.payload) : {};
+  emitJobEvent(jobId, "job-failed", "failed", { ...jobPayload, error }, job.type);
 }
 
 /**
@@ -161,8 +162,9 @@ export function startJobRunner(config: Config): void {
       const job = claimNextJob(db);
 
       if (job) {
+        const jobPayload = job.payload ? JSON.parse(job.payload) : undefined;
         log.info(`Processing job`, { id: job.id, type: job.type, attempt: job.attempt });
-        emitJobEvent(job.id, "job-started", "running", undefined, job.type);
+        emitJobEvent(job.id, "job-started", "running", jobPayload, job.type);
 
         const handler = handlers[job.type];
         if (!handler) {
