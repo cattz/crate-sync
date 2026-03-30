@@ -167,13 +167,13 @@ export function Queue() {
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Type</th>
-              <th>Status</th>
+              <th style={{ width: "1%" }}>ID</th>
+              <th style={{ width: "1%" }}>Type</th>
+              <th style={{ width: "1%" }}>Status</th>
               <th>Details</th>
               <th>Error</th>
-              <th>Created</th>
-              <th>Actions</th>
+              <th style={{ width: "1%" }}>Created</th>
+              <th style={{ width: "1%" }}>Actions</th>
             </tr>
           </thead>
           <tbody>

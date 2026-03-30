@@ -58,11 +58,11 @@ export function Downloads() {
           <thead>
             <tr>
               <th>Track</th>
-              <th>Status</th>
-              <th>Origin</th>
+              <th style={{ width: "1%" }}>Status</th>
+              <th style={{ width: "1%" }}>Origin</th>
               <th>File</th>
               <th>Error</th>
-              <th>Completed</th>
+              <th style={{ width: "1%" }}>Completed</th>
             </tr>
           </thead>
           <tbody>

@@ -687,7 +687,13 @@ export class DownloadService {
     // Strip the @@xxx\ share prefix
     const withoutShare = filename.replace(/^@@[^\\\/]+[\\\/]/, "");
     const normalized = withoutShare.replaceAll("\\", "/");
-    const expectedPath = join(this.slskdDownloadDir, normalized);
+    // slskd stores downloads using only the last 2 path segments (folder/file),
+    // not the full remote path (e.g. "e:/music/Artist/Album/track.mp3" → "Album/track.mp3")
+    const segments = normalized.split("/").filter(Boolean);
+    const localRelative = segments.length >= 2
+      ? segments.slice(-2).join("/")
+      : segments.join("/");
+    const expectedPath = join(this.slskdDownloadDir, localRelative);
 
     // Try exact match first
     if (existsSync(expectedPath)) {
