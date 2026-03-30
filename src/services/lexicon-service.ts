@@ -243,17 +243,18 @@ export class LexiconService {
     }
   }
 
-  /** Find existing tag in category or create new one */
+  /** Find existing tag by label (globally unique in Lexicon) or create in category */
   async ensureTag(categoryId: string, label: string): Promise<LexiconTag> {
     const { tags } = await this.getTags();
-    const existing = tags.find((t) => t.categoryId === categoryId && t.label === label);
+    // Lexicon tag labels are globally unique — search by label only
+    const existing = tags.find((t) => t.label === label);
     if (existing) return existing;
     try {
       return await this.createTag(categoryId, label);
     } catch (err) {
       if (String(err).includes("already exists")) {
         const { tags: retry } = await this.getTags();
-        const found = retry.find((t) => t.categoryId === categoryId && t.label === label);
+        const found = retry.find((t) => t.label === label);
         if (found) return found;
       }
       throw err;
