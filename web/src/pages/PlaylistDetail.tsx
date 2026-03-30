@@ -52,6 +52,24 @@ interface SyncEvent {
   data: Record<string, unknown>;
 }
 
+function formatSyncEvent(evt: SyncEvent): string {
+  const d = evt.data;
+  switch (evt.type) {
+    case "phase":
+      return d.phase === "match" ? "Matching tracks against Lexicon…" : `Phase: ${d.phase}`;
+    case "match-complete":
+      return `${d.confirmed ?? 0} matched, ${d.pending ?? 0} pending review, ${d.notFound ?? 0} not found, ${d.tagged ?? 0} tagged`;
+    case "sync-complete":
+      return `Sync complete — ${d.confirmed ?? 0} of ${d.total ?? 0} matched, ${d.tagged ?? 0} tagged`;
+    case "download-progress":
+      return `Downloading: ${d.completed ?? 0}/${d.total ?? 0}`;
+    case "error":
+      return `Error: ${d.message ?? "unknown"}`;
+    default:
+      return JSON.stringify(d);
+  }
+}
+
 export function PlaylistDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(id!);
@@ -350,7 +368,7 @@ export function PlaylistDetail() {
               <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
                 {evt.type}
               </span>
-              <span className="text-muted mono">{JSON.stringify(evt.data)}</span>
+              <span className="text-muted">{formatSyncEvent(evt)}</span>
             </div>
           ))}
         </div>
@@ -378,6 +396,7 @@ export function PlaylistDetail() {
               <ThSort label="Artist" sortKey="artist" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
               <ThSort label="Album" sortKey="album" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
               <ThSort label="Duration" sortKey="durationMs" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
+              <ThSort label="Status" sortKey="trackStatus" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
             </tr>
           </thead>
           <tbody>
@@ -388,11 +407,12 @@ export function PlaylistDetail() {
                 <td className="text-muted">{t.artist}</td>
                 <td className="text-muted">{t.album ?? ""}</td>
                 <td className="text-muted mono text-sm">{formatDuration(t.durationMs)}</td>
+                <td><StatusBadge status={t.trackStatus} /></td>
               </tr>
             ))}
             {filteredTracks.length === 0 && tracks && tracks.length > 0 && (
               <tr>
-                <td colSpan={5} className="text-muted">No tracks match your filter.</td>
+                <td colSpan={6} className="text-muted">No tracks match your filter.</td>
               </tr>
             )}
           </tbody>
