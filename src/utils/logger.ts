@@ -39,6 +39,9 @@ function write(level: LogLevel, context: string, message: string, data?: Record<
     ? `${prefix} ${message} ${JSON.stringify(data)}`
     : `${prefix} ${message}`;
 
+  // Always write to stderr so it's visible in terminal
+  process.stderr.write(line + "\n");
+
   if (fileStream) {
     fileStream.write(line + "\n");
   }

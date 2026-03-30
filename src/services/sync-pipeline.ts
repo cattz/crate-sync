@@ -6,6 +6,9 @@ import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { createMatcher } from "../matching/index.js";
 import { LexiconService } from "./lexicon-service.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("sync-pipeline");
 
 // ---------------------------------------------------------------------------
 // Dependency injection types
@@ -285,8 +288,10 @@ export class SyncPipeline {
     }
 
     // 9. Tag confirmed tracks
+    log.info(`Tagging ${confirmed.length} confirmed tracks for "${playlist.name}"`);
     const manualTags = playlist.tags ? JSON.parse(playlist.tags) as string[] : undefined;
     const tagResult = await this.syncTags(playlist.name, confirmed, manualTags);
+    log.info(`Tag result: ${tagResult.tagged} tagged, ${tagResult.skipped} skipped`);
 
     // 10. Return result
     return {
@@ -358,7 +363,7 @@ export class SyncPipeline {
         tagged++;
       } catch (err) {
         // Log and continue on individual track tagging errors
-        console.error(`Failed to tag track ${track.lexiconTrackId}:`, err);
+        log.error(`Failed to tag track ${track.lexiconTrackId}:`, err);
         skipped++;
       }
     }
