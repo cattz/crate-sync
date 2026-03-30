@@ -80,28 +80,32 @@ export function Logs() {
     }
   }, [entries]);
 
-  // Subscribe to job events SSE
+  // Subscribe to job events SSE (events are named: job-started, job-done, job-failed)
   useEffect(() => {
     const es = api.jobEvents();
 
-    es.addEventListener("message", (e) => {
+    const handleEvent = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
-        const payload = data.payload ?? {};
+        const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
         const detail = payload.title
-          ? `${payload.artist ?? ""} \u2014 ${payload.title}`
+          ? `${payload.artist ?? ""} — ${payload.title}`
           : payload.playlistName ?? data.jobId?.slice(0, 8) ?? "";
 
         addEntry({
           time: formatTime(new Date()),
-          type: TYPE_LABELS[data.type] ?? data.type ?? "Job",
+          type: TYPE_LABELS[data.jobType] ?? TYPE_LABELS[data.type] ?? data.jobType ?? data.type ?? "Job",
           status: data.status ?? "",
           detail,
         });
       } catch {
         // ignore malformed events
       }
-    });
+    };
+
+    for (const evt of ["job-started", "job-done", "job-failed"]) {
+      es.addEventListener(evt, handleEvent);
+    }
 
     return () => es.close();
   }, [addEntry]);

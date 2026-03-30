@@ -32,6 +32,7 @@ const handlers: Record<string, JobHandler> = {
 export type JobEventListener = (event: {
   jobId: string;
   type: string;
+  jobType?: string;
   status: string;
   payload?: unknown;
 }) => void;
@@ -43,10 +44,10 @@ export function onJobEvent(listener: JobEventListener): () => void {
   return () => eventListeners.delete(listener);
 }
 
-function emitJobEvent(jobId: string, type: string, status: string, payload?: unknown) {
+function emitJobEvent(jobId: string, type: string, status: string, payload?: unknown, jobType?: string) {
   for (const listener of eventListeners) {
     try {
-      listener({ jobId, type, status, payload });
+      listener({ jobId, type, status, payload, jobType });
     } catch {
       // ignore listener errors
     }
@@ -88,7 +89,7 @@ function claimNextJob(db: ReturnType<typeof getDb>): schema.Job | undefined {
 /**
  * Mark a job as done with an optional result.
  */
-export function completeJob(jobId: string, result?: unknown): void {
+export function completeJob(jobId: string, result?: unknown, jobType?: string): void {
   const db = getDb();
   db.update(schema.jobs)
     .set({
@@ -98,7 +99,7 @@ export function completeJob(jobId: string, result?: unknown): void {
     })
     .where(eq(schema.jobs.id, jobId))
     .run();
-  emitJobEvent(jobId, "job-done", "done", result);
+  emitJobEvent(jobId, "job-done", "done", result, jobType);
 }
 
 /**
@@ -120,7 +121,7 @@ export function failJob(jobId: string, error: string): void {
     })
     .where(eq(schema.jobs.id, jobId))
     .run();
-  emitJobEvent(jobId, "job-failed", "failed", { error });
+  emitJobEvent(jobId, "job-failed", "failed", { error }, job.type);
 }
 
 /**
@@ -161,7 +162,7 @@ export function startJobRunner(config: Config): void {
 
       if (job) {
         log.info(`Processing job`, { id: job.id, type: job.type, attempt: job.attempt });
-        emitJobEvent(job.id, "job-started", "running");
+        emitJobEvent(job.id, "job-started", "running", undefined, job.type);
 
         const handler = handlers[job.type];
         if (!handler) {
