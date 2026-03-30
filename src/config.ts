@@ -40,6 +40,8 @@ export interface DownloadConfig {
 export interface JobRunnerConfig {
   /** Polling interval in milliseconds. Default: 1000 */
   pollIntervalMs: number;
+  /** Max concurrent jobs. Default: 3 */
+  concurrency: number;
 }
 
 export interface Config {
@@ -87,6 +89,7 @@ const defaults: Config = {
   },
   jobRunner: {
     pollIntervalMs: 1000,
+    concurrency: 3,
   },
 };
 

@@ -150,34 +150,46 @@ export function startJobRunner(config: Config): void {
   if (running) return;
   running = true;
 
+  const maxConcurrency = config.jobRunner.concurrency ?? 3;
+  const activeJobs = new Set<Promise<void>>();
+
   log.info("Job runner started", {
     pollIntervalMs: config.jobRunner.pollIntervalMs,
+    concurrency: maxConcurrency,
   });
+
+  async function processJob(job: schema.Job): Promise<void> {
+    const jobPayload = job.payload ? JSON.parse(job.payload) : undefined;
+    log.info(`Processing job`, { id: job.id, type: job.type, attempt: job.attempt });
+    emitJobEvent(job.id, "job-started", "running", jobPayload, job.type);
+
+    const handler = handlers[job.type];
+    if (!handler) {
+      failJob(job.id, `Unknown job type: ${job.type}`);
+    } else {
+      try {
+        await handler(job, config);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(`Job failed`, { id: job.id, type: job.type, error: message });
+        failJob(job.id, message);
+      }
+    }
+  }
 
   async function poll() {
     if (!running) return;
 
     try {
       const db = getDb();
-      const job = claimNextJob(db);
 
-      if (job) {
-        const jobPayload = job.payload ? JSON.parse(job.payload) : undefined;
-        log.info(`Processing job`, { id: job.id, type: job.type, attempt: job.attempt });
-        emitJobEvent(job.id, "job-started", "running", jobPayload, job.type);
+      // Claim jobs up to the concurrency limit
+      while (activeJobs.size < maxConcurrency) {
+        const job = claimNextJob(db);
+        if (!job) break;
 
-        const handler = handlers[job.type];
-        if (!handler) {
-          failJob(job.id, `Unknown job type: ${job.type}`);
-        } else {
-          try {
-            await handler(job, config);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            log.error(`Job failed`, { id: job.id, type: job.type, error: message });
-            failJob(job.id, message);
-          }
-        }
+        const task = processJob(job).finally(() => activeJobs.delete(task));
+        activeJobs.add(task);
       }
     } catch (err) {
       log.error(`Job runner poll error`, {
