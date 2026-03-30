@@ -1,9 +1,11 @@
-import { eq } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { getDb } from "../db/client.js";
 import {
   playlists,
   tracks,
   playlistTracks,
+  matches,
+  downloads,
   type Playlist,
   type Track,
   type PlaylistTrack,
@@ -11,6 +13,14 @@ import {
 import type { SpotifyTrack } from "../types/spotify.js";
 import { extractPlaylistId } from "../utils/spotify-url.js";
 import { SpotifyService } from "./spotify-service.js";
+
+export type TrackStatus =
+  | "in_lexicon"
+  | "pending_review"
+  | "downloading"
+  | "downloaded"
+  | "download_failed"
+  | "not_matched";
 
 export class PlaylistService {
   private db: ReturnType<typeof getDb>;
@@ -67,7 +77,8 @@ export class PlaylistService {
   /** Get tracks for a playlist, ordered by position. */
   getPlaylistTracks(
     playlistId: string,
-  ): Array<Track & { position: number }> {
+    options?: { enriched?: boolean },
+  ): Array<Track & { position: number; trackStatus?: TrackStatus }> {
     const rows = this.db
       .select({
         id: tracks.id,
@@ -88,7 +99,55 @@ export class PlaylistService {
       .orderBy(playlistTracks.position)
       .all();
 
-    return rows;
+    if (!options?.enriched) return rows;
+
+    return rows.map((row) => ({
+      ...row,
+      trackStatus: this.deriveTrackStatus(row.id),
+    }));
+  }
+
+  /** Derive display status for a track from matches and downloads tables. */
+  private deriveTrackStatus(trackId: string): TrackStatus {
+    // Check for lexicon match (sourceType=spotify, sourceId=track.id, targetType=lexicon)
+    const match = this.db
+      .select({ status: matches.status })
+      .from(matches)
+      .where(
+        and(
+          eq(matches.sourceType, "spotify"),
+          eq(matches.sourceId, trackId),
+          eq(matches.targetType, "lexicon"),
+        ),
+      )
+      .orderBy(desc(matches.updatedAt))
+      .limit(1)
+      .get();
+
+    if (match) {
+      if (match.status === "confirmed") return "in_lexicon";
+      if (match.status === "pending") return "pending_review";
+      // rejected matches fall through to check downloads
+    }
+
+    // Check for latest download
+    const dl = this.db
+      .select({ status: downloads.status })
+      .from(downloads)
+      .where(eq(downloads.trackId, trackId))
+      .orderBy(desc(downloads.createdAt))
+      .limit(1)
+      .get();
+
+    if (dl) {
+      if (dl.status === "downloading" || dl.status === "searching" || dl.status === "validating" || dl.status === "moving") return "downloading";
+      if (dl.status === "done") return "downloaded";
+      if (dl.status === "failed") return "download_failed";
+      // pending downloads
+      if (dl.status === "pending") return "downloading";
+    }
+
+    return "not_matched";
   }
 
   /** Upsert a playlist (insert or update by spotify_id). */

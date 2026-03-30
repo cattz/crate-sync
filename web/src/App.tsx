@@ -1,5 +1,82 @@
+import { useState, useEffect, useCallback } from "react";
 import { Outlet, NavLink } from "react-router";
 import { useStatus, useReviewStats } from "./api/hooks.js";
+import { api } from "./api/client.js";
+
+interface LogLine {
+  time: string;
+  type: string;
+  status: string;
+  detail: string;
+}
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  spotify_sync: "Spotify Sync",
+  lexicon_match: "Match",
+  lexicon_tag: "Tag",
+  search: "Search",
+  download: "Download",
+  validate: "Validate",
+  wishlist_run: "Wishlist",
+};
+
+function StatusBar() {
+  const [lines, setLines] = useState<LogLine[]>([]);
+
+  const addLine = useCallback((line: LogLine) => {
+    setLines((prev) => [...prev.slice(-2), line]);
+  }, []);
+
+  useEffect(() => {
+    const es = api.jobEvents();
+
+    es.addEventListener("message", (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const payload = data.payload ?? {};
+        const detail = payload.title
+          ? `${payload.artist ?? ""} — ${payload.title}`
+          : payload.playlistName ?? data.jobId?.slice(0, 8) ?? "";
+
+        addLine({
+          time: formatTime(new Date()),
+          type: TYPE_LABELS[data.type] ?? data.type ?? "Job",
+          status: data.status ?? "",
+          detail,
+        });
+      } catch {
+        // ignore malformed events
+      }
+    });
+
+    return () => es.close();
+  }, [addLine]);
+
+  if (lines.length === 0) return null;
+
+  return (
+    <div className="status-bar">
+      {lines.map((line, i) => (
+        <div key={i} className="status-line">
+          <span className="status-time">{line.time}</span>
+          <span className="status-type">{line.type}</span>
+          <span className={
+            line.status === "done" ? "status-ok" :
+            line.status === "failed" ? "status-fail" :
+            line.status === "running" ? "status-running" : ""
+          }>
+            {line.status}
+          </span>
+          {line.detail && <span> {line.detail}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function StatusDot({ ok }: { ok: boolean }) {
   return (
@@ -67,6 +144,7 @@ export function App() {
       <main className="content">
         <Outlet />
       </main>
+      <StatusBar />
     </div>
   );
 }

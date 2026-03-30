@@ -152,6 +152,14 @@ export interface PlaylistMeta {
   pinned?: boolean;
 }
 
+export type TrackStatus =
+  | "in_lexicon"
+  | "pending_review"
+  | "downloading"
+  | "downloaded"
+  | "download_failed"
+  | "not_matched";
+
 export interface Track {
   id: string;
   spotifyId: string | null;
@@ -162,6 +170,7 @@ export interface Track {
   isrc: string | null;
   spotifyUri: string | null;
   position?: number;
+  trackStatus?: TrackStatus;
   createdAt: number;
   updatedAt: number;
 }

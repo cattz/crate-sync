@@ -151,7 +151,8 @@ playlistRoutes.get("/:id/tracks", (c) => {
     return c.json({ error: "Playlist not found" }, 404);
   }
 
-  const trackList = svc.getPlaylistTracks(playlist.id);
+  const enriched = c.req.query("enriched") !== "false"; // enriched by default
+  const trackList = svc.getPlaylistTracks(playlist.id, { enriched });
   return c.json(trackList);
 });
 

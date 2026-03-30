@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router";
 import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useUpdatePlaylistMeta } from "../api/hooks.js";
-import { api } from "../api/client.js";
+import { api, type TrackStatus } from "../api/client.js";
 
 function formatDuration(ms: number) {
   const min = Math.floor(ms / 60000);
@@ -18,8 +18,34 @@ function formatTotalDuration(ms: number, count: number) {
   return `${parts.join(" ")} across ${count} tracks`;
 }
 
-type TrackSortKey = "position" | "title" | "artist" | "album" | "durationMs";
+type TrackSortKey = "position" | "title" | "artist" | "album" | "durationMs" | "trackStatus";
 type SortDir = "asc" | "desc";
+
+const statusConfig: Record<TrackStatus, { label: string; className: string }> = {
+  in_lexicon: { label: "In Lexicon", className: "badge badge-green" },
+  pending_review: { label: "Review", className: "badge badge-yellow" },
+  downloading: { label: "Downloading", className: "badge badge-blue" },
+  downloaded: { label: "Downloaded", className: "badge badge-gray" },
+  download_failed: { label: "Failed", className: "badge badge-red" },
+  not_matched: { label: "", className: "" },
+};
+
+const statusSortOrder: Record<TrackStatus, number> = {
+  download_failed: 0,
+  pending_review: 1,
+  downloading: 2,
+  downloaded: 3,
+  not_matched: 4,
+  in_lexicon: 5,
+};
+
+function StatusBadge({ status }: { status?: TrackStatus }) {
+  if (!status || status === "not_matched") {
+    return <span className="text-muted">&mdash;</span>;
+  }
+  const cfg = statusConfig[status];
+  return <span className={cfg.className}>{cfg.label}</span>;
+}
 
 interface SyncEvent {
   type: string;

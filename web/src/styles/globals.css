@@ -80,6 +80,55 @@ a:hover {
   margin-left: 180px;
   flex: 1;
   padding: 1.25rem 1.5rem;
+  padding-bottom: 90px;
+}
+
+/* Status bar */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 180px;
+  right: 0;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  padding: 0.4rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  z-index: 10;
+  color: var(--text-muted);
+}
+
+.status-bar .status-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-bar .status-line:not(:last-child) {
+  opacity: 0.5;
+}
+
+.status-bar .status-time {
+  color: var(--text-muted);
+  margin-right: 0.5rem;
+}
+
+.status-bar .status-type {
+  color: var(--accent);
+  margin-right: 0.5rem;
+}
+
+.status-bar .status-ok {
+  color: #27ae60;
+}
+
+.status-bar .status-fail {
+  color: var(--danger);
+}
+
+.status-bar .status-running {
+  color: var(--info);
 }
 
 /* Cards */
