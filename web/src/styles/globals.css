@@ -426,3 +426,39 @@ td.wrap {
   z-index: 50;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
+
+/* Log page */
+.log-container {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+
+.log-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-time {
+  color: var(--text-muted);
+  margin-right: 0.75rem;
+}
+
+.log-type {
+  display: inline-block;
+  min-width: 80px;
+  margin-right: 0.5rem;
+}
+
+/* Sync status badge */
+.sync-badge {
+  cursor: pointer;
+  margin-left: 0.25rem;
+}

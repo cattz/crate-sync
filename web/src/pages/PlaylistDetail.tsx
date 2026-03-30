@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router";
 import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useUpdatePlaylistMeta } from "../api/hooks.js";
 import { api, type TrackStatus } from "../api/client.js";
@@ -47,28 +47,7 @@ function StatusBadge({ status }: { status?: TrackStatus }) {
   return <span className={cfg.className}>{cfg.label}</span>;
 }
 
-interface SyncEvent {
-  type: string;
-  data: Record<string, unknown>;
-}
-
-function formatSyncEvent(evt: SyncEvent): string {
-  const d = evt.data;
-  switch (evt.type) {
-    case "phase":
-      return d.phase === "match" ? "Matching tracks against Lexicon…" : `Phase: ${d.phase}`;
-    case "match-complete":
-      return `${d.confirmed ?? 0} matched, ${d.pending ?? 0} pending review, ${d.notFound ?? 0} not found, ${d.tagged ?? 0} tagged`;
-    case "sync-complete":
-      return `Sync complete — ${d.confirmed ?? 0} of ${d.total ?? 0} matched, ${d.tagged ?? 0} tagged`;
-    case "download-progress":
-      return `Downloading: ${d.completed ?? 0}/${d.total ?? 0}`;
-    case "error":
-      return `Error: ${d.message ?? "unknown"}`;
-    default:
-      return JSON.stringify(d);
-  }
-}
+type SyncBadgeState = "idle" | "syncing" | "done" | "error";
 
 export function PlaylistDetail() {
   const { id } = useParams<{ id: string }>();
@@ -84,8 +63,9 @@ export function PlaylistDetail() {
   const { data: allPlaylists } = usePlaylists();
 
   const [syncId, setSyncId] = useState<string | null>(null);
-  const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
   const [syncPhase, setSyncPhase] = useState<string | null>(null);
+  const [syncBadge, setSyncBadge] = useState<SyncBadgeState>("idle");
+  const badgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -97,7 +77,7 @@ export function PlaylistDetail() {
   const [tagInput, setTagInput] = useState("");
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
 
-  // SSE listener
+  // SSE listener — only track current phase for the badge
   useEffect(() => {
     if (!syncId) return;
 
@@ -107,12 +87,23 @@ export function PlaylistDetail() {
     const handler = (type: string) => (e: MessageEvent) => {
       if (closed) return;
       const data = JSON.parse(e.data);
-      // Replace events instead of accumulating — keep only last 4 events
-      setSyncEvents((prev) => [...prev.slice(-3), { type, data }]);
 
-      if (type === "phase") setSyncPhase(data.phase);
-      if (type === "sync-complete" || type === "error") {
+      if (type === "phase") {
+        setSyncPhase(data.phase);
+        setSyncBadge("syncing");
+      }
+      if (type === "sync-complete") {
         setSyncPhase("done");
+        setSyncBadge("done");
+        // Fade the badge back to idle after 5 seconds
+        if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+        badgeTimerRef.current = setTimeout(() => setSyncBadge("idle"), 5000);
+        closed = true;
+        es.close();
+      }
+      if (type === "error") {
+        setSyncPhase("done");
+        setSyncBadge("error");
         closed = true;
         es.close();
       }
@@ -122,13 +113,17 @@ export function PlaylistDetail() {
       es.addEventListener(evt, handler(evt));
     }
 
-    return () => { closed = true; es.close(); };
+    return () => {
+      closed = true;
+      es.close();
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    };
   }, [syncId]);
 
   const handleStartSync = useCallback(async () => {
     if (!id) return;
-    setSyncEvents([]);
     setSyncPhase(null);
+    setSyncBadge("syncing");
     const result = await startSync.mutateAsync(id);
     setSyncId(result.syncId);
   }, [id, startSync]);
@@ -248,9 +243,24 @@ export function PlaylistDetail() {
           >
             {playlist.pinned ? "Unpin" : "Pin"}
           </button>
-          <button className="primary" onClick={handleStartSync} disabled={startSync.isPending || !!syncPhase}>
-            {syncPhase ? `Syncing (${syncPhase})...` : "Start Sync"}
+          <button className="primary" onClick={handleStartSync} disabled={startSync.isPending || (!!syncPhase && syncPhase !== "done")}>
+            Start Sync
           </button>
+          {syncBadge === "syncing" && (
+            <span className="badge badge-blue sync-badge" onClick={() => navigate("/logs")} title="View logs">
+              Syncing...
+            </span>
+          )}
+          {syncBadge === "done" && (
+            <span className="badge badge-green sync-badge" onClick={() => navigate("/logs")} title="View logs">
+              Synced &#10003;
+            </span>
+          )}
+          {syncBadge === "error" && (
+            <span className="badge badge-red sync-badge" onClick={() => navigate("/logs")} title="View logs">
+              Error
+            </span>
+          )}
           <button
             onClick={() => push.mutate(playlist.id)}
             disabled={push.isPending || playlist.isOwned === 0 || !playlist.spotifyId}
@@ -366,21 +376,6 @@ export function PlaylistDetail() {
           placeholder="Add notes about this playlist…"
         />
       </div>
-
-      {/* Sync progress */}
-      {syncEvents.length > 0 && (
-        <div className="card mb-2">
-          <h3 style={{ marginBottom: "0.3rem" }}>Sync Progress</h3>
-          {syncEvents.map((evt, i) => (
-            <div key={i} className="text-sm" style={{ padding: "0.2rem 0" }}>
-              <span className="badge badge-blue" style={{ marginRight: "0.5rem" }}>
-                {evt.type}
-              </span>
-              <span className="text-muted">{formatSyncEvent(evt)}</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Track list */}
       <div className="card">

@@ -123,6 +123,9 @@ export function App() {
           <NavLink to="/queue" className={({ isActive }) => (isActive ? "active" : "")}>
             Queue
           </NavLink>
+          <NavLink to="/logs" className={({ isActive }) => (isActive ? "active" : "")}>
+            Logs
+          </NavLink>
           <NavLink to="/settings" className={({ isActive }) => (isActive ? "active" : "")}>
             Settings
           </NavLink>
