@@ -684,43 +684,68 @@ export class DownloadService {
    * directory for the most recent file matching the base name.
    */
   private findDownloadedFile(_username: string, filename: string): string | null {
-    // Strip the @@xxx\ share prefix
+    // Extract just the filename (last segment) from the remote path
     const withoutShare = filename.replace(/^@@[^\\\/]+[\\\/]/, "");
     const normalized = withoutShare.replaceAll("\\", "/");
-    // slskd stores downloads using only the last 2 path segments (folder/file),
-    // not the full remote path (e.g. "e:/music/Artist/Album/track.mp3" → "Album/track.mp3")
-    const segments = normalized.split("/").filter(Boolean);
-    const localRelative = segments.length >= 2
-      ? segments.slice(-2).join("/")
-      : segments.join("/");
-    const expectedPath = join(this.slskdDownloadDir, localRelative);
+    const targetFilename = normalized.split("/").filter(Boolean).pop();
+    if (!targetFilename) return null;
 
-    // Try exact match first
-    if (existsSync(expectedPath)) {
-      return expectedPath;
+    const ext = extname(targetFilename);
+    const base = basename(targetFilename, ext).toLowerCase();
+
+    // Strategy 1: Try last-2-segments path (common slskd layout)
+    const segments = normalized.split("/").filter(Boolean);
+    if (segments.length >= 2) {
+      const expectedPath = join(this.slskdDownloadDir, segments.slice(-2).join("/"));
+      if (existsSync(expectedPath)) return expectedPath;
+
+      // Check for suffixed variants in that directory
+      const dir = dirname(expectedPath);
+      if (existsSync(dir)) {
+        const match = this.findBestMatch(dir, base, ext);
+        if (match) return match;
+      }
     }
 
-    // Search for suffixed variants: <name>_<id>.<ext>
-    const dir = dirname(expectedPath);
-    const ext = extname(expectedPath);
-    const base = basename(expectedPath, ext);
+    // Strategy 2: Recursive search by filename across all download subdirectories
+    if (!existsSync(this.slskdDownloadDir)) return null;
 
-    if (!existsSync(dir)) {
+    try {
+      const dirs = readdirSync(this.slskdDownloadDir, { withFileTypes: true });
+      for (const entry of dirs) {
+        if (!entry.isDirectory()) continue;
+        const subdir = join(this.slskdDownloadDir, entry.name);
+        const match = this.findBestMatch(subdir, base, ext);
+        if (match) return match;
+      }
+    } catch {
+      // ignore read errors
+    }
+
+    return null;
+  }
+
+  /** Find best matching file in a directory by base name and extension. */
+  private findBestMatch(dir: string, baseLower: string, ext: string): string | null {
+    try {
+      const candidates = readdirSync(dir)
+        .filter((f) => {
+          const fBase = basename(f, extname(f)).toLowerCase();
+          const fExt = extname(f);
+          // Match by base name (exact or with slskd suffix like _639094...)
+          return fExt === ext && (fBase === baseLower || fBase.startsWith(baseLower + "_"));
+        })
+        .map((f) => join(dir, f))
+        .sort((a, b) => {
+          try {
+            return statSync(b).mtimeMs - statSync(a).mtimeMs;
+          } catch {
+            return 0;
+          }
+        });
+      return candidates[0] ?? null;
+    } catch {
       return null;
     }
-
-    const candidates = readdirSync(dir)
-      .filter((f) => f.startsWith(base) && f.endsWith(ext))
-      .map((f) => join(dir, f))
-      .sort((a, b) => {
-        // Most recently modified first
-        try {
-          return statSync(b).mtimeMs - statSync(a).mtimeMs;
-        } catch {
-          return 0;
-        }
-      });
-
-    return candidates[0] ?? null;
   }
 }
