@@ -59,6 +59,33 @@ export function Logs() {
     });
   }, []);
 
+  // Seed with recent jobs on mount
+  useEffect(() => {
+    api.getJobs().then((data) => {
+      const jobs = (data.jobs ?? data) as Array<Record<string, unknown>>;
+      const recent = jobs
+        .filter((j) => j.startedAt || j.completedAt)
+        .sort((a, b) => ((a.startedAt ?? a.createdAt) as number) - ((b.startedAt ?? b.createdAt) as number))
+        .slice(-50);
+
+      const seed: LogEntry[] = recent.map((j) => {
+        const payload = j.payload && typeof j.payload === "object" ? j.payload as Record<string, string> : {};
+        const detail = payload.title
+          ? `${payload.artist ?? ""} — ${payload.title}`
+          : payload.playlistName ?? (j.id as string)?.slice(0, 8) ?? "";
+        const ts = (j.completedAt ?? j.startedAt ?? j.createdAt) as number;
+        return {
+          time: formatTime(new Date(ts)),
+          type: TYPE_LABELS[j.type as string] ?? (j.type as string) ?? "Job",
+          status: j.status as string,
+          detail,
+        };
+      });
+
+      setEntries(seed);
+    }).catch(() => {});
+  }, []);
+
   // Track whether user has scrolled away from bottom
   useEffect(() => {
     const el = containerRef.current;
