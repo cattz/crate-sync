@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../../db/client.js";
 import { downloads, tracks } from "../../db/schema.js";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 
 export const downloadRoutes = new Hono();
 
@@ -32,6 +32,30 @@ downloadRoutes.get("/", (c) => {
   });
 
   return c.json(enriched);
+});
+
+// DELETE /api/downloads?status=done|failed
+downloadRoutes.delete("/", (c) => {
+  const db = getDb();
+  const status = c.req.query("status");
+
+  const allowed = ["done", "failed"] as const;
+  if (!status || !allowed.includes(status as (typeof allowed)[number])) {
+    return c.json({ error: "Query param ?status must be 'done' or 'failed'" }, 400);
+  }
+
+  const ids = db
+    .select({ id: downloads.id })
+    .from(downloads)
+    .where(eq(downloads.status, status as "done" | "failed"))
+    .all()
+    .map((r) => r.id);
+
+  if (ids.length > 0) {
+    db.delete(downloads).where(inArray(downloads.id, ids)).run();
+  }
+
+  return c.json({ deleted: ids.length });
 });
 
 // GET /api/downloads/:id

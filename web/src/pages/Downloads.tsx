@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useDownloads, useWishlistRun } from "../api/hooks.js";
+import { useDownloads, useWishlistRun, useClearDownloads } from "../api/hooks.js";
 
 const statusBadge: Record<string, string> = {
   pending: "badge-gray",
@@ -25,6 +25,7 @@ export function Downloads() {
   const [filter, setFilter] = useState<string>("");
   const { data: downloads, isLoading } = useDownloads(filter || undefined);
   const wishlist = useWishlistRun();
+  const clearDownloads = useClearDownloads();
 
   if (isLoading) return <p className="text-muted">Loading downloads...</p>;
 
@@ -40,6 +41,18 @@ export function Downloads() {
             <option value="done">Done</option>
             <option value="failed">Failed</option>
           </select>
+          <button
+            onClick={() => clearDownloads.mutate("done")}
+            disabled={clearDownloads.isPending}
+          >
+            Clear Completed
+          </button>
+          <button
+            onClick={() => clearDownloads.mutate("failed")}
+            disabled={clearDownloads.isPending}
+          >
+            Clear Failed
+          </button>
           <button
             onClick={() => wishlist.mutate()}
             disabled={wishlist.isPending}
@@ -88,8 +101,14 @@ export function Downloads() {
                 <td className="text-muted text-sm mono col-truncate">
                   {d.filePath ?? "—"}
                 </td>
-                <td className="text-sm" style={{ color: "var(--danger)" }}>
-                  {d.error ?? ""}
+                <td className="text-sm" style={{ color: d.error ? "var(--danger)" : undefined }}>
+                  {d.error ? (
+                    <span title={d.error}>
+                      {d.error.length > 120 ? `${d.error.slice(0, 120)}...` : d.error}
+                    </span>
+                  ) : (
+                    ""
+                  )}
                 </td>
                 <td className="text-muted text-sm">{formatTime(d.completedAt)}</td>
               </tr>

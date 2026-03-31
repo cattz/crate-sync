@@ -155,6 +155,16 @@ export function useDownloads(status?: string) {
   });
 }
 
+export function useClearDownloads() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (status: "done" | "failed") => api.clearDownloads(status),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["downloads"] });
+    },
+  });
+}
+
 // Wishlist
 
 export function useWishlistRun() {
@@ -234,6 +244,17 @@ export function useDisconnectSoulseek() {
 }
 
 // Sync hooks
+
+export function useSyncTrack() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (trackId: string) => api.syncTrack(trackId),
+    onSuccess: (_data, trackId) => {
+      qc.invalidateQueries({ queryKey: ["track-lifecycle", trackId] });
+      qc.invalidateQueries({ queryKey: ["matches"] });
+    },
+  });
+}
 
 export function useStartSync() {
   return useMutation({

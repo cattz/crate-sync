@@ -66,6 +66,8 @@ export const api = {
   // Downloads
   getDownloads: (status?: string) =>
     request<DownloadWithTrack[]>(`/downloads${status ? `?status=${status}` : ""}`),
+  clearDownloads: (status: "done" | "failed") =>
+    request<{ deleted: number }>(`/downloads?status=${status}`, { method: "DELETE" }),
 
   // Wishlist
   runWishlist: () =>
@@ -95,6 +97,8 @@ export const api = {
     request<{ ok: boolean }>("/status/soulseek/connect", { method: "DELETE" }),
 
   // Sync
+  syncTrack: (trackId: string) =>
+    request<SyncTrackResult>(`/sync/track/${trackId}`, { method: "POST" }),
   startSync: (playlistId: string) =>
     request<{ syncId: string; jobId?: string }>(`/sync/${playlistId}`, { method: "POST" }),
   dryRunSync: (playlistId: string) =>
@@ -274,6 +278,12 @@ export interface MatchedTrack {
   score: number;
   confidence: "high" | "review" | "low";
   method: string;
+}
+
+export interface SyncTrackResult {
+  status: "confirmed" | "pending" | "not_found";
+  match?: { lexiconTrackId: string; score: number; confidence: string; method: string };
+  tagged: boolean;
 }
 
 export interface SyncStatus {

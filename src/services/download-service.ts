@@ -524,7 +524,7 @@ export class DownloadService {
         await parseFile(filePath);
         return true;
       } catch {
-        await this.recordRejection(trackId, fileKey, "validation_failed");
+        await this.recordRejection(trackId, fileKey, "Corrupt or unreadable audio file (lenient mode)");
         return false;
       }
     }
@@ -547,14 +547,19 @@ export class DownloadService {
         const score = matches.length > 0 ? matches[0].score : 0;
 
         if (score < 0.7) {
-          await this.recordRejection(trackId, fileKey, "validation_failed");
+          const tagInfo = `"${tagTrack.artist} - ${tagTrack.title}"`;
+          await this.recordRejection(trackId, fileKey,
+            `Score ${score.toFixed(2)} below threshold 0.70 (strict) — tags: ${tagInfo}`);
           return false;
         }
 
         // Check duration within 5 seconds if both have duration
         if (expected.durationMs != null && tagTrack.durationMs != null) {
-          if (Math.abs(expected.durationMs - tagTrack.durationMs) > 5000) {
-            await this.recordRejection(trackId, fileKey, "validation_failed");
+          const diffMs = Math.abs(expected.durationMs - tagTrack.durationMs);
+          if (diffMs > 5000) {
+            const diffSec = (diffMs / 1000).toFixed(1);
+            await this.recordRejection(trackId, fileKey,
+              `Duration mismatch: ${diffSec}s difference (expected ${(expected.durationMs / 1000).toFixed(0)}s, got ${(tagTrack.durationMs / 1000).toFixed(0)}s)`);
             return false;
           }
         }
@@ -564,19 +569,22 @@ export class DownloadService {
 
       // Moderate mode
       if (!metadata.format.codec) {
-        await this.recordRejection(trackId, fileKey, "validation_failed");
+        await this.recordRejection(trackId, fileKey, "No audio codec detected in file metadata");
         return false;
       }
 
       const matches = this.matcher.match(expected, [tagTrack]);
-      if (matches.length === 0 || matches[0].score <= 0.5) {
-        await this.recordRejection(trackId, fileKey, "validation_failed");
+      const score = matches.length > 0 ? matches[0].score : 0;
+      if (matches.length === 0 || score <= 0.5) {
+        const tagInfo = `"${tagTrack.artist} - ${tagTrack.title}"`;
+        await this.recordRejection(trackId, fileKey,
+          `Score ${score.toFixed(2)} below threshold 0.50 (moderate) — tags: ${tagInfo}`);
         return false;
       }
 
       return true;
     } catch {
-      await this.recordRejection(trackId, fileKey, "validation_failed");
+      await this.recordRejection(trackId, fileKey, "Corrupt or unreadable audio file");
       return false;
     }
   }
@@ -619,11 +627,25 @@ export class DownloadService {
 
       const valid = await this.validateDownload(tempPath, track, dbTrackId, file);
       if (!valid) {
+        // Look up the rejection reason we just recorded
+        const fileKey = buildFileKey(file.username, file.filename);
+        const rejection = this.db
+          .select({ reason: schema.rejections.reason })
+          .from(schema.rejections)
+          .where(
+            and(
+              eq(schema.rejections.trackId, dbTrackId),
+              eq(schema.rejections.context, "soulseek_download"),
+              eq(schema.rejections.fileKey, fileKey),
+            ),
+          )
+          .get();
+        const reason = rejection?.reason ?? "Unknown validation failure";
         return {
           trackId: dbTrackId,
           success: false,
           filePath: tempPath,
-          error: "Downloaded file failed metadata validation",
+          error: `Validation failed: ${reason}`,
         };
       }
 
