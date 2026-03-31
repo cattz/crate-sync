@@ -30,12 +30,21 @@ program
   .version("0.1.0")
   .option("--debug", "Enable debug logging to ./data/crate-sync.log")
   .hook("preAction", () => {
-    // Always log to file
-    setLogFile("./data/crate-sync.log");
+    const config = loadConfig();
 
+    // Apply logging config
+    setLogLevel(config.logging.level as "debug" | "info" | "warn" | "error");
+    if (config.logging.file) {
+      setLogFile("./data/crate-sync.log");
+    }
+
+    // CLI --debug flag overrides config
     const opts = program.opts();
     if (opts.debug) {
       setLogLevel("debug");
+      if (!config.logging.file) {
+        setLogFile("./data/crate-sync.log");
+      }
     }
   });
 

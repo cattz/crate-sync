@@ -171,7 +171,7 @@ export class SyncPipeline {
       durationMs: lt.durationMs ?? undefined,
     }));
 
-    const matcher = createMatcher(this.config.matching, "lexicon");
+    const matcher = createMatcher(this.config.matching, "lexicon", this.config.matching.lexiconWeights);
     const results = matcher.match(trackInfo, lexiconCandidates);
 
     // Find best non-rejected match
@@ -363,7 +363,7 @@ export class SyncPipeline {
     }
 
     // 5. Build the matcher
-    const matcher = createMatcher(this.config.matching, "lexicon");
+    const matcher = createMatcher(this.config.matching, "lexicon", this.config.matching.lexiconWeights);
 
     // 6. Load existing matches from DB
     const existingMatches = await db
@@ -656,7 +656,7 @@ export class SyncPipeline {
       lexiconById.set(lexiconTracks[i].id, lexiconCandidates[i]);
     }
 
-    const matcher = createMatcher(this.config.matching, "lexicon");
+    const matcher = createMatcher(this.config.matching, "lexicon", this.config.matching.lexiconWeights);
 
     const existingMatches = await db
       .select()

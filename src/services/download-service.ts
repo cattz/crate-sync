@@ -16,6 +16,7 @@ import type {
   SoulseekConfig,
   DownloadConfig,
   LexiconConfig,
+  MatchingConfig,
 } from "../config.js";
 import type { TrackInfo } from "../types/common.js";
 import type { SlskdFile } from "../types/soulseek.js";
@@ -126,13 +127,15 @@ export class DownloadService {
     soulseekConfig: SoulseekConfig,
     downloadConfig: DownloadConfig,
     lexiconConfig: LexiconConfig,
+    matchingConfig?: MatchingConfig,
   ) {
     this.db = db;
     this.soulseek = new SoulseekService(soulseekConfig);
     this.matcher = new FuzzyMatchStrategy({
-      autoAcceptThreshold: 0.9,
-      reviewThreshold: 0.7,
+      autoAcceptThreshold: matchingConfig?.autoAcceptThreshold ?? 0.9,
+      reviewThreshold: matchingConfig?.reviewThreshold ?? 0.7,
       context: "soulseek",
+      weights: matchingConfig?.soulseekWeights,
       artistRejectThreshold: 0.3,
     });
     this.allowedFormats = new Set(

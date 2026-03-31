@@ -25,9 +25,23 @@ export interface SoulseekConfig {
   downloadDir: string;
 }
 
+export interface MatchingWeights {
+  title: number;
+  artist: number;
+  album: number;
+  duration: number;
+}
+
 export interface MatchingConfig {
   autoAcceptThreshold: number;
   reviewThreshold: number;
+  lexiconWeights: MatchingWeights;
+  soulseekWeights: MatchingWeights;
+}
+
+export interface LoggingConfig {
+  level: "debug" | "info" | "warn" | "error";
+  file: boolean;
 }
 
 export interface DownloadConfig {
@@ -51,6 +65,7 @@ export interface Config {
   matching: MatchingConfig;
   download: DownloadConfig;
   jobRunner: JobRunnerConfig;
+  logging: LoggingConfig;
 }
 
 type DeepPartial<T> = {
@@ -80,6 +95,8 @@ const defaults: Config = {
   matching: {
     autoAcceptThreshold: 0.9,
     reviewThreshold: 0.7,
+    lexiconWeights: { title: 0.3, artist: 0.3, album: 0.15, duration: 0.25 },
+    soulseekWeights: { title: 0.3, artist: 0.25, album: 0.1, duration: 0.35 },
   },
   download: {
     formats: ["flac", "mp3"],
@@ -90,6 +107,10 @@ const defaults: Config = {
   jobRunner: {
     pollIntervalMs: 1000,
     concurrency: 3,
+  },
+  logging: {
+    level: "info",
+    file: true,
   },
 };
 
@@ -117,13 +138,19 @@ function mergeDefaults(
       tagCategory: { ...base.lexicon.tagCategory, ...partial.lexicon?.tagCategory },
     },
     soulseek: { ...base.soulseek, ...partial.soulseek },
-    matching: { ...base.matching, ...partial.matching },
+    matching: {
+      ...base.matching,
+      ...partial.matching,
+      lexiconWeights: { ...base.matching.lexiconWeights, ...partial.matching?.lexiconWeights },
+      soulseekWeights: { ...base.matching.soulseekWeights, ...partial.matching?.soulseekWeights },
+    },
     download: {
       ...base.download,
       ...partial.download,
       formats: partial.download?.formats?.filter((f): f is string => f != null) ?? base.download.formats,
     },
     jobRunner: { ...base.jobRunner, ...(partial as any).jobRunner },
+    logging: { ...base.logging, ...(partial as any).logging },
   };
 
   // Expand ~ in path-like config values
