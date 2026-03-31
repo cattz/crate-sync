@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router";
-import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, useUpdatePlaylistMeta } from "../api/hooks.js";
+import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, usePullPlaylist, useUpdatePlaylistMeta } from "../api/hooks.js";
 import { api, type TrackStatus } from "../api/client.js";
 
 function formatDuration(ms: number) {
@@ -59,6 +59,7 @@ export function PlaylistDetail() {
   const rename = useRenamePlaylist();
   const del = useDeletePlaylist();
   const push = usePushPlaylist();
+  const pull = usePullPlaylist();
   const updateMeta = useUpdatePlaylistMeta();
   const { data: allPlaylists } = usePlaylists();
 
@@ -243,8 +244,14 @@ export function PlaylistDetail() {
           >
             {playlist.pinned ? "Unpin" : "Pin"}
           </button>
+          <button
+            onClick={() => pull.mutate(playlist.id)}
+            disabled={pull.isPending || !playlist.spotifyId}
+          >
+            {pull.isPending ? "Pulling..." : "Pull from Spotify"}
+          </button>
           <button className="primary" onClick={handleStartSync} disabled={startSync.isPending || (!!syncPhase && syncPhase !== "done")}>
-            Start Sync
+            Match & Tag in Lexicon
           </button>
           {syncBadge === "syncing" && (
             <span className="badge badge-blue sync-badge" onClick={() => navigate("/logs")} title="View logs">

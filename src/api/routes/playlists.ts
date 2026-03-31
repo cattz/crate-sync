@@ -70,6 +70,23 @@ playlistRoutes.post("/sync", async (c) => {
   return c.json({ ok: true, ...result, tracksSynced });
 });
 
+// POST /api/playlists/:id/pull — refresh a single playlist's tracks from Spotify
+playlistRoutes.post("/:id/pull", async (c) => {
+  const config = loadConfig();
+  const svc = getService();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) return c.json({ error: "Playlist not found" }, 404);
+  if (!playlist.spotifyId) return c.json({ error: "Playlist has no Spotify ID" }, 400);
+
+  const spotify = new SpotifyService(config.spotify);
+  const authenticated = await spotify.isAuthenticated();
+  if (!authenticated) return c.json({ error: "Spotify not authenticated" }, 401);
+
+  const result = await spotify.syncPlaylistTracks(playlist.spotifyId);
+  return c.json({ ok: true, ...result });
+});
+
 // POST /api/playlists/bulk-rename
 playlistRoutes.post("/bulk-rename", async (c) => {
   const svc = getService();

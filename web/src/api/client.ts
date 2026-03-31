@@ -25,6 +25,8 @@ export const api = {
     request<{ ok: boolean }>(`/playlists/${id}`, { method: "DELETE" }),
   pushPlaylist: (id: string) =>
     request<PushResult>(`/playlists/${id}/push`, { method: "POST" }),
+  pullPlaylist: (id: string) =>
+    request<{ ok: boolean; added: number; updated: number; removed: number }>(`/playlists/${id}/pull`, { method: "POST" }),
   updatePlaylistMeta: (id: string, meta: PlaylistMeta) =>
     request<{ ok: boolean }>(`/playlists/${id}`, { method: "PATCH", body: JSON.stringify(meta) }),
   bulkRename: (params: BulkRenameParams) =>

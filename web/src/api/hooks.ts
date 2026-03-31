@@ -71,6 +71,17 @@ export function usePushPlaylist() {
   });
 }
 
+export function usePullPlaylist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.pullPlaylist(id),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["playlist-tracks", id] });
+      qc.invalidateQueries({ queryKey: ["playlist", id] });
+    },
+  });
+}
+
 export function usePlaylistTracks(id: string) {
   return useQuery({ queryKey: ["playlist-tracks", id], queryFn: () => api.getPlaylistTracks(id) });
 }
