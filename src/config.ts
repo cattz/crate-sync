@@ -61,6 +61,8 @@ export interface JobRunnerConfig {
   pollIntervalMs: number;
   /** Max concurrent jobs. Default: 3 */
   concurrency: number;
+  /** Auto-purge completed/failed jobs older than this many days. Default: 7 */
+  retentionDays: number;
 }
 
 export interface Config {
@@ -115,6 +117,7 @@ const defaults: Config = {
   jobRunner: {
     pollIntervalMs: 1000,
     concurrency: 3,
+    retentionDays: 7,
   },
   logging: {
     level: "info",

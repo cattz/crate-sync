@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useJobs, useJobStats, useRetryJob, useCancelJob, useRetryAllJobs } from "../api/hooks.js";
+import { useJobs, useJobStats, useRetryJob, useCancelJob, useRetryAllJobs, useClearJobs } from "../api/hooks.js";
 import type { JobItem } from "../api/client.js";
 import { Link } from "react-router";
 
@@ -104,6 +104,7 @@ export function Queue() {
   });
   const { data: stats } = useJobStats();
   const retryAll = useRetryAllJobs();
+  const clearJobs = useClearJobs();
 
   if (isLoading) return <p className="text-muted">Loading jobs...</p>;
 
@@ -131,6 +132,18 @@ export function Queue() {
             <option value="validate">Validate</option>
             <option value="wishlist_run">Wishlist</option>
           </select>
+          <button
+            onClick={() => clearJobs.mutate("done")}
+            disabled={clearJobs.isPending}
+          >
+            Clear Done
+          </button>
+          <button
+            onClick={() => clearJobs.mutate("failed")}
+            disabled={clearJobs.isPending}
+          >
+            Clear Failed
+          </button>
           {statusFilter === "failed" && (
             <button
               onClick={() => retryAll.mutate(typeFilter || undefined)}

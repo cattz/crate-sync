@@ -49,15 +49,18 @@ statusRoutes.get("/config", (c) => {
     soulseek: {
       slskdUrl: config.soulseek.slskdUrl,
       searchDelayMs: config.soulseek.searchDelayMs,
+      downloadTimeoutMs: config.soulseek.downloadTimeoutMs,
     },
     matching: config.matching,
     download: config.download,
+    jobRunner: config.jobRunner,
+    logging: config.logging,
   });
 });
 
 // PUT /api/config — update safe config values
 statusRoutes.put("/config", async (c) => {
-  const body = await c.req.json<Partial<Pick<Config, "matching" | "download">>>();
+  const body = await c.req.json<Partial<Pick<Config, "matching" | "download" | "jobRunner" | "soulseek" | "logging">>>();
   const config = loadConfig();
 
   if (body.matching) {
@@ -66,6 +69,15 @@ statusRoutes.put("/config", async (c) => {
     }
     if (body.matching.reviewThreshold != null) {
       config.matching.reviewThreshold = body.matching.reviewThreshold;
+    }
+    if (body.matching.notFoundThreshold != null) {
+      config.matching.notFoundThreshold = body.matching.notFoundThreshold;
+    }
+    if (body.matching.lexiconWeights) {
+      config.matching.lexiconWeights = { ...config.matching.lexiconWeights, ...body.matching.lexiconWeights };
+    }
+    if (body.matching.soulseekWeights) {
+      config.matching.soulseekWeights = { ...config.matching.soulseekWeights, ...body.matching.soulseekWeights };
     }
   }
 
@@ -78,6 +90,33 @@ statusRoutes.put("/config", async (c) => {
     }
     if (body.download.concurrency != null) {
       config.download.concurrency = body.download.concurrency;
+    }
+    if (body.download.validationStrictness != null) {
+      config.download.validationStrictness = body.download.validationStrictness as Config["download"]["validationStrictness"];
+    }
+  }
+
+  if (body.jobRunner) {
+    if (body.jobRunner.concurrency != null) {
+      config.jobRunner.concurrency = body.jobRunner.concurrency;
+    }
+    if (body.jobRunner.retentionDays != null) {
+      config.jobRunner.retentionDays = body.jobRunner.retentionDays;
+    }
+  }
+
+  if (body.soulseek) {
+    if (body.soulseek.downloadTimeoutMs != null) {
+      config.soulseek.downloadTimeoutMs = body.soulseek.downloadTimeoutMs;
+    }
+  }
+
+  if (body.logging) {
+    if (body.logging.level != null) {
+      config.logging.level = body.logging.level;
+    }
+    if (body.logging.file != null) {
+      config.logging.file = body.logging.file;
     }
   }
 

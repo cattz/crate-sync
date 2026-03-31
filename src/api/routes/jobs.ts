@@ -161,6 +161,24 @@ jobRoutes.delete("/:id", (c) => {
   return c.json({ ok: true });
 });
 
+// DELETE /api/jobs — bulk-delete jobs by status (done or failed)
+jobRoutes.delete("/", (c) => {
+  const db = getDb();
+  const status = c.req.query("status");
+
+  if (status !== "done" && status !== "failed") {
+    return c.json({ error: "Query param ?status must be 'done' or 'failed'" }, 400);
+  }
+
+  const result = db
+    .delete(schema.jobs)
+    .where(eq(schema.jobs.status, status as schema.JobStatus))
+    .returning()
+    .all();
+
+  return c.json({ deleted: result.length });
+});
+
 // POST /api/jobs/wishlist/run — trigger a wishlist run
 jobRoutes.post("/wishlist/run", (c) => {
   const db = getDb();

@@ -375,3 +375,14 @@ export function useRetryAllJobs() {
     },
   });
 }
+
+export function useClearJobs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (status: "done" | "failed") => api.clearJobs(status),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job-stats"] });
+    },
+  });
+}

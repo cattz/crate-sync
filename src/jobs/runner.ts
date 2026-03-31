@@ -144,6 +144,35 @@ export function createJob(
 let running = false;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let scanInterval: ReturnType<typeof setInterval> | null = null;
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Purge completed/failed jobs older than retentionDays.
+ */
+function purgeOldJobs(retentionDays: number): void {
+  try {
+    const db = getDb();
+    const cutoff = Date.now() - retentionDays * 86_400_000;
+    const result = db
+      .delete(schema.jobs)
+      .where(
+        and(
+          sql`${schema.jobs.status} IN ('done', 'failed')`,
+          sql`${schema.jobs.completedAt} < ${cutoff}`,
+        ),
+      )
+      .returning()
+      .all();
+
+    if (result.length > 0) {
+      log.info(`Purged ${result.length} old jobs (retention: ${retentionDays}d)`);
+    }
+  } catch (err) {
+    log.error("Failed to purge old jobs", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 /**
  * Create a download_scan job if none is already queued or running.
@@ -242,6 +271,12 @@ export function startJobRunner(config: Config): void {
   scanInterval = setInterval(scheduleDownloadScan, scanIntervalMs);
   log.info("Download scanner scheduled", { intervalMs: scanIntervalMs });
 
+  // Start periodic job cleanup (once per hour)
+  const retentionDays = config.jobRunner.retentionDays ?? 7;
+  purgeOldJobs(retentionDays); // run once on startup
+  cleanupInterval = setInterval(() => purgeOldJobs(retentionDays), 3_600_000);
+  log.info("Job cleanup scheduled", { retentionDays, intervalMs: 3_600_000 });
+
   // Start polling
   poll();
 }
@@ -258,6 +293,10 @@ export function stopJobRunner(): void {
   if (scanInterval) {
     clearInterval(scanInterval);
     scanInterval = null;
+  }
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
   }
   log.info("Job runner stopped");
 }

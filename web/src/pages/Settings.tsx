@@ -12,6 +12,7 @@ export function Settings() {
   const [minBitrate, setMinBitrate] = useState(320);
   const [concurrency, setConcurrency] = useState(3);
   const [jobConcurrency, setJobConcurrency] = useState(3);
+  const [jobRetentionDays, setJobRetentionDays] = useState(7);
   const [validationStrictness, setValidationStrictness] = useState("moderate");
   const [downloadTimeoutMin, setDownloadTimeoutMin] = useState(30);
   const [logLevel, setLogLevel] = useState("info");
@@ -32,7 +33,10 @@ export function Settings() {
       if (config.soulseek?.downloadTimeoutMs) {
         setDownloadTimeoutMin(Math.round(config.soulseek.downloadTimeoutMs / 60_000));
       }
-      if (config.jobRunner) setJobConcurrency(config.jobRunner.concurrency ?? 3);
+      if (config.jobRunner) {
+        setJobConcurrency(config.jobRunner.concurrency ?? 3);
+        setJobRetentionDays(config.jobRunner.retentionDays ?? 7);
+      }
       if (config.logging) {
         setLogLevel(config.logging.level);
         setLogFile(config.logging.file);
@@ -60,7 +64,7 @@ export function Settings() {
       soulseek: {
         downloadTimeoutMs: downloadTimeoutMin * 60_000,
       },
-      jobRunner: { concurrency: jobConcurrency },
+      jobRunner: { concurrency: jobConcurrency, retentionDays: jobRetentionDays },
       logging: { level: logLevel, file: logFile },
     });
     setSaved(true);
@@ -120,7 +124,7 @@ export function Settings() {
       <div className="card">
         <h3 style={{ marginBottom: "0.5rem" }}>Download Settings</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: "1rem", maxWidth: 1050 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr 1fr", gap: "1rem", maxWidth: 1200 }}>
           <div>
             <label className="text-muted text-sm">Formats</label>
             <input
@@ -161,6 +165,18 @@ export function Settings() {
               onChange={(e) => setJobConcurrency(Number(e.target.value))}
               style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
             />
+          </div>
+          <div>
+            <label className="text-muted text-sm">Job Retention (days)</label>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={jobRetentionDays}
+              onChange={(e) => setJobRetentionDays(Number(e.target.value))}
+              style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
+            />
+            <span className="text-muted" style={{ fontSize: "0.7rem" }}>Auto-purge done/failed jobs.</span>
           </div>
           <div>
             <label className="text-muted text-sm">Validation Strictness</label>

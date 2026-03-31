@@ -133,6 +133,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ type }),
     }),
+  clearJobs: (status: "done" | "failed") =>
+    request<{ deleted: number }>(`/jobs?status=${status}`, { method: "DELETE" }),
   jobEvents: () => new EventSource(`${BASE}/jobs/stream`),
 };
 
@@ -265,8 +267,11 @@ export interface HealthStatus {
 }
 
 export interface AppConfig {
-  matching: { autoAcceptThreshold: number; reviewThreshold: number };
+  matching: { autoAcceptThreshold: number; reviewThreshold: number; notFoundThreshold?: number; lexiconWeights?: { title: number; artist: number; album: number; duration: number }; soulseekWeights?: { title: number; artist: number; album: number; duration: number } };
   download: { formats: string[]; minBitrate: number; concurrency: number; validationStrictness: string };
+  jobRunner?: { concurrency?: number; retentionDays?: number };
+  soulseek?: { downloadTimeoutMs?: number };
+  logging?: { level: string; file: boolean };
 }
 
 export interface DryRunResult {
