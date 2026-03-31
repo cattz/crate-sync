@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useStatus, usePlaylists, useReviewStats, useDownloads, useJobStats, useStartSpotifyLogin, useSpotifyAuthStatus, useSpotifyLogout, useConnectSoulseek, useDisconnectSoulseek } from "../api/hooks.js";
+import { useStatus, usePlaylists, useReviewStats, useDownloads, useJobStats, useRecentDownloads, useStartSpotifyLogin, useSpotifyAuthStatus, useSpotifyLogout, useConnectSoulseek, useDisconnectSoulseek } from "../api/hooks.js";
+import type { RecentDownload } from "../api/client.js";
 
 export function Dashboard() {
   const { data: status, isLoading: statusLoading } = useStatus();
@@ -7,6 +8,7 @@ export function Dashboard() {
   const { data: reviewStats } = useReviewStats();
   const { data: recentDownloads } = useDownloads();
   const { data: jobStats } = useJobStats();
+  const { data: recentlyAdded } = useRecentDownloads();
 
   if (statusLoading) return <p className="text-muted">Loading...</p>;
 
@@ -69,6 +71,8 @@ export function Dashboard() {
           </table>
         )}
       </div>
+
+      <RecentlyAddedCard items={recentlyAdded ?? []} />
     </>
   );
 }
@@ -268,5 +272,58 @@ function SoulseekRow({ status }: { status: { ok: boolean; error?: string } }) {
         </tr>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Recently Added to Lexicon
+// ---------------------------------------------------------------------------
+
+function timeAgo(ts: number | null): string {
+  if (!ts) return "—";
+  const diff = Date.now() - ts;
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function RecentlyAddedCard({ items }: { items: RecentDownload[] }) {
+  const display = items.slice(0, 20);
+
+  return (
+    <div className="card">
+      <h3 style={{ marginBottom: "0.4rem" }}>Recently Added to Lexicon</h3>
+      {display.length === 0 ? (
+        <p className="text-muted">No tracks added yet</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Artist</th>
+              <th>Title</th>
+              <th>Playlist</th>
+            </tr>
+          </thead>
+          <tbody>
+            {display.map((d) => (
+              <tr key={d.id}>
+                <td className="text-muted text-sm" style={{ whiteSpace: "nowrap" }}>
+                  {timeAgo(d.completedAt)}
+                </td>
+                <td>{d.trackArtist}</td>
+                <td>{d.trackTitle}</td>
+                <td className="text-muted text-sm">{d.playlistName ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }

@@ -2,12 +2,36 @@ import { Hono } from "hono";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getDb } from "../../db/client.js";
-import { downloads, tracks } from "../../db/schema.js";
+import { downloads, tracks, playlists } from "../../db/schema.js";
 import { eq, desc, inArray } from "drizzle-orm";
 import { loadConfig } from "../../config.js";
 import { DownloadService } from "../../services/download-service.js";
 
 export const downloadRoutes = new Hono();
+
+// GET /api/downloads/recent — last 50 completed downloads with track + playlist info
+downloadRoutes.get("/recent", (c) => {
+  const db = getDb();
+
+  const rows = db
+    .select({
+      id: downloads.id,
+      trackTitle: tracks.title,
+      trackArtist: tracks.artist,
+      playlistName: playlists.name,
+      filePath: downloads.filePath,
+      completedAt: downloads.completedAt,
+    })
+    .from(downloads)
+    .innerJoin(tracks, eq(downloads.trackId, tracks.id))
+    .leftJoin(playlists, eq(downloads.playlistId, playlists.id))
+    .where(eq(downloads.status, "done"))
+    .orderBy(desc(downloads.completedAt))
+    .limit(50)
+    .all();
+
+  return c.json(rows);
+});
 
 // GET /api/downloads?status=pending&playlistId=xxx
 downloadRoutes.get("/", (c) => {

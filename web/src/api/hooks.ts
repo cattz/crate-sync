@@ -166,6 +166,14 @@ export function useDownloads(status?: string) {
   });
 }
 
+export function useRecentDownloads() {
+  return useQuery({
+    queryKey: ["recent-downloads"],
+    queryFn: api.getRecentDownloads,
+    staleTime: 30_000,
+  });
+}
+
 export function useClearDownloads() {
   const qc = useQueryClient();
   return useMutation({

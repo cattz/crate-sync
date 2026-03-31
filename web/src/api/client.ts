@@ -68,6 +68,8 @@ export const api = {
   // Downloads
   getDownloads: (status?: string) =>
     request<DownloadWithTrack[]>(`/downloads${status ? `?status=${status}` : ""}`),
+  getRecentDownloads: () =>
+    request<RecentDownload[]>("/downloads/recent"),
   clearDownloads: (status: "done" | "failed") =>
     request<{ deleted: number }>(`/downloads?status=${status}`, { method: "DELETE" }),
   deleteDownloadFile: (id: string) =>
@@ -379,3 +381,12 @@ export interface BulkRenamePreview {
 }
 
 export type BulkRenameResult = BulkRenamePreview[];
+
+export interface RecentDownload {
+  id: string;
+  trackTitle: string;
+  trackArtist: string;
+  playlistName: string | null;
+  filePath: string | null;
+  completedAt: number | null;
+}
