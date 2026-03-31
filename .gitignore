@@ -7,6 +7,7 @@ node_modules
 dist
 data
 *.db
+*.log
 .env
 .env.local
 .claude/worktrees/

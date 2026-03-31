@@ -30,10 +30,12 @@ program
   .version("0.1.0")
   .option("--debug", "Enable debug logging to ./data/crate-sync.log")
   .hook("preAction", () => {
+    // Always log to file
+    setLogFile("./data/crate-sync.log");
+
     const opts = program.opts();
     if (opts.debug) {
       setLogLevel("debug");
-      setLogFile("./data/crate-sync.log");
     }
   });
 
