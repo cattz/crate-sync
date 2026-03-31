@@ -35,6 +35,7 @@ export interface MatchingWeights {
 export interface MatchingConfig {
   autoAcceptThreshold: number;
   reviewThreshold: number;
+  notFoundThreshold: number;
   lexiconWeights: MatchingWeights;
   soulseekWeights: MatchingWeights;
 }
@@ -95,6 +96,7 @@ const defaults: Config = {
   matching: {
     autoAcceptThreshold: 0.9,
     reviewThreshold: 0.7,
+    notFoundThreshold: 0.4,
     lexiconWeights: { title: 0.3, artist: 0.3, album: 0.15, duration: 0.25 },
     soulseekWeights: { title: 0.3, artist: 0.25, album: 0.1, duration: 0.35 },
   },

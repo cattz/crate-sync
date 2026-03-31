@@ -100,3 +100,35 @@ function hasRemixKeyword(s: string): boolean {
   const words = s.split(/\s+/);
   return words.some((w) => REMIX_KEYWORDS.has(w.replace(/[^\w]/g, "")));
 }
+
+// Camelot key notation: 1A-12B, or standard keys like Am, Cm, etc.
+const KEY_BPM_PATTERN = /\b(?:[0-9]{1,2}[ABab]\s+\d{2,3}|\d{2,3}\s+[0-9]{1,2}[ABab]|[A-G][b#]?m?\s+\d{2,3})\s*$/;
+
+// DJ suffix keywords that appear in parentheses/brackets
+const DJ_SUFFIX_KEYWORDS = new Set([
+  "clean", "dirty", "intro", "outro", "short", "long",
+  "quick", "transition", "qh", "tmu",
+  ...REMIX_KEYWORDS,
+]);
+
+/**
+ * Normalize a title for matching: strip all parenthetical/bracket content,
+ * trailing key/BPM patterns, and "feat."/"ft." credits.
+ */
+export function normalizeTitle(title: string): string {
+  let result = title;
+
+  // Strip all parenthetical and bracket groups
+  result = result.replace(/\s*[\(\[][^\)\]]*[\)\]]\s*/g, " ");
+
+  // Strip trailing key/BPM patterns (e.g. "4A 107", "Am 128")
+  result = result.replace(KEY_BPM_PATTERN, "");
+
+  // Strip feat./ft. credits
+  result = result.replace(/\s*(feat\.?|ft\.?)\s+.*/i, "");
+
+  // Collapse whitespace and trim
+  result = result.replace(/\s+/g, " ").trim();
+
+  return result || title; // fallback to original if everything was stripped
+}

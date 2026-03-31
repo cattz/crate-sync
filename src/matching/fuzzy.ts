@@ -8,6 +8,7 @@ import type {
 import {
   normalizeBase,
   normalizeArtist,
+  normalizeTitle,
   removeStopwords,
   stripRemixSuffix,
 } from "./normalize.js";
@@ -184,15 +185,27 @@ export class FuzzyMatchStrategy implements MatchStrategy {
         continue;
       }
 
-      // Title score with remix fallback
+      // Title score with remix fallback, then DJ suffix fallback
       let titleScore = stringSimilarity(srcTitle, candTitle);
       if (titleScore < this.config.reviewThreshold) {
+        // Try stripping remix suffixes
         const strippedSrc = normalizeBase(stripRemixSuffix(source.title));
         const strippedCand = normalizeBase(stripRemixSuffix(candidate.title));
         if (strippedSrc !== srcTitle || strippedCand !== candTitle) {
           titleScore = Math.max(
             titleScore,
             stringSimilarity(strippedSrc, strippedCand),
+          );
+        }
+      }
+      if (titleScore < this.config.reviewThreshold) {
+        // Try stripping all DJ suffixes (parenthetical, key/BPM, feat.)
+        const djSrc = normalizeBase(normalizeTitle(source.title));
+        const djCand = normalizeBase(normalizeTitle(candidate.title));
+        if (djSrc !== srcTitle || djCand !== candTitle) {
+          titleScore = Math.max(
+            titleScore,
+            stringSimilarity(djSrc, djCand),
           );
         }
       }

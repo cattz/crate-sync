@@ -430,16 +430,27 @@ export class SyncPipeline {
       // Run matcher against all Lexicon candidates
       const results = matcher.match(trackInfo, lexiconCandidates);
 
-      // Find the best result that isn't in a rejected pair
+      // Find best result, re-evaluating rejected pairs if score improved
+      const notFoundThreshold = this.config.matching.notFoundThreshold ?? 0.4;
       let best: (typeof results)[0] | undefined;
       let lexiconTrackId: string | undefined;
+      let wasRejectedPair = false;
 
       for (const candidate of results) {
         const lexIdx = lexiconCandidates.indexOf(candidate.candidate);
         const candidateId = lexIdx >= 0 ? lexiconTracks[lexIdx].id : undefined;
 
-        if (candidateId && rejectedPairs.has(`${dbTrackId}:${candidateId}`)) {
-          continue; // This specific pair was rejected, try next
+        const isRejected = candidateId && rejectedPairs.has(`${dbTrackId}:${candidateId}`);
+
+        if (isRejected) {
+          // Re-evaluate: if score now crosses review threshold, allow it
+          if (candidate.score >= notFoundThreshold) {
+            best = candidate;
+            lexiconTrackId = candidateId;
+            wasRejectedPair = true;
+            break;
+          }
+          continue; // Still too low, skip
         }
 
         best = candidate;
@@ -447,7 +458,7 @@ export class SyncPipeline {
         break;
       }
 
-      if (!best) {
+      if (!best || best.score < notFoundThreshold) {
         notFound.push({ dbTrackId, track: trackInfo });
         continue;
       }
@@ -464,10 +475,9 @@ export class SyncPipeline {
 
       if (best.confidence === "high") {
         confirmed.push(matched);
-      } else if (best.confidence === "review") {
-        pending.push(matched);
       } else {
-        notFound.push({ dbTrackId, track: trackInfo });
+        // Both "review" and "low" confidence go to pending if above notFoundThreshold
+        pending.push(matched);
       }
 
       // Build target metadata for review service
@@ -479,9 +489,7 @@ export class SyncPipeline {
       const status =
         best.confidence === "high"
           ? ("confirmed" as const)
-          : best.confidence === "review"
-            ? ("pending" as const)
-            : ("rejected" as const);
+          : ("pending" as const);
 
       if (lexiconTrackId) {
         newMatchRows.push({

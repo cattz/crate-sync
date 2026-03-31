@@ -7,6 +7,7 @@ export function Settings() {
 
   const [autoAccept, setAutoAccept] = useState(0.9);
   const [review, setReview] = useState(0.7);
+  const [notFound, setNotFound] = useState(0.4);
   const [formats, setFormats] = useState("flac, mp3");
   const [minBitrate, setMinBitrate] = useState(320);
   const [concurrency, setConcurrency] = useState(3);
@@ -22,6 +23,7 @@ export function Settings() {
     if (config) {
       setAutoAccept(config.matching.autoAcceptThreshold);
       setReview(config.matching.reviewThreshold);
+      setNotFound(config.matching.notFoundThreshold ?? 0.4);
       setFormats(config.download.formats.join(", "));
       setMinBitrate(config.download.minBitrate);
       setConcurrency(config.download.concurrency);
@@ -41,6 +43,7 @@ export function Settings() {
       matching: {
         autoAcceptThreshold: autoAccept,
         reviewThreshold: review,
+        notFoundThreshold: notFound,
         lexiconWeights: lexW,
         soulseekWeights: slskW,
       },
@@ -66,7 +69,7 @@ export function Settings() {
       <div className="card">
         <h3 style={{ marginBottom: "0.5rem" }}>Matching Thresholds</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", maxWidth: 500 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", maxWidth: 600 }}>
           <div>
             <label className="text-muted text-sm">Auto-Accept Threshold</label>
             <input
@@ -90,6 +93,19 @@ export function Settings() {
               onChange={(e) => setReview(Number(e.target.value))}
               style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
             />
+          </div>
+          <div>
+            <label className="text-muted text-sm">Not-Found Threshold</label>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={notFound}
+              onChange={(e) => setNotFound(Number(e.target.value))}
+              style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
+            />
+            <span className="text-muted" style={{ fontSize: "0.7rem" }}>Below this → download. Above → review.</span>
           </div>
         </div>
       </div>
