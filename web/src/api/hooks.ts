@@ -176,6 +176,26 @@ export function useClearDownloads() {
   });
 }
 
+export function useDeleteDownloadFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteDownloadFile(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["downloads"] });
+    },
+  });
+}
+
+export function useCleanEmptyDirs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.cleanEmptyDirs,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["downloads"] });
+    },
+  });
+}
+
 // Wishlist
 
 export function useWishlistRun() {

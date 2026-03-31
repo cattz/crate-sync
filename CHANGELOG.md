@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **Cleanup failed download files and empty folders** — `DELETE /api/downloads/:id/file` endpoint to delete physical files for failed downloads. "Delete File" button in web UI for failed downloads. `downloads clean --failed --empty-dirs` CLI command. Auto-cleanup of empty source directories after file moves.
 - **Single track sync with Lexicon** — `matchTrack()` method on SyncPipeline, `POST /api/sync/track/:id` endpoint, "Sync with Lexicon" button on TrackDetail page, and `sync track <id>` CLI subcommand. Matches one track, tags if confirmed, respects rejection memory.
 - **Multi-select and bulk toolbar** in web UI — reusable `useMultiSelect` hook, floating `BulkToolbar` component, checkbox selection in playlist table with select-all toggle, bulk delete and bulk merge actions.
 - **Bulk rename** — `POST /api/playlists/bulk-rename` with find-replace, prefix, and suffix modes. Mandatory dry-run preview before applying. Web UI modal with mode selector and preview table.

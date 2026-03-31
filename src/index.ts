@@ -11,6 +11,7 @@ import { registerReviewCommands } from "./commands/review.js";
 import { registerSyncCommand } from "./commands/sync.js";
 import { registerServeCommand } from "./commands/serve.js";
 import { registerJobCommands } from "./commands/jobs.js";
+import { registerDownloadCommands } from "./commands/download.js";
 import { setupShutdownHandler, onShutdown } from "./utils/shutdown.js";
 import { closeDb, getDb } from "./db/client.js";
 import { loadConfig } from "./config.js";
@@ -103,5 +104,6 @@ registerReviewCommands(program);
 registerSyncCommand(program);
 registerServeCommand(program);
 registerJobCommands(program);
+registerDownloadCommands(program);
 
 program.parse();

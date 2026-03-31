@@ -1,7 +1,11 @@
 import { Hono } from "hono";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { getDb } from "../../db/client.js";
 import { downloads, tracks } from "../../db/schema.js";
 import { eq, desc, inArray } from "drizzle-orm";
+import { loadConfig } from "../../config.js";
+import { DownloadService } from "../../services/download-service.js";
 
 export const downloadRoutes = new Hono();
 
@@ -58,6 +62,24 @@ downloadRoutes.delete("/", (c) => {
   return c.json({ deleted: ids.length });
 });
 
+// POST /api/downloads/clean-empty-dirs — remove empty subdirectories from slskd downloads
+// (must be registered before /:id to avoid matching "clean-empty-dirs" as an id)
+downloadRoutes.post("/clean-empty-dirs", (c) => {
+  const db = getDb();
+  const config = loadConfig();
+
+  const svc = new DownloadService(
+    db,
+    config.soulseek,
+    config.download,
+    config.lexicon,
+    config.matching,
+  );
+  const removed = svc.cleanupEmptyDirs();
+
+  return c.json({ removed });
+});
+
 // GET /api/downloads/:id
 downloadRoutes.get("/:id", (c) => {
   const db = getDb();
@@ -69,4 +91,49 @@ downloadRoutes.get("/:id", (c) => {
 
   const track = db.select().from(tracks).where(eq(tracks.id, download.trackId)).get();
   return c.json({ ...download, track });
+});
+
+// DELETE /api/downloads/:id/file — delete the physical file for a download
+downloadRoutes.delete("/:id/file", (c) => {
+  const db = getDb();
+  const config = loadConfig();
+  const download = db.select().from(downloads).where(eq(downloads.id, c.req.param("id"))).get();
+
+  if (!download) {
+    return c.json({ error: "Download not found" }, 404);
+  }
+
+  // Try to find the file: check soulseekPath first, then filePath
+  const filePath = download.soulseekPath ?? download.filePath;
+  if (!filePath) {
+    return c.json({ deleted: false, reason: "No file path recorded" });
+  }
+
+  // Also check inside slskd download dir if path is relative
+  const resolvedPath = filePath.startsWith("/")
+    ? filePath
+    : join(config.soulseek.downloadDir, filePath);
+
+  if (!existsSync(resolvedPath)) {
+    return c.json({ deleted: false, reason: "File not found on disk" });
+  }
+
+  const svc = new DownloadService(
+    db,
+    config.soulseek,
+    config.download,
+    config.lexicon,
+    config.matching,
+  );
+  const deleted = svc.deleteDownloadFile(resolvedPath);
+
+  if (deleted) {
+    // Clear the file path from the download record
+    db.update(downloads)
+      .set({ soulseekPath: null, filePath: null })
+      .where(eq(downloads.id, download.id))
+      .run();
+  }
+
+  return c.json({ deleted });
 });

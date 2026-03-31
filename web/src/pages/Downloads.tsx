@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useDownloads, useWishlistRun, useClearDownloads } from "../api/hooks.js";
+import { useDownloads, useWishlistRun, useClearDownloads, useDeleteDownloadFile, useCleanEmptyDirs } from "../api/hooks.js";
 
 const statusBadge: Record<string, string> = {
   pending: "badge-gray",
@@ -26,6 +26,8 @@ export function Downloads() {
   const { data: downloads, isLoading } = useDownloads(filter || undefined);
   const wishlist = useWishlistRun();
   const clearDownloads = useClearDownloads();
+  const deleteFile = useDeleteDownloadFile();
+  const cleanDirs = useCleanEmptyDirs();
 
   if (isLoading) return <p className="text-muted">Loading downloads...</p>;
 
@@ -54,6 +56,16 @@ export function Downloads() {
             Clear Failed
           </button>
           <button
+            onClick={() => cleanDirs.mutate()}
+            disabled={cleanDirs.isPending}
+          >
+            {cleanDirs.isPending
+              ? "Cleaning..."
+              : cleanDirs.isSuccess
+                ? `Removed ${cleanDirs.data.removed} dirs`
+                : "Clean Empty Dirs"}
+          </button>
+          <button
             onClick={() => wishlist.mutate()}
             disabled={wishlist.isPending}
           >
@@ -76,6 +88,7 @@ export function Downloads() {
               <th>File</th>
               <th>Error</th>
               <th style={{ width: "1%" }}>Completed</th>
+              <th style={{ width: "1%" }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -111,11 +124,23 @@ export function Downloads() {
                   )}
                 </td>
                 <td className="text-muted text-sm">{formatTime(d.completedAt)}</td>
+                <td>
+                  {d.status === "failed" && (d.soulseekPath || d.filePath) && (
+                    <button
+                      className="btn-sm btn-danger"
+                      onClick={() => deleteFile.mutate(d.id)}
+                      disabled={deleteFile.isPending}
+                      title="Delete file from disk"
+                    >
+                      Delete File
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
             {downloads?.length === 0 && (
               <tr>
-                <td colSpan={6} className="text-muted">
+                <td colSpan={7} className="text-muted">
                   No downloads.
                 </td>
               </tr>

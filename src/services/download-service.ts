@@ -6,6 +6,7 @@ import {
   existsSync,
   readdirSync,
   statSync,
+  rmdirSync,
 } from "node:fs";
 import { extname, join, basename, dirname } from "node:path";
 import { parseFile } from "music-metadata";
@@ -695,7 +696,62 @@ export class DownloadService {
       unlinkSync(tempPath);
     }
 
+    // Clean up empty source directory after move
+    this.cleanupEmptyDir(dirname(tempPath));
+
     return destPath;
+  }
+
+  /**
+   * Delete a download file by its filesystem path.
+   * Returns true if deleted, false if not found.
+   */
+  deleteDownloadFile(filePath: string): boolean {
+    if (!existsSync(filePath)) return false;
+    try {
+      unlinkSync(filePath);
+      // Also clean up the parent directory if now empty
+      this.cleanupEmptyDir(dirname(filePath));
+      return true;
+    } catch (err) {
+      log.warn(`Failed to delete file`, { filePath, error: String(err) });
+      return false;
+    }
+  }
+
+  /**
+   * Scan the slskd download directory and remove all empty subdirectories.
+   * Returns the number of directories removed.
+   */
+  cleanupEmptyDirs(): number {
+    if (!existsSync(this.slskdDownloadDir)) return 0;
+
+    let removed = 0;
+    try {
+      const entries = readdirSync(this.slskdDownloadDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const subdir = join(this.slskdDownloadDir, entry.name);
+        if (this.isDirEmpty(subdir)) {
+          try {
+            rmdirSync(subdir);
+            removed++;
+            log.debug(`Removed empty directory`, { dir: subdir });
+          } catch {
+            // ignore — might be in use
+          }
+        }
+      }
+    } catch {
+      // ignore read errors
+    }
+
+    return removed;
+  }
+
+  /** Get the slskd download directory path. */
+  getSlskdDownloadDir(): string {
+    return this.slskdDownloadDir;
   }
 
   // ---------------------------------------------------------------------------
@@ -748,6 +804,35 @@ export class DownloadService {
     }
 
     return null;
+  }
+
+  /**
+   * Remove a directory if it is empty. Does not recurse into parent dirs
+   * to avoid accidentally removing the slskd root.
+   */
+  private cleanupEmptyDir(dir: string): void {
+    // Safety: never remove the download root itself
+    if (dir === this.slskdDownloadDir || dir === this.downloadRoot) return;
+    if (!existsSync(dir)) return;
+
+    if (this.isDirEmpty(dir)) {
+      try {
+        rmdirSync(dir);
+        log.debug(`Removed empty directory after move`, { dir });
+      } catch {
+        // ignore — directory might be in use
+      }
+    }
+  }
+
+  /** Check if a directory is empty (no files or subdirs). */
+  private isDirEmpty(dir: string): boolean {
+    try {
+      const entries = readdirSync(dir);
+      return entries.length === 0;
+    } catch {
+      return false;
+    }
   }
 
   /** Find best matching file in a directory by base name and extension. */

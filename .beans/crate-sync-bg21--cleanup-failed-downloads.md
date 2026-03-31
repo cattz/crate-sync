@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg21
 title: Clean up failed download files and empty folders
-status: todo
+status: done
 type: task
 priority: normal
 created_at: 2026-03-31T00:00:00Z

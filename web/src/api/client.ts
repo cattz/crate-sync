@@ -70,6 +70,10 @@ export const api = {
     request<DownloadWithTrack[]>(`/downloads${status ? `?status=${status}` : ""}`),
   clearDownloads: (status: "done" | "failed") =>
     request<{ deleted: number }>(`/downloads?status=${status}`, { method: "DELETE" }),
+  deleteDownloadFile: (id: string) =>
+    request<{ deleted: boolean; reason?: string }>(`/downloads/${id}/file`, { method: "DELETE" }),
+  cleanEmptyDirs: () =>
+    request<{ removed: number }>("/downloads/clean-empty-dirs", { method: "POST" }),
 
   // Wishlist
   runWishlist: () =>
