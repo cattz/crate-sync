@@ -10,6 +10,7 @@ export function Settings() {
   const [formats, setFormats] = useState("flac, mp3");
   const [minBitrate, setMinBitrate] = useState(320);
   const [concurrency, setConcurrency] = useState(3);
+  const [jobConcurrency, setJobConcurrency] = useState(3);
   const [validationStrictness, setValidationStrictness] = useState("moderate");
   const [logLevel, setLogLevel] = useState("info");
   const [logFile, setLogFile] = useState(true);
@@ -25,6 +26,7 @@ export function Settings() {
       setMinBitrate(config.download.minBitrate);
       setConcurrency(config.download.concurrency);
       setValidationStrictness(config.download.validationStrictness);
+      if (config.jobRunner) setJobConcurrency(config.jobRunner.concurrency ?? 3);
       if (config.logging) {
         setLogLevel(config.logging.level);
         setLogFile(config.logging.file);
@@ -48,6 +50,7 @@ export function Settings() {
         concurrency,
         validationStrictness,
       },
+      jobRunner: { concurrency: jobConcurrency },
       logging: { level: logLevel, file: logFile },
     });
     setSaved(true);
@@ -94,7 +97,7 @@ export function Settings() {
       <div className="card">
         <h3 style={{ marginBottom: "0.5rem" }}>Download Settings</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "1rem", maxWidth: 900 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: "1rem", maxWidth: 900 }}>
           <div>
             <label className="text-muted text-sm">Formats</label>
             <input
@@ -115,13 +118,24 @@ export function Settings() {
             />
           </div>
           <div>
-            <label className="text-muted text-sm">Concurrency</label>
+            <label className="text-muted text-sm">Download Concurrency</label>
             <input
               type="number"
               min={1}
               max={10}
               value={concurrency}
               onChange={(e) => setConcurrency(Number(e.target.value))}
+              style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
+            />
+          </div>
+          <div>
+            <label className="text-muted text-sm">Job Concurrency</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={jobConcurrency}
+              onChange={(e) => setJobConcurrency(Number(e.target.value))}
               style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
             />
           </div>
