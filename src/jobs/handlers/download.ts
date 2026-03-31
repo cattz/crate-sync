@@ -4,7 +4,11 @@ import type { Job } from "../../db/schema.js";
 import { getDb } from "../../db/client.js";
 import * as schema from "../../db/schema.js";
 import { DownloadService } from "../../services/download-service.js";
-import { completeJob, createJob } from "../runner.js";
+import { SoulseekService } from "../../services/soulseek-service.js";
+import { completeJob } from "../runner.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("download-handler");
 
 interface DownloadPayload {
   trackId: string;
@@ -24,20 +28,28 @@ interface DownloadPayload {
 }
 
 /**
- * Download a single track via acquireAndMove, then create a validate job.
+ * Fire-and-forget download handler.
+ *
+ * Initiates the slskd transfer, checks if the file already exists on disk,
+ * and either completes immediately (file found + valid) or records the
+ * download as "downloading" for the background scanner to pick up.
  */
 export async function handleDownload(job: Job, config: Config): Promise<void> {
   const payload: DownloadPayload = JSON.parse(job.payload ?? "{}");
   const db = getDb();
 
-  // Record download state: searching → downloading
+  const { username, filename, size } = payload.file;
+
+  // Record download state
   const downloadRow = db
     .insert(schema.downloads)
     .values({
       trackId: payload.trackId,
       playlistId: payload.playlistId,
       status: "downloading",
-      soulseekPath: payload.file.filename,
+      soulseekPath: filename,
+      slskdUsername: username,
+      slskdFilename: filename,
       startedAt: Date.now(),
     })
     .returning()
@@ -56,6 +68,8 @@ export async function handleDownload(job: Job, config: Config): Promise<void> {
     config.lexicon,
   );
 
+  const soulseek = new SoulseekService(config.soulseek);
+
   const track = {
     title: payload.title,
     artist: payload.artist,
@@ -64,9 +78,9 @@ export async function handleDownload(job: Job, config: Config): Promise<void> {
   };
 
   const slskdFile = {
-    filename: payload.file.filename,
-    size: payload.file.size,
-    username: payload.file.username,
+    filename,
+    size,
+    username,
     bitRate: payload.file.bitRate,
     sampleRate: undefined as number | undefined,
     bitDepth: undefined as number | undefined,
@@ -74,39 +88,61 @@ export async function handleDownload(job: Job, config: Config): Promise<void> {
     code: "1",
   };
 
-  // Use acquireAndMove which handles download, validate, and move
-  const result = await downloadService.acquireAndMove(
-    slskdFile,
-    track,
-    playlistName,
-    payload.trackId,
-  );
-
-  if (result.success) {
-    db.update(schema.downloads)
-      .set({
-        status: "done",
-        filePath: result.filePath,
-        completedAt: Date.now(),
-      })
-      .where(eq(schema.downloads.id, downloadRow.id))
-      .run();
-
-    completeJob(job.id, {
-      trackId: payload.trackId,
-      filePath: result.filePath,
-      strategy: payload.strategy,
-    });
-  } else {
-    db.update(schema.downloads)
-      .set({
-        status: "failed",
-        error: result.error,
-        completedAt: Date.now(),
-      })
-      .where(eq(schema.downloads.id, downloadRow.id))
-      .run();
-
-    throw new Error(result.error ?? "Download failed");
+  // 1. Initiate the download via slskd API (fire-and-forget)
+  try {
+    await soulseek.download(username, filename, size);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(`Failed to initiate download, may already be queued`, { filename, error: message });
+    // Don't fail — the file might already be downloading or completed from a previous attempt
   }
+
+  // 2. Check if file already exists on disk (from a previous run or fast transfer)
+  const tempPath = downloadService.findDownloadedFile(username, filename);
+
+  if (tempPath) {
+    log.debug(`File already on disk, validating immediately`, { filename, tempPath });
+
+    const valid = await downloadService.validateDownload(tempPath, track, payload.trackId, slskdFile);
+    if (valid) {
+      const finalPath = downloadService.moveToPlaylistFolder(tempPath, playlistName, track);
+
+      db.update(schema.downloads)
+        .set({
+          status: "done",
+          filePath: finalPath,
+          completedAt: Date.now(),
+        })
+        .where(eq(schema.downloads.id, downloadRow.id))
+        .run();
+
+      completeJob(job.id, {
+        trackId: payload.trackId,
+        filePath: finalPath,
+        strategy: payload.strategy,
+        immediate: true,
+      });
+      return;
+    }
+
+    // Validation failed — but we already recorded the rejection in validateDownload.
+    // Leave the download as "downloading" so the scanner can check for the next file,
+    // or it will time out and auto-retry.
+    log.debug(`File on disk failed validation, leaving for scanner`, { filename });
+  }
+
+  // 3. File not found or validation failed — leave status as "downloading"
+  //    The background download scanner will pick it up.
+  log.debug(`Download initiated, scanner will handle completion`, {
+    filename,
+    username,
+    downloadId: downloadRow.id,
+  });
+
+  completeJob(job.id, {
+    trackId: payload.trackId,
+    downloadId: downloadRow.id,
+    strategy: payload.strategy,
+    status: "downloading",
+  });
 }

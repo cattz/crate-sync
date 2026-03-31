@@ -13,6 +13,7 @@ export function Settings() {
   const [concurrency, setConcurrency] = useState(3);
   const [jobConcurrency, setJobConcurrency] = useState(3);
   const [validationStrictness, setValidationStrictness] = useState("moderate");
+  const [downloadTimeoutMin, setDownloadTimeoutMin] = useState(30);
   const [logLevel, setLogLevel] = useState("info");
   const [logFile, setLogFile] = useState(true);
   const [lexW, setLexW] = useState({ title: 0.3, artist: 0.3, album: 0.15, duration: 0.25 });
@@ -28,6 +29,9 @@ export function Settings() {
       setMinBitrate(config.download.minBitrate);
       setConcurrency(config.download.concurrency);
       setValidationStrictness(config.download.validationStrictness);
+      if (config.soulseek?.downloadTimeoutMs) {
+        setDownloadTimeoutMin(Math.round(config.soulseek.downloadTimeoutMs / 60_000));
+      }
       if (config.jobRunner) setJobConcurrency(config.jobRunner.concurrency ?? 3);
       if (config.logging) {
         setLogLevel(config.logging.level);
@@ -52,6 +56,9 @@ export function Settings() {
         minBitrate,
         concurrency,
         validationStrictness,
+      },
+      soulseek: {
+        downloadTimeoutMs: downloadTimeoutMin * 60_000,
       },
       jobRunner: { concurrency: jobConcurrency },
       logging: { level: logLevel, file: logFile },
@@ -113,7 +120,7 @@ export function Settings() {
       <div className="card">
         <h3 style={{ marginBottom: "0.5rem" }}>Download Settings</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: "1rem", maxWidth: 900 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: "1rem", maxWidth: 1050 }}>
           <div>
             <label className="text-muted text-sm">Formats</label>
             <input
@@ -166,6 +173,18 @@ export function Settings() {
               <option value="normal">Normal</option>
               <option value="relaxed">Relaxed</option>
             </select>
+          </div>
+          <div>
+            <label className="text-muted text-sm">Download Timeout (min)</label>
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={downloadTimeoutMin}
+              onChange={(e) => setDownloadTimeoutMin(Number(e.target.value))}
+              style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
+            />
+            <span className="text-muted" style={{ fontSize: "0.7rem" }}>Auto-retry after this.</span>
           </div>
         </div>
       </div>

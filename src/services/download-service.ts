@@ -754,6 +754,22 @@ export class DownloadService {
     return this.slskdDownloadDir;
   }
 
+  /**
+   * Check if a file's size is stable (not still being written to).
+   * Reads size, waits, reads again, returns true if unchanged.
+   */
+  async checkFileStable(filePath: string, waitMs = 5000): Promise<boolean> {
+    try {
+      const size1 = statSync(filePath).size;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      if (!existsSync(filePath)) return false;
+      const size2 = statSync(filePath).size;
+      return size1 === size2 && size1 > 0;
+    } catch {
+      return false;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -764,7 +780,7 @@ export class DownloadService {
    * overwrites (e.g. "file_639091878895823617.mp3"). We search the expected
    * directory for the most recent file matching the base name.
    */
-  private findDownloadedFile(_username: string, filename: string): string | null {
+  findDownloadedFile(_username: string, filename: string): string | null {
     // Extract just the filename (last segment) from the remote path
     const withoutShare = filename.replace(/^@@[^\\\/]+[\\\/]/, "");
     const normalized = withoutShare.replaceAll("\\", "/");

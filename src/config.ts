@@ -23,6 +23,10 @@ export interface SoulseekConfig {
   searchDelayMs: number;
   /** Host path where slskd stores completed downloads (maps to slskd's /app/downloads). */
   downloadDir: string;
+  /** Max time to wait for a download before marking it failed (default: 1800000 = 30min). */
+  downloadTimeoutMs: number;
+  /** How often the filesystem scanner checks for completed downloads (default: 15000 = 15s). */
+  fileScanIntervalMs: number;
 }
 
 export interface MatchingWeights {
@@ -92,6 +96,8 @@ const defaults: Config = {
     slskdApiKey: "",
     searchDelayMs: 5000,
     downloadDir: "",
+    downloadTimeoutMs: 1_800_000, // 30 minutes
+    fileScanIntervalMs: 15_000,   // 15 seconds
   },
   matching: {
     autoAcceptThreshold: 0.9,

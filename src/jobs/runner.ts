@@ -7,6 +7,7 @@ import { handleSpotifySync } from "./handlers/spotify-sync.js";
 import { handleLexiconMatch } from "./handlers/lexicon-match.js";
 import { handleSearch } from "./handlers/search.js";
 import { handleDownload } from "./handlers/download.js";
+import { handleDownloadScan } from "./handlers/download-scan.js";
 import { handleValidate } from "./handlers/validate.js";
 import { handleLexiconTag } from "./handlers/lexicon-tag.js";
 import { handleWishlistRun } from "./handlers/wishlist-run.js";
@@ -23,6 +24,7 @@ const handlers: Record<string, JobHandler> = {
   lexicon_match: handleLexiconMatch,
   search: handleSearch,
   download: handleDownload,
+  download_scan: handleDownloadScan,
   validate: handleValidate,
   lexicon_tag: handleLexiconTag,
   wishlist_run: handleWishlistRun,
@@ -141,6 +143,39 @@ export function createJob(
 
 let running = false;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let scanInterval: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Create a download_scan job if none is already queued or running.
+ */
+function scheduleDownloadScan(): void {
+  try {
+    const db = getDb();
+    const existing = db
+      .select()
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.type, "download_scan"),
+          sql`${schema.jobs.status} IN ('queued', 'running')`,
+        ),
+      )
+      .limit(1)
+      .get();
+
+    if (!existing) {
+      createJob({
+        type: "download_scan",
+        status: "queued",
+        priority: 1,
+      });
+    }
+  } catch (err) {
+    log.error(`Failed to schedule download scan`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 /**
  * Start the job runner polling loop.
@@ -202,6 +237,11 @@ export function startJobRunner(config: Config): void {
     }
   }
 
+  // Start the periodic download scanner
+  const scanIntervalMs = config.soulseek.fileScanIntervalMs ?? 15_000;
+  scanInterval = setInterval(scheduleDownloadScan, scanIntervalMs);
+  log.info("Download scanner scheduled", { intervalMs: scanIntervalMs });
+
   // Start polling
   poll();
 }
@@ -214,6 +254,10 @@ export function stopJobRunner(): void {
   if (pollTimer) {
     clearTimeout(pollTimer);
     pollTimer = null;
+  }
+  if (scanInterval) {
+    clearInterval(scanInterval);
+    scanInterval = null;
   }
   log.info("Job runner stopped");
 }

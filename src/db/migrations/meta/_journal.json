@@ -43,6 +43,13 @@
       "when": 1774816453237,
       "tag": "0005_illegal_shen",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1774967584840,
+      "tag": "0006_superb_leo",
+      "breakpoints": true
     }
   ]
 }
