@@ -392,6 +392,29 @@ export class SyncPipeline {
       }
     }
 
+    // 6b. Load completed downloads for placed-file matching
+    const completedDownloads = db
+      .select({ trackId: schema.downloads.trackId, filePath: schema.downloads.filePath })
+      .from(schema.downloads)
+      .where(and(eq(schema.downloads.status, "done"), sql`${schema.downloads.filePath} IS NOT NULL`))
+      .all();
+
+    const placedFileByTrackId = new Map<string, string>();
+    for (const d of completedDownloads) {
+      if (d.filePath) placedFileByTrackId.set(d.trackId, d.filePath);
+    }
+
+    // Build Lexicon filename → track index for placed-file lookup
+    const lexiconByFilename = new Map<string, number>();
+    for (let i = 0; i < lexiconTracks.length; i++) {
+      const fp = lexiconTracks[i].filePath;
+      if (fp) {
+        // Extract filename from Lexicon's full path (may have /Volumes/Macintosh HD prefix)
+        const fname = fp.split("/").pop()?.toLowerCase();
+        if (fname) lexiconByFilename.set(fname, i);
+      }
+    }
+
     // 7. Categorise each playlist track
     const confirmed: MatchedTrack[] = [];
     const pending: MatchedTrack[] = [];
@@ -425,6 +448,42 @@ export class SyncPipeline {
           method: prev.method,
         });
         continue;
+      }
+
+      // Check placed files: if we downloaded and moved a file for this track,
+      // look for the corresponding Lexicon track by filename
+      const placedPath = placedFileByTrackId.get(dbTrackId);
+      if (placedPath) {
+        const placedFilename = placedPath.split("/").pop()?.toLowerCase();
+        if (placedFilename) {
+          const lexIdx = lexiconByFilename.get(placedFilename);
+          if (lexIdx !== undefined) {
+            const lexTrack = lexiconTracks[lexIdx];
+            const matched: MatchedTrack = {
+              dbTrackId,
+              track: trackInfo,
+              lexiconTrackId: lexTrack.id,
+              lexiconTrack: lexiconCandidates[lexIdx],
+              score: 1.0,
+              confidence: "high",
+              method: "placed",
+            };
+            confirmed.push(matched);
+            newMatchRows.push({
+              sourceType: "spotify",
+              sourceId: dbTrackId,
+              targetType: "lexicon",
+              targetId: lexTrack.id,
+              score: 1.0,
+              confidence: "high",
+              method: "placed",
+              status: "confirmed",
+              targetMeta: JSON.stringify(lexiconCandidates[lexIdx]),
+            });
+            log.info(`Placed-file match: ${trackInfo.artist} - ${trackInfo.title} → Lexicon ${lexTrack.id}`);
+            continue;
+          }
+        }
       }
 
       // Run matcher against all Lexicon candidates

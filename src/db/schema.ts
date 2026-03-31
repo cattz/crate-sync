@@ -102,7 +102,7 @@ export const matches = sqliteTable("matches", {
   targetId: text("target_id").notNull(),
   score: real("score").notNull(),
   confidence: text("confidence", { enum: ["high", "review", "low"] }).notNull(),
-  method: text("method", { enum: ["isrc", "fuzzy", "manual"] }).notNull(),
+  method: text("method", { enum: ["isrc", "fuzzy", "manual", "placed"] }).notNull(),
   status: text("status", { enum: ["pending", "confirmed", "rejected"] }).notNull(),
   targetMeta: text("target_meta"),  // JSON: { title, artist, album?, durationMs? }
   parkedAt: integer("parked_at"),
