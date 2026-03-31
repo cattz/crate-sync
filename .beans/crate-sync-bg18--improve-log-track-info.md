@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg18
 title: Match and Spotify Sync jobs should display track info in logs
-status: todo
+status: done
 type: bug
 priority: normal
 created_at: 2026-03-31T00:00:00Z

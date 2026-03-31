@@ -31,14 +31,16 @@ export async function handleSpotifySync(job: Job, config: Config): Promise<void>
     await spotify.syncPlaylistTracks(playlist.spotifyId);
   }
 
+  const playlistName = playlist.name;
+
   // Create a match job for this playlist
   createJob({
     type: "lexicon_match",
     status: "queued",
     priority: 5,
-    payload: JSON.stringify({ playlistId: payload.playlistId }),
+    payload: JSON.stringify({ playlistId: payload.playlistId, playlistName }),
     parentJobId: job.id,
   });
 
-  completeJob(job.id, { playlistId: payload.playlistId });
+  completeJob(job.id, { playlistId: payload.playlistId, playlistName });
 }

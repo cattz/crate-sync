@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **Single track sync with Lexicon** — `matchTrack()` method on SyncPipeline, `POST /api/sync/track/:id` endpoint, "Sync with Lexicon" button on TrackDetail page, and `sync track <id>` CLI subcommand. Matches one track, tags if confirmed, respects rejection memory.
 - **Multi-select and bulk toolbar** in web UI — reusable `useMultiSelect` hook, floating `BulkToolbar` component, checkbox selection in playlist table with select-all toggle, bulk delete and bulk merge actions.
 - **Bulk rename** — `POST /api/playlists/bulk-rename` with find-replace, prefix, and suffix modes. Mandatory dry-run preview before applying. Web UI modal with mode selector and preview table.
 - **Playlist statistics and dashboard** — `GET /api/playlists/stats` for library-wide stats (total playlists, tracks, duration). PlaylistDetail stats section with track count, total duration, unique artists, and top artist. Dashboard library stats cards including total duration.

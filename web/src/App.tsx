@@ -24,6 +24,22 @@ const TYPE_LABELS: Record<string, string> = {
   wishlist_run: "Wishlist",
 };
 
+/** Build a human-readable detail string from job payload/result fields. */
+function jobDetail(p: Record<string, unknown>, jobId: string): string {
+  if (p.title) {
+    return `${(p.artist as string) ?? ""} — ${p.title as string}`;
+  }
+  if (p.playlistName) {
+    let detail = p.playlistName as string;
+    if (p.confirmed !== undefined) {
+      detail += ` — ${p.confirmed} matched`;
+      if (p.notFound) detail += `, ${p.notFound} not found`;
+    }
+    return detail;
+  }
+  return jobId.slice(0, 8);
+}
+
 function StatusBar() {
   const [lines, setLines] = useState<LogLine[]>([]);
 
@@ -38,9 +54,7 @@ function StatusBar() {
       try {
         const data = JSON.parse(e.data);
         const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
-        const detail = payload.title
-          ? `${payload.artist ?? ""} — ${payload.title}`
-          : payload.playlistName ?? data.jobId?.slice(0, 8) ?? "";
+        const detail = jobDetail(payload, data.jobId ?? "");
 
         addLine({
           time: formatTime(new Date()),

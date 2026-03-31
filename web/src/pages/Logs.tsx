@@ -43,6 +43,22 @@ function statusClass(status: string): string {
   return "";
 }
 
+/** Build a human-readable detail string from job payload/result fields. */
+function jobDetail(p: Record<string, unknown>, jobId: string): string {
+  if (p.title) {
+    return `${(p.artist as string) ?? ""} — ${p.title as string}`;
+  }
+  if (p.playlistName) {
+    let detail = p.playlistName as string;
+    if (p.confirmed !== undefined) {
+      detail += ` — ${p.confirmed} matched`;
+      if (p.notFound) detail += `, ${p.notFound} not found`;
+    }
+    return detail;
+  }
+  return jobId.slice(0, 8);
+}
+
 const ALL_TYPES = Object.values(TYPE_LABELS);
 
 export function Logs() {
@@ -70,9 +86,9 @@ export function Logs() {
 
       const seed: LogEntry[] = recent.map((j) => {
         const payload = j.payload && typeof j.payload === "object" ? j.payload as Record<string, string> : {};
-        const detail = payload.title
-          ? `${payload.artist ?? ""} — ${payload.title}`
-          : payload.playlistName ?? (j.id as string)?.slice(0, 8) ?? "";
+        const result = j.result && typeof j.result === "object" ? j.result as Record<string, unknown> : {};
+        const merged = { ...payload, ...result };
+        const detail = jobDetail(merged, (j.id as string) ?? "");
         const ts = (j.completedAt ?? j.startedAt ?? j.createdAt) as number;
         return {
           time: formatTime(new Date(ts)),
@@ -115,9 +131,7 @@ export function Logs() {
       try {
         const data = JSON.parse(e.data);
         const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
-        const detail = payload.title
-          ? `${payload.artist ?? ""} — ${payload.title}`
-          : payload.playlistName ?? data.jobId?.slice(0, 8) ?? "";
+        const detail = jobDetail(payload, data.jobId ?? "");
 
         addEntry({
           time: formatTime(new Date()),
