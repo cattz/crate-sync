@@ -45,6 +45,12 @@ export interface MatchPlaylistResult {
   tagged: number;
 }
 
+export interface MatchTrackResult {
+  status: "confirmed" | "pending" | "not_found";
+  match?: { lexiconTrackId: string; score: number; confidence: string; method: string };
+  tagged: boolean;
+}
+
 export interface TagResult {
   tagged: number;
   skipped: number;
@@ -70,6 +76,240 @@ export class SyncPipeline {
 
   private getLexiconService() {
     return this.deps.lexiconService ?? new LexiconService(this.config.lexicon);
+  }
+
+  // -------------------------------------------------------------------------
+  // matchTrack — match a single track against Lexicon
+  // -------------------------------------------------------------------------
+
+  async matchTrack(trackId: string): Promise<MatchTrackResult> {
+    const db = this.getDb();
+
+    // 1. Fetch track from DB
+    const row = await db.query.tracks.findFirst({
+      where: eq(schema.tracks.id, trackId),
+    });
+
+    if (!row) {
+      throw new Error(`Track not found: ${trackId}`);
+    }
+
+    const trackInfo: TrackInfo = {
+      title: row.title,
+      artist: row.artist,
+      album: row.album ?? undefined,
+      durationMs: row.durationMs,
+      isrc: row.isrc ?? undefined,
+      uri: row.spotifyUri ?? undefined,
+    };
+
+    // 2. Find playlists this track belongs to (for tags)
+    const playlistRows = await db
+      .select({
+        playlistId: schema.playlistTracks.playlistId,
+        playlistName: schema.playlists.name,
+        playlistTags: schema.playlists.tags,
+      })
+      .from(schema.playlistTracks)
+      .innerJoin(schema.playlists, eq(schema.playlistTracks.playlistId, schema.playlists.id))
+      .where(eq(schema.playlistTracks.trackId, trackId));
+
+    // 3. Check for existing confirmed match
+    const existingMatches = await db
+      .select()
+      .from(schema.matches)
+      .where(
+        and(
+          eq(schema.matches.sourceType, "spotify"),
+          eq(schema.matches.sourceId, trackId),
+          eq(schema.matches.targetType, "lexicon"),
+        ),
+      );
+
+    const rejectedPairs = new Set<string>();
+    let existingConfirmed: schema.Match | undefined;
+
+    for (const m of existingMatches) {
+      if (m.status === "confirmed") {
+        if (!existingConfirmed || m.updatedAt > existingConfirmed.updatedAt) {
+          existingConfirmed = m;
+        }
+      } else if (m.status === "rejected") {
+        rejectedPairs.add(`${m.sourceId}:${m.targetId}`);
+      }
+    }
+
+    // If already confirmed, tag and return
+    if (existingConfirmed) {
+      let tagged = false;
+      if (existingConfirmed.targetId) {
+        tagged = await this.tagTrackFromPlaylists(
+          existingConfirmed.targetId,
+          playlistRows,
+        );
+      }
+      return {
+        status: "confirmed",
+        match: {
+          lexiconTrackId: existingConfirmed.targetId,
+          score: existingConfirmed.score,
+          confidence: existingConfirmed.confidence,
+          method: existingConfirmed.method,
+        },
+        tagged,
+      };
+    }
+
+    // 4. Get Lexicon tracks and run matcher
+    const lexicon = this.getLexiconService();
+    const lexiconTracks = await lexicon.getTracks();
+
+    const lexiconCandidates: TrackInfo[] = lexiconTracks.map((lt) => ({
+      title: lt.title,
+      artist: lt.artist,
+      album: lt.album ?? undefined,
+      durationMs: lt.durationMs ?? undefined,
+    }));
+
+    const matcher = createMatcher(this.config.matching, "lexicon");
+    const results = matcher.match(trackInfo, lexiconCandidates);
+
+    // Find best non-rejected match
+    let best: (typeof results)[0] | undefined;
+    let lexiconTrackId: string | undefined;
+
+    for (const candidate of results) {
+      const lexIdx = lexiconCandidates.indexOf(candidate.candidate);
+      const candidateId = lexIdx >= 0 ? lexiconTracks[lexIdx].id : undefined;
+
+      if (candidateId && rejectedPairs.has(`${trackId}:${candidateId}`)) {
+        continue;
+      }
+
+      best = candidate;
+      lexiconTrackId = candidateId;
+      break;
+    }
+
+    if (!best || best.confidence === "low" || !lexiconTrackId) {
+      return { status: "not_found", tagged: false };
+    }
+
+    // 5. Persist match
+    const status =
+      best.confidence === "high"
+        ? ("confirmed" as const)
+        : ("pending" as const);
+
+    const lexiconById = new Map<string, TrackInfo>();
+    for (let i = 0; i < lexiconTracks.length; i++) {
+      lexiconById.set(lexiconTracks[i].id, lexiconCandidates[i]);
+    }
+
+    const targetMeta = lexiconTrackId
+      ? JSON.stringify(lexiconById.get(lexiconTrackId))
+      : undefined;
+
+    await db
+      .insert(schema.matches)
+      .values({
+        sourceType: "spotify",
+        sourceId: trackId,
+        targetType: "lexicon",
+        targetId: lexiconTrackId,
+        score: best.score,
+        confidence: best.confidence,
+        method: best.method as "isrc" | "fuzzy" | "manual",
+        status,
+        targetMeta,
+        parkedAt: status === "pending" ? Date.now() : undefined,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.matches.sourceType,
+          schema.matches.sourceId,
+          schema.matches.targetType,
+          schema.matches.targetId,
+        ],
+        set: {
+          score: sql`excluded.score`,
+          confidence: sql`excluded.confidence`,
+          method: sql`excluded.method`,
+          targetMeta: sql`excluded.target_meta`,
+          status: sql`CASE WHEN ${schema.matches.status} = 'confirmed' THEN 'confirmed' ELSE excluded.status END`,
+          parkedAt: sql`excluded.parked_at`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      });
+
+    // 6. Tag if confirmed
+    let tagged = false;
+    if (status === "confirmed") {
+      tagged = await this.tagTrackFromPlaylists(lexiconTrackId, playlistRows);
+    }
+
+    return {
+      status: status === "confirmed" ? "confirmed" : "pending",
+      match: {
+        lexiconTrackId,
+        score: best.score,
+        confidence: best.confidence,
+        method: best.method,
+      },
+      tagged,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // tagTrackFromPlaylists — tag a single confirmed track using playlist names
+  // -------------------------------------------------------------------------
+
+  private async tagTrackFromPlaylists(
+    lexiconTrackId: string,
+    playlistRows: Array<{ playlistName: string; playlistTags: string | null }>,
+  ): Promise<boolean> {
+    // Collect all tag segments from playlist names and manual tags
+    const segments: string[] = [];
+
+    for (const row of playlistRows) {
+      const nameSegments = row.playlistName
+        .split("/")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const seg of nameSegments) {
+        if (!segments.includes(seg)) segments.push(seg);
+      }
+
+      if (row.playlistTags) {
+        const manual = JSON.parse(row.playlistTags) as string[];
+        for (const tag of manual) {
+          if (!segments.includes(tag)) segments.push(tag);
+        }
+      }
+    }
+
+    if (segments.length === 0) return false;
+
+    try {
+      const lexicon = this.getLexiconService();
+      const categoryConfig = this.config.lexicon.tagCategory;
+      const category = await lexicon.ensureTagCategory(
+        categoryConfig.name,
+        categoryConfig.color,
+      );
+
+      const tagIds: string[] = [];
+      for (const label of segments) {
+        const tag = await lexicon.ensureTag(category.id, label);
+        tagIds.push(tag.id);
+      }
+
+      await lexicon.setTrackCategoryTags(lexiconTrackId, category.id, tagIds);
+      return true;
+    } catch (err) {
+      log.error(`Failed to tag track ${lexiconTrackId}:`, err);
+      return false;
+    }
   }
 
   // -------------------------------------------------------------------------

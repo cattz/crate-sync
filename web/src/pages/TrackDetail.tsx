@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router";
-import { useTrackLifecycle, useTrackRejections } from "../api/hooks.js";
+import { useTrackLifecycle, useTrackRejections, useSyncTrack } from "../api/hooks.js";
+import type { SyncTrackResult } from "../api/client.js";
 
 const matchStatusBadge: Record<string, string> = {
   pending: "badge-yellow",
@@ -42,10 +44,24 @@ function formatTime(ms: number | null) {
   });
 }
 
+const syncStatusBadge: Record<string, string> = {
+  confirmed: "badge-green",
+  pending: "badge-yellow",
+  not_found: "badge-red",
+};
+
+const syncStatusLabel: Record<string, string> = {
+  confirmed: "Matched",
+  pending: "Pending review",
+  not_found: "Not found",
+};
+
 export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading } = useTrackLifecycle(id!);
   const { data: rejections } = useTrackRejections(id!);
+  const syncTrack = useSyncTrack();
+  const [syncResult, setSyncResult] = useState<SyncTrackResult | null>(null);
 
   if (isLoading) return <p className="text-muted">Loading track...</p>;
   if (!data) return <p className="text-muted">Track not found.</p>;
@@ -55,11 +71,51 @@ export function TrackDetail() {
   const matchRejections = (rejections ?? []).filter((r) => r.context === "lexicon_match");
   const downloadRejections = (rejections ?? []).filter((r) => r.context === "soulseek_download");
 
+  const handleSync = () => {
+    setSyncResult(null);
+    syncTrack.mutate(id!, {
+      onSuccess: (result) => setSyncResult(result),
+    });
+  };
+
   return (
     <>
       <div className="page-header">
         <h2>{track.title}</h2>
+        <button
+          className="btn btn-sm"
+          onClick={handleSync}
+          disabled={syncTrack.isPending}
+        >
+          {syncTrack.isPending ? "Syncing..." : "Sync with Lexicon"}
+        </button>
       </div>
+
+      {/* Sync result */}
+      {syncTrack.isError && (
+        <div className="card" style={{ borderColor: "var(--danger)" }}>
+          <p style={{ color: "var(--danger)", margin: 0 }}>
+            Sync failed: {syncTrack.error instanceof Error ? syncTrack.error.message : "Unknown error"}
+          </p>
+        </div>
+      )}
+      {syncResult && (
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span className={`badge ${syncStatusBadge[syncResult.status] ?? "badge-gray"}`}>
+              {syncStatusLabel[syncResult.status] ?? syncResult.status}
+            </span>
+            {syncResult.match && (
+              <span className="text-sm text-muted">
+                Score: {(syncResult.match.score * 100).toFixed(0)}% via {syncResult.match.method}
+              </span>
+            )}
+            {syncResult.tagged && (
+              <span className="badge badge-blue">Tagged</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Track info */}
       <div className="card">

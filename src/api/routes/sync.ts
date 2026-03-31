@@ -10,6 +10,24 @@ import { createJob } from "../../jobs/runner.js";
 
 export const syncRoutes = new Hono();
 
+// POST /api/sync/track/:trackId — single track sync with Lexicon
+// NOTE: must be registered before /:playlistId to avoid being shadowed
+syncRoutes.post("/track/:trackId", async (c) => {
+  const config = loadConfig();
+  const pipeline = new SyncPipeline(config);
+
+  try {
+    const result = await pipeline.matchTrack(c.req.param("trackId"));
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("not found")) {
+      return c.json({ error: message }, 404);
+    }
+    return c.json({ error: message }, 500);
+  }
+});
+
 // POST /api/sync/:playlistId — start sync via job queue, returns { syncId, jobId }
 syncRoutes.post("/:playlistId", async (c) => {
   const db = getDb();
@@ -41,7 +59,7 @@ syncRoutes.post("/:playlistId", async (c) => {
     type: "spotify_sync",
     status: "queued",
     priority: 10,
-    payload: JSON.stringify({ playlistId: playlist.id }),
+    payload: JSON.stringify({ playlistId: playlist.id, playlistName: playlist.name }),
   });
 
   // Also run via the in-process pipeline for SSE events

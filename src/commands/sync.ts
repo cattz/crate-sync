@@ -2,6 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { loadConfig } from "../config.js";
 import { getDb } from "../db/client.js";
+import { eq } from "drizzle-orm";
 import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SyncPipeline, type MatchPlaylistResult } from "../services/sync-pipeline.js";
@@ -9,8 +10,66 @@ import { checkHealth } from "../utils/health.js";
 import { tryDetectServer, runThinClientSync } from "./sync-client.js";
 
 export function registerSyncCommand(program: Command): void {
-  program
-    .command("sync [playlist]")
+  const syncCmd = program
+    .command("sync")
+    .description("Run the non-blocking sync pipeline for a playlist or track");
+
+  // Subcommand: sync track <id>
+  syncCmd
+    .command("track <trackId>")
+    .description("Sync a single track with Lexicon")
+    .action(async (trackId: string) => {
+      try {
+        const config = loadConfig();
+        const db = getDb();
+
+        // Resolve track by ID, spotifyId, or partial match
+        let track = await db.query.tracks.findFirst({
+          where: eq(schema.tracks.id, trackId),
+        });
+        if (!track) {
+          track = await db.query.tracks.findFirst({
+            where: eq(schema.tracks.spotifyId, trackId),
+          });
+        }
+
+        if (!track) {
+          console.log(chalk.red(`Track not found: "${trackId}"`));
+          return;
+        }
+
+        console.log(chalk.bold(`Syncing "${track.title}" by ${track.artist}`));
+        console.log();
+
+        const pipeline = new SyncPipeline(config);
+        const result = await pipeline.matchTrack(track.id);
+
+        if (result.status === "confirmed") {
+          console.log(chalk.green("  Status: Matched"));
+        } else if (result.status === "pending") {
+          console.log(chalk.yellow("  Status: Pending review"));
+        } else {
+          console.log(chalk.red("  Status: Not found"));
+        }
+
+        if (result.match) {
+          console.log(`  Score:  ${chalk.cyan((result.match.score * 100).toFixed(0) + "%")}`);
+          console.log(`  Method: ${result.match.method}`);
+          console.log(`  Target: ${chalk.dim(result.match.lexiconTrackId)}`);
+        }
+
+        if (result.tagged) {
+          console.log(chalk.green("  Tagged in Lexicon"));
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Sync failed: ${message}`));
+      }
+    });
+
+  // Default action: sync playlist(s)
+  syncCmd
+    .command("playlist [playlist]", { isDefault: true })
     .description("Run the non-blocking sync pipeline for a playlist")
     .option("--all", "Sync all playlists")
     .option("--dry-run", "Show what would happen without making changes")
