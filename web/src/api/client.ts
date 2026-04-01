@@ -53,12 +53,12 @@ export const api = {
   bulkConfirmReviews: (ids: string[]) =>
     request<{ ok: boolean; count: number }>("/review/bulk", {
       method: "POST",
-      body: JSON.stringify({ action: "confirm", ids }),
+      body: JSON.stringify({ action: "confirm", matchIds: ids }),
     }),
   bulkRejectReviews: (ids: string[]) =>
     request<{ ok: boolean; count: number }>("/review/bulk", {
       method: "POST",
-      body: JSON.stringify({ action: "reject", ids }),
+      body: JSON.stringify({ action: "reject", matchIds: ids }),
     }),
 
   // Matches
