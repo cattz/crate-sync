@@ -74,6 +74,7 @@ export function PlaylistDetail() {
   const [trackSearch, setTrackSearch] = useState("");
   const [trackSortKey, setTrackSortKey] = useState<TrackSortKey>("position");
   const [trackSortDir, setTrackSortDir] = useState<SortDir>("asc");
+  const [statusFilter, setStatusFilter] = useState<string>("");
   const [notesValue, setNotesValue] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState("");
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
@@ -138,6 +139,15 @@ export function PlaylistDetail() {
     }
   }
 
+  const STATUS_ORDER: Record<string, number> = {
+    in_lexicon: 1,
+    downloaded: 2,
+    downloading: 3,
+    pending_review: 4,
+    download_failed: 5,
+    not_matched: 6,
+  };
+
   const filteredTracks = useMemo(() => {
     if (!tracks) return [];
     let list = tracks;
@@ -147,6 +157,10 @@ export function PlaylistDetail() {
       list = list.filter(
         (t) => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q),
       );
+    }
+
+    if (statusFilter) {
+      list = list.filter((t) => t.trackStatus === statusFilter);
     }
 
     return [...list].sort((a, b) => {
@@ -159,12 +173,14 @@ export function PlaylistDetail() {
         cmp = a.artist.localeCompare(b.artist);
       } else if (trackSortKey === "album") {
         cmp = (a.album ?? "").localeCompare(b.album ?? "");
+      } else if (trackSortKey === "trackStatus") {
+        cmp = (STATUS_ORDER[a.trackStatus] ?? 9) - (STATUS_ORDER[b.trackStatus] ?? 9);
       } else {
         cmp = a.durationMs - b.durationMs;
       }
       return trackSortDir === "asc" ? cmp : -cmp;
     });
-  }, [tracks, trackSearch, trackSortKey, trackSortDir]);
+  }, [tracks, trackSearch, statusFilter, trackSortKey, trackSortDir]);
 
   const totalDurationMs = useMemo(
     () => (tracks ?? []).reduce((sum, t) => sum + t.durationMs, 0),
@@ -390,6 +406,19 @@ export function PlaylistDetail() {
           <span className="text-muted text-sm">
             {formatTotalDuration(totalDurationMs, tracks?.length ?? 0)}
           </span>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            style={{ width: 140 }}
+          >
+            <option value="">All statuses</option>
+            <option value="in_lexicon">In Lexicon</option>
+            <option value="downloaded">Downloaded</option>
+            <option value="downloading">Downloading</option>
+            <option value="pending_review">Pending Review</option>
+            <option value="download_failed">Failed</option>
+            <option value="not_matched">Not Matched</option>
+          </select>
           <input
             type="text"
             placeholder="Filter by title or artist…"
