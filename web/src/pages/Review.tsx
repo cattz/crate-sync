@@ -94,32 +94,28 @@ function ReviewCard({ item }: { item: PendingReviewItem }) {
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th style={{ ...labelStyle, width: 65 }}></th>
-            <th style={{ ...labelStyle, textAlign: "left", fontWeight: 500 }}>Spotify</th>
-            <th style={{ ...labelStyle, textAlign: "left", fontWeight: 500 }}>Lexicon</th>
+            <th style={{ ...labelStyle, width: 20 }}></th>
+            <th style={{ ...labelStyle, textAlign: "left" }}>Title</th>
+            <th style={{ ...labelStyle, textAlign: "left" }}>Artist</th>
+            <th style={{ ...labelStyle, textAlign: "left" }}>Album</th>
+            <th style={{ ...labelStyle, textAlign: "left", width: 50 }}>Dur.</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td style={labelStyle}>Title</td>
+            <td style={labelStyle}>S</td>
             <td style={cellStyle(titleSim)}>
               <Link to={`/tracks/${src.id}`}>{src.title}</Link>
             </td>
-            <td style={cellStyle(titleSim)}>{tgt.title}</td>
-          </tr>
-          <tr>
-            <td style={labelStyle}>Artist</td>
             <td style={cellStyle(artistSim)}>{src.artist}</td>
-            <td style={cellStyle(artistSim)}>{tgt.artist}</td>
-          </tr>
-          <tr>
-            <td style={labelStyle}>Album</td>
             <td style={cellStyle(albumSim)}>{src.album ?? "—"}</td>
-            <td style={cellStyle(albumSim)}>{tgt.album ?? "—"}</td>
+            <td style={cellStyle(durSim)}>{formatDuration(src.durationMs)}</td>
           </tr>
           <tr>
-            <td style={labelStyle}>Dur.</td>
-            <td style={cellStyle(durSim)}>{formatDuration(src.durationMs)}</td>
+            <td style={labelStyle}>L</td>
+            <td style={cellStyle(titleSim)}>{tgt.title}</td>
+            <td style={cellStyle(artistSim)}>{tgt.artist}</td>
+            <td style={cellStyle(albumSim)}>{tgt.album ?? "—"}</td>
             <td style={cellStyle(durSim)}>{formatDuration(tgt.durationMs)}</td>
           </tr>
         </tbody>
