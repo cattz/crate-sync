@@ -91,14 +91,21 @@ function ReviewCard({ item }: { item: PendingReviewItem }) {
 
   return (
     <div className="card" style={{ padding: "0.5rem 0.75rem" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+        <colgroup>
+          <col style={{ width: 20 }} />
+          <col style={{ width: "30%" }} />
+          <col style={{ width: "25%" }} />
+          <col style={{ width: "30%" }} />
+          <col style={{ width: 60 }} />
+        </colgroup>
         <thead>
           <tr>
-            <th style={{ ...labelStyle, width: 20 }}></th>
+            <th style={{ ...labelStyle }}></th>
             <th style={{ ...labelStyle, textAlign: "left" }}>Title</th>
             <th style={{ ...labelStyle, textAlign: "left" }}>Artist</th>
             <th style={{ ...labelStyle, textAlign: "left" }}>Album</th>
-            <th style={{ ...labelStyle, textAlign: "left", width: 50 }}>Dur.</th>
+            <th style={{ ...labelStyle, textAlign: "left" }}>Dur.</th>
           </tr>
         </thead>
         <tbody>
