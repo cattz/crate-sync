@@ -46,7 +46,7 @@ export function onJobEvent(listener: JobEventListener): () => void {
   return () => eventListeners.delete(listener);
 }
 
-function emitJobEvent(jobId: string, type: string, status: string, payload?: unknown, jobType?: string) {
+export function emitJobEvent(jobId: string, type: string, status: string, payload?: unknown, jobType?: string) {
   for (const listener of eventListeners) {
     try {
       listener({ jobId, type, status, payload, jobType });

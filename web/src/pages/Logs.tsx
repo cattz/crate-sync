@@ -50,7 +50,10 @@ function jobDetail(p: Record<string, unknown>, jobId: string): string {
   }
   if (p.playlistName) {
     let detail = p.playlistName as string;
-    if (p.confirmed !== undefined) {
+    if (p.tagged !== undefined) {
+      detail += ` — ${p.tagged} tagged`;
+      if (p.skipped) detail += `, ${p.skipped} skipped`;
+    } else if (p.confirmed !== undefined) {
       detail += ` — ${p.confirmed} matched`;
       if (p.notFound) detail += `, ${p.notFound} not found`;
     }

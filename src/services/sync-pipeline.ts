@@ -7,6 +7,7 @@ import * as schema from "../db/schema.js";
 import { createMatcher } from "../matching/index.js";
 import { LexiconService } from "./lexicon-service.js";
 import { createLogger } from "../utils/logger.js";
+import { emitJobEvent } from "../jobs/runner.js";
 
 const log = createLogger("sync-pipeline");
 
@@ -599,6 +600,17 @@ export class SyncPipeline {
     const manualTags = playlist.tags ? JSON.parse(playlist.tags) as string[] : undefined;
     const tagResult = await this.syncTags(playlist.name, confirmed, manualTags);
     log.info(`Tag result: ${tagResult.tagged} tagged, ${tagResult.skipped} skipped`);
+
+    // Emit tag event for Logs UI
+    if (tagResult.tagged > 0) {
+      emitJobEvent(
+        playlistId,
+        "job-done",
+        "done",
+        { playlistName: playlist.name, tagged: tagResult.tagged, skipped: tagResult.skipped },
+        "lexicon_tag",
+      );
+    }
 
     // 10. Return result
     return {
