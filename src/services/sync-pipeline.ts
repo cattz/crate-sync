@@ -498,7 +498,7 @@ export class SyncPipeline {
       const results = matcher.match(trackInfo, lexiconCandidates);
 
       // Find best result, re-evaluating rejected pairs if score improved
-      const notFoundThreshold = this.config.matching.notFoundThreshold ?? 0.4;
+      const notFoundThreshold = this.config.matching.notFoundThreshold;
       let best: (typeof results)[0] | undefined;
       let lexiconTrackId: string | undefined;
       let wasRejectedPair = false;
