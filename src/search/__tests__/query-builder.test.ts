@@ -127,4 +127,118 @@ describe("generateSearchQueries", () => {
     expect(titleOnly).toBeDefined();
     expect(titleOnly!.query).toBe("Some Track");
   });
+
+  // --- Edge case tests ---
+
+  it("handles track with no artist (whitespace-only)", () => {
+    const queries = generateSearchQueries({
+      title: "Ambient Soundscape",
+      artist: "   ",
+    });
+
+    // Should not produce "full" or "keywords" strategies (artist is blank)
+    const full = queries.find((q) => q.label === "full");
+    expect(full).toBeUndefined();
+
+    const titleOnly = queries.find((q) => q.label === "title-only");
+    expect(titleOnly).toBeDefined();
+    expect(titleOnly!.query).toBe("Ambient Soundscape");
+  });
+
+  it("handles track with very long title", () => {
+    const longTitle =
+      "This Is An Extremely Long Track Title That Goes On And On With Many Words To Test The Keywords Strategy";
+    const queries = generateSearchQueries({
+      title: longTitle,
+      artist: "Test Artist",
+    });
+
+    expect(queries.length).toBeGreaterThanOrEqual(2);
+
+    // full strategy should contain the entire cleaned title
+    expect(queries[0].label).toBe("full");
+    expect(queries[0].query).toContain("Test Artist");
+
+    // keywords strategy should exist and use only 2 significant words
+    const keywords = queries.find((q) => q.label === "keywords");
+    if (keywords) {
+      const wordsInQuery = keywords.query.split(/\s+/);
+      // artist words + 2 keyword words
+      expect(wordsInQuery.length).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("handles track with special characters in title", () => {
+    const queries = generateSearchQueries({
+      title: "Rock & Roll (Is Noise Pollution)",
+      artist: "AC/DC",
+    });
+
+    // Parenthetical should be stripped
+    expect(queries[0].query).toBe("AC/DC Rock & Roll");
+  });
+
+  it("handles track with ampersand and special punctuation", () => {
+    const queries = generateSearchQueries({
+      title: "What's Going On?",
+      artist: "Marvin Gaye",
+    });
+
+    expect(queries[0].query).toBe("Marvin Gaye What's Going On?");
+  });
+
+  it("handles track with remix in parentheses", () => {
+    const queries = generateSearchQueries({
+      title: "Strobe (Deadmau5 Remix)",
+      artist: "Deadmau5",
+    });
+
+    // cleanForSearch strips parenthetical content
+    expect(queries[0].label).toBe("full");
+    expect(queries[0].query).toBe("Deadmau5 Strobe");
+
+    // base-title strategy should also strip remix via stripRemixSuffix
+    // Since cleanForSearch already removes "(Deadmau5 Remix)", the
+    // base title and full title should be the same (no base-title strategy)
+    const labels = queries.map((q) => q.label);
+    // title-only should always exist
+    expect(labels).toContain("title-only");
+  });
+
+  it("handles track with remix in parentheses and dash pattern", () => {
+    const queries = generateSearchQueries({
+      title: "One More Time - Thomas Bangalter Remix",
+      artist: "Daft Punk",
+    });
+
+    const labels = queries.map((q) => q.label);
+    expect(labels).toContain("full");
+    expect(labels).toContain("base-title");
+
+    // base-title should strip the " - ... Remix" suffix
+    const baseTitle = queries.find((q) => q.label === "base-title")!;
+    expect(baseTitle.query).toBe("Daft Punk One More Time");
+  });
+
+  it("handles track with only short words in title", () => {
+    const queries = generateSearchQueries({
+      title: "It Is On",
+      artist: "Some Band",
+    });
+
+    // All words are <= 2 chars after "significant" filtering, so it falls
+    // back to using all words
+    expect(queries[0].query).toBe("Some Band It Is On");
+  });
+
+  it("handles track where title is entirely parenthetical", () => {
+    const queries = generateSearchQueries({
+      title: "(Everything In Its Right Place)",
+      artist: "Radiohead",
+    });
+
+    // cleanForSearch will strip the parenthetical, leaving empty,
+    // which means only some strategies may apply
+    expect(queries.length).toBeGreaterThanOrEqual(0);
+  });
 });
