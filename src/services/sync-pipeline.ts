@@ -379,8 +379,10 @@ export class SyncPipeline {
 
     // Confirmed: most recent confirmed match per source
     const confirmedBySource = new Map<string, schema.Match>();
-    // Rejected pairs: Set of "sourceId:targetId" strings
-    const rejectedPairs = new Set<string>();
+    // User-rejected pairs (method='manual'): NEVER re-propose
+    const userRejectedPairs = new Set<string>();
+    // System-rejected pairs (low score): can be re-evaluated if score improves
+    const systemRejectedPairs = new Set<string>();
 
     for (const m of existingMatches) {
       if (m.status === "confirmed") {
@@ -389,7 +391,12 @@ export class SyncPipeline {
           confirmedBySource.set(m.sourceId, m);
         }
       } else if (m.status === "rejected") {
-        rejectedPairs.add(`${m.sourceId}:${m.targetId}`);
+        const key = `${m.sourceId}:${m.targetId}`;
+        if (m.method === "manual") {
+          userRejectedPairs.add(key);
+        } else {
+          systemRejectedPairs.add(key);
+        }
       }
     }
 
@@ -499,18 +506,22 @@ export class SyncPipeline {
       for (const candidate of results) {
         const lexIdx = lexiconCandidates.indexOf(candidate.candidate);
         const candidateId = lexIdx >= 0 ? lexiconTracks[lexIdx].id : undefined;
+        const key = candidateId ? `${dbTrackId}:${candidateId}` : "";
 
-        const isRejected = candidateId && rejectedPairs.has(`${dbTrackId}:${candidateId}`);
+        // User-rejected pairs: NEVER re-propose, skip unconditionally
+        if (candidateId && userRejectedPairs.has(key)) {
+          continue;
+        }
 
-        if (isRejected) {
-          // Re-evaluate: if score now crosses review threshold, allow it
+        // System-rejected pairs: re-evaluate if score improved above threshold
+        if (candidateId && systemRejectedPairs.has(key)) {
           if (candidate.score >= notFoundThreshold) {
             best = candidate;
             lexiconTrackId = candidateId;
             wasRejectedPair = true;
             break;
           }
-          continue; // Still too low, skip
+          continue;
         }
 
         best = candidate;

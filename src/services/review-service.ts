@@ -191,7 +191,7 @@ export class ReviewService {
 
     await db
       .update(schema.matches)
-      .set({ status: "rejected", updatedAt: Date.now() })
+      .set({ status: "rejected", method: "manual", updatedAt: Date.now() })
       .where(eq(schema.matches.id, matchId));
 
     // Auto-queue download — use INSERT OR IGNORE to avoid duplicates
