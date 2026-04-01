@@ -318,86 +318,87 @@ export function PlaylistDetail() {
         </div>
       )}
 
-      {/* Tags */}
-      <div className="card mb-2">
-        <h3 style={{ marginBottom: "0.3rem" }}>Tags</h3>
-        <div className="flex items-center gap-1" style={{ flexWrap: "wrap", marginBottom: "0.35rem" }}>
-          {currentTags.map((tag) => (
-            <span key={tag} className="badge badge-blue" style={{ cursor: "pointer" }} onClick={() => handleRemoveTag(tag)} title="Click to remove">
-              {tag} &times;
-            </span>
-          ))}
-          {currentTags.length === 0 && <span className="text-muted text-sm">No tags</span>}
+      {/* Tags + Notes — compact single row */}
+      <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginBottom: "0.75rem" }}>
+        {/* Tags */}
+        <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+          <div className="flex items-center gap-1" style={{ flexWrap: "wrap" }}>
+            <span className="text-muted text-sm" style={{ marginRight: "0.25rem" }}>Tags:</span>
+            {currentTags.map((tag) => (
+              <span key={tag} className="badge badge-blue" style={{ cursor: "pointer", fontSize: "0.75rem" }} onClick={() => handleRemoveTag(tag)} title="Click to remove">
+                {tag} &times;
+              </span>
+            ))}
+            <div style={{ position: "relative", display: "inline-block" }}>
+              <input
+                type="text"
+                placeholder="Add…"
+                value={tagInput}
+                onChange={(e) => { setTagInput(e.target.value); setShowTagSuggestions(true); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddTag(tagInput);
+                  }
+                }}
+                onFocus={() => setShowTagSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowTagSuggestions(false), 200)}
+                style={{ width: 100, padding: "0.15rem 0.4rem", fontSize: "0.8rem" }}
+              />
+              {showTagSuggestions && tagSuggestions.length > 0 && (
+                <div style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  width: 180,
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius)",
+                  zIndex: 10,
+                  maxHeight: 150,
+                  overflowY: "auto",
+                }}>
+                  {tagSuggestions.map((s) => (
+                    <div
+                      key={s}
+                      style={{ padding: "0.25rem 0.5rem", cursor: "pointer", fontSize: "0.8rem" }}
+                      onMouseDown={(e) => { e.preventDefault(); handleAddTag(s); }}
+                    >
+                      {s}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-        <div style={{ position: "relative", maxWidth: 260 }}>
-          <input
-            type="text"
-            placeholder="Add tag…"
-            value={tagInput}
-            onChange={(e) => { setTagInput(e.target.value); setShowTagSuggestions(true); }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleAddTag(tagInput);
-              }
-            }}
-            onFocus={() => setShowTagSuggestions(true)}
-            onBlur={() => setTimeout(() => setShowTagSuggestions(false), 200)}
-            style={{ width: "100%" }}
-          />
-          {showTagSuggestions && tagSuggestions.length > 0 && (
-            <div style={{
-              position: "absolute",
-              top: "100%",
-              left: 0,
-              right: 0,
-              background: "var(--bg-card)",
+        {/* Notes */}
+        <div style={{ flex: "0 0 300px" }}>
+          <textarea
+            placeholder="Notes…"
+            style={{
+              width: "100%",
+              minHeight: 32,
+              maxHeight: 60,
+              resize: "vertical",
+              padding: "0.25rem 0.4rem",
+              fontSize: "0.8rem",
+              background: "var(--bg)",
+              color: "var(--text)",
               border: "1px solid var(--border)",
               borderRadius: "var(--radius)",
-              zIndex: 10,
-              maxHeight: 150,
-              overflowY: "auto",
-            }}>
-              {tagSuggestions.map((s) => (
-                <div
-                  key={s}
-                  style={{ padding: "0.25rem 0.5rem", cursor: "pointer" }}
-                  onMouseDown={(e) => { e.preventDefault(); handleAddTag(s); }}
-                >
-                  {s}
-                </div>
-              ))}
-            </div>
-          )}
+              fontFamily: "var(--font)",
+            }}
+            value={notesValue ?? playlist.notes ?? ""}
+            onChange={(e) => setNotesValue(e.target.value)}
+            onBlur={() => {
+              const val = notesValue ?? "";
+              if (val !== (playlist.notes ?? "")) {
+                handleSaveNotes(val);
+              }
+            }}
+          />
         </div>
-      </div>
-
-      {/* Notes */}
-      <div className="card mb-2">
-        <h3 style={{ marginBottom: "0.3rem" }}>Notes</h3>
-        <textarea
-          style={{
-            width: "100%",
-            minHeight: 80,
-            background: "var(--bg)",
-            color: "var(--text)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "0.4rem 0.6rem",
-            fontFamily: "var(--font)",
-            fontSize: "0.85rem",
-            resize: "vertical",
-          }}
-          value={notesValue ?? playlist.notes ?? ""}
-          onChange={(e) => setNotesValue(e.target.value)}
-          onBlur={() => {
-            const val = notesValue ?? "";
-            if (val !== (playlist.notes ?? "")) {
-              handleSaveNotes(val);
-            }
-          }}
-          placeholder="Add notes about this playlist…"
-        />
       </div>
 
       {/* Track list */}
