@@ -6,7 +6,7 @@ export function SpotifyPlayButton({ type, spotifyId, size = 16 }: {
 }) {
   if (!spotifyId) return null;
 
-  const url = `https://open.spotify.com/${type}/${spotifyId}`;
+  const url = `spotify:${type}:${spotifyId}`;
 
   return (
     <a
