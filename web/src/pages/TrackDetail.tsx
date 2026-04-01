@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router";
 import { useTrackLifecycle, useTrackRejections, useSyncTrack } from "../api/hooks.js";
 import type { SyncTrackResult } from "../api/client.js";
+import { SpotifyPlayButton } from "../components/SpotifyPlayButton.js";
 
 const matchStatusBadge: Record<string, string> = {
   pending: "badge-yellow",
@@ -81,7 +82,10 @@ export function TrackDetail() {
   return (
     <>
       <div className="page-header">
-        <h2>{track.title}</h2>
+        <h2 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <SpotifyPlayButton type="track" spotifyId={track.spotifyId} size={18} />
+          {track.title}
+        </h2>
         <button
           className="btn btn-sm"
           onClick={handleSync}

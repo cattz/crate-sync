@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router";
 import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, usePullPlaylist, useUpdatePlaylistMeta } from "../api/hooks.js";
 import { api, type TrackStatus } from "../api/client.js";
+import { SpotifyPlayButton } from "../components/SpotifyPlayButton.js";
 
 function formatDuration(ms: number) {
   const min = Math.floor(ms / 60000);
@@ -250,7 +251,10 @@ export function PlaylistDetail() {
           <Link to="/playlists" className="text-muted text-sm">
             &larr; Playlists
           </Link>
-          <h2 style={{ marginTop: "0.25rem" }}>{playlist.name}</h2>
+          <h2 style={{ marginTop: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            {playlist.name}
+            <SpotifyPlayButton type="playlist" spotifyId={playlist.spotifyId} size={18} />
+          </h2>
           <span className="text-muted text-sm">{playlist.trackCount} tracks</span>
         </div>
         <div className="flex gap-1">
@@ -444,7 +448,10 @@ export function PlaylistDetail() {
             {filteredTracks.map((t, i) => (
               <tr key={t.id} onClick={() => navigate(`/tracks/${t.id}`)} style={{ cursor: "pointer" }}>
                 <td className="text-muted">{(t.position ?? i) + 1}</td>
-                <td>{t.title}</td>
+                <td style={{ display: "flex", alignItems: "center", gap: "0.4rem" }} onClick={(e) => e.stopPropagation()}>
+                  <SpotifyPlayButton type="track" spotifyId={t.spotifyId} size={14} />
+                  <span onClick={() => navigate(`/tracks/${t.id}`)} style={{ cursor: "pointer" }}>{t.title}</span>
+                </td>
                 <td className="text-muted">{t.artist}</td>
                 <td className="text-muted">{t.album ?? ""}</td>
                 <td className="text-muted mono text-sm">{formatDuration(t.durationMs)}</td>

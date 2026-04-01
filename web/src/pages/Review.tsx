@@ -1,6 +1,7 @@
 import { useReviewPending, useConfirmReview, useRejectReview, useBulkConfirmReviews, useBulkRejectReviews } from "../api/hooks.js";
 import type { PendingReviewItem } from "../api/client.js";
 import { Link } from "react-router";
+import { SpotifyPlayButton } from "../components/SpotifyPlayButton.js";
 
 function formatDuration(ms: number | null | undefined) {
   if (!ms) return "—";
@@ -112,7 +113,10 @@ function ReviewCard({ item }: { item: PendingReviewItem }) {
           <tr>
             <td style={labelStyle}>S</td>
             <td style={cellStyle(titleSim)}>
-              <Link to={`/tracks/${src.id}`}>{src.title}</Link>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+                <SpotifyPlayButton type="track" spotifyId={src.spotifyId} size={13} />
+                <Link to={`/tracks/${src.id}`}>{src.title}</Link>
+              </span>
             </td>
             <td style={cellStyle(artistSim)}>{src.artist}</td>
             <td style={cellStyle(albumSim)}>{src.album ?? "—"}</td>
