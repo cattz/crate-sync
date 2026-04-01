@@ -319,9 +319,9 @@ export function PlaylistDetail() {
       )}
 
       {/* Tags + Notes — compact single row */}
-      <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginBottom: "0.75rem" }}>
+      <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginBottom: "0.75rem" }}>
         {/* Tags */}
-        <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+        <div style={{ flex: "0 1 auto" }}>
           <div className="flex items-center gap-1" style={{ flexWrap: "wrap" }}>
             <span className="text-muted text-sm" style={{ marginRight: "0.25rem" }}>Tags:</span>
             {currentTags.map((tag) => (
@@ -372,14 +372,15 @@ export function PlaylistDetail() {
             </div>
           </div>
         </div>
+        <span className="text-muted" style={{ fontSize: "0.75rem" }}>|</span>
         {/* Notes */}
-        <div style={{ flex: "0 0 300px" }}>
+        <div style={{ flex: "0 0 250px" }}>
           <textarea
             placeholder="Notes…"
             style={{
               width: "100%",
-              minHeight: 32,
-              maxHeight: 60,
+              minHeight: 28,
+              maxHeight: 28,
               resize: "vertical",
               padding: "0.25rem 0.4rem",
               fontSize: "0.8rem",
