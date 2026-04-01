@@ -112,6 +112,12 @@ function mockDb(rejectionFileKeys: string[] = []) {
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
           all: vi.fn().mockReturnValue(rows),
+          get: vi.fn().mockImplementation(() => {
+            // Return the last inserted rejection (simulates reading back what was just written)
+            const last = insertValues[insertValues.length - 1];
+            if (last) return { reason: last.reason ?? last.fileKey };
+            return rows[0] ?? undefined;
+          }),
         }),
       }),
     }),
@@ -1061,7 +1067,7 @@ describe("DownloadService", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("metadata validation");
+      expect(result.error).toContain("Validation failed");
     });
   });
 

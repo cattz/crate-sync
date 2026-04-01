@@ -5,6 +5,7 @@ import {
   normalizeArtist,
   removeStopwords,
   stripRemixSuffix,
+  normalizeTitle,
 } from "../normalize.js";
 
 describe("normalizeUnicode", () => {
@@ -88,5 +89,38 @@ describe("stripRemixSuffix", () => {
     expect(stripRemixSuffix("Yesterday (From the Album Help)")).toBe(
       "Yesterday (From the Album Help)",
     );
+  });
+});
+
+describe("normalizeTitle", () => {
+  it("strips parenthetical content", () => {
+    expect(normalizeTitle("Feels This Good (TMU Intro) (Clean)")).toBe(
+      "Feels This Good",
+    );
+  });
+
+  it("strips bracket content", () => {
+    expect(normalizeTitle("Track Name [Radio Edit]")).toBe("Track Name");
+  });
+
+  it("strips trailing key/BPM patterns", () => {
+    expect(normalizeTitle("Track Name 4A 107")).toBe("Track Name");
+  });
+
+  it("strips feat. credits", () => {
+    expect(normalizeTitle("Song feat. Artist")).toBe("Song");
+  });
+
+  it("strips ft. credits", () => {
+    expect(normalizeTitle("Song ft. Another Artist")).toBe("Song");
+  });
+
+  it("preserves title when nothing to strip", () => {
+    expect(normalizeTitle("Just a Normal Title")).toBe("Just a Normal Title");
+  });
+
+  it("returns original if everything would be stripped", () => {
+    // A title that is entirely parenthetical — fallback to original
+    expect(normalizeTitle("(Intro)")).toBe("(Intro)");
   });
 });
