@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg15
 title: Show why downloaded files were not moved (rejection visibility)
-status: todo
+status: done
 type: task
 priority: high
 created_at: 2026-03-30T00:00:00Z

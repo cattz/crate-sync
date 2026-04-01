@@ -243,10 +243,10 @@ export class LexiconService {
     }
   }
 
-  /** Find existing tag by label (globally unique in Lexicon) or create in category */
+  /** Find existing tag by label or create in category.
+   * Note: Lexicon enforces globally unique tag labels — a tag can only exist in one category. */
   async ensureTag(categoryId: string, label: string): Promise<LexiconTag> {
     const { tags } = await this.getTags();
-    // Lexicon tag labels are globally unique — search by label only
     const existing = tags.find((t) => t.label === label);
     if (existing) return existing;
     try {

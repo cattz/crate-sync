@@ -1,11 +1,11 @@
 [tasks.dev]
 description = "Start API server in dev mode"
-run = "pnpm exec tsx src/index.ts serve"
+run = "pnpm exec tsx src/index.ts serve --debug"
 
 [tasks."dev:web"]
 description = "Start Vite frontend dev server"
 dir = "web"
-run = "pnpm dev"
+run = "pnpm dev --debug"
 
 [tasks."dev:all"]
 description = "Start API + frontend dev servers together"

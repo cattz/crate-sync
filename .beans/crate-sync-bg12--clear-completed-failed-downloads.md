@@ -1,7 +1,7 @@
 ---
 # crate-sync-bg12
 title: Add option to clear completed or failed downloads
-status: todo
+status: done
 type: task
 priority: normal
 created_at: 2026-03-29T00:00:00Z
