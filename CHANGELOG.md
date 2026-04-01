@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Tests
+- **API route tests** — added test suites for downloads, review, and status API routes covering request/response shape, filtering, error cases, and config updates.
+
 ### Added
 - **Job queue cleanup** — "Clear Done" and "Clear Failed" buttons on Queue page, auto-purge of completed/failed jobs older than configurable retention period (default 7 days), "Job Retention (days)" setting in Settings page.
 - **Cleanup failed download files and empty folders** — `DELETE /api/downloads/:id/file` endpoint to delete physical files for failed downloads. "Delete File" button in web UI for failed downloads. `downloads clean --failed --empty-dirs` CLI command. Auto-cleanup of empty source directories after file moves.
