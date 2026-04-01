@@ -53,11 +53,14 @@ interface SlskdUserTransfers {
   }>;
 }
 
+// Global rate limiter — shared across all SoulseekService instances
+// so concurrent jobs respect the delay between searches
+let globalLastSearchTime = 0;
+
 export class SoulseekService {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly searchDelayMs: number;
-  private lastSearchTime = 0;
 
   constructor(private config: SoulseekConfig) {
     this.baseUrl = config.slskdUrl.replace(/\/+$/, "");
@@ -307,14 +310,14 @@ export class SoulseekService {
    */
   async rateLimitedSearch(query: string): Promise<SlskdFile[]> {
     const now = Date.now();
-    const elapsed = now - this.lastSearchTime;
+    const elapsed = now - globalLastSearchTime;
     const remaining = this.searchDelayMs - elapsed;
 
     if (remaining > 0) {
       await this.sleep(remaining);
     }
 
-    this.lastSearchTime = Date.now();
+    globalLastSearchTime = Date.now();
     return this.search(query);
   }
 
@@ -330,14 +333,14 @@ export class SoulseekService {
 
     for (const query of queries) {
       const now = Date.now();
-      const elapsed = now - this.lastSearchTime;
+      const elapsed = now - globalLastSearchTime;
       const remaining = this.searchDelayMs - elapsed;
 
       if (remaining > 0) {
         await this.sleep(remaining);
       }
 
-      this.lastSearchTime = Date.now();
+      globalLastSearchTime = Date.now();
       const searchId = await this.startSearch(query);
       log.debug(`Batch: posted search`, { query, searchId });
       result.set(query, { searchId, startedAt: Date.now() });
