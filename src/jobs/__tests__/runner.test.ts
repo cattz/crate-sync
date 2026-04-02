@@ -20,7 +20,7 @@ vi.mock("../../db/client.js", () => ({
 }));
 
 // Import after mock
-import { createJob, completeJob, failJob } from "../runner.js";
+import { createJob, completeJob, failJob, startJobRunner, stopJobRunner } from "../runner.js";
 
 function freshDb() {
   sqlite = new Database(":memory:");
@@ -174,6 +174,43 @@ describe("Job Runner", () => {
 
       expect(updated!.status).toBe("failed");
       expect(updated!.attempt).toBe(3);
+    });
+  });
+
+  describe("orphan reset", () => {
+    it("resets running jobs to queued (simulates startup cleanup)", () => {
+      const running1 = createJob({ type: "search", status: "queued", priority: 0, payload: null });
+      const running2 = createJob({ type: "download", status: "queued", priority: 0, payload: null });
+      const queued = createJob({ type: "search", status: "queued", priority: 0, payload: null });
+      const done = createJob({ type: "search", status: "queued", priority: 0, payload: null });
+      const failed = createJob({ type: "search", status: "queued", priority: 0, payload: null });
+
+      // Simulate crash state
+      testDb.update(schema.jobs).set({ status: "running", startedAt: Date.now() }).where(eq(schema.jobs.id, running1.id)).run();
+      testDb.update(schema.jobs).set({ status: "running", startedAt: Date.now() }).where(eq(schema.jobs.id, running2.id)).run();
+      testDb.update(schema.jobs).set({ status: "done", completedAt: Date.now() }).where(eq(schema.jobs.id, done.id)).run();
+      testDb.update(schema.jobs).set({ status: "failed", error: "test" }).where(eq(schema.jobs.id, failed.id)).run();
+
+      // Run the same reset logic that startJobRunner uses
+      const result = testDb
+        .update(schema.jobs)
+        .set({ status: "queued", error: null, startedAt: null })
+        .where(eq(schema.jobs.status, "running"))
+        .run();
+
+      expect(result.changes).toBe(2);
+
+      const r1 = testDb.select().from(schema.jobs).where(eq(schema.jobs.id, running1.id)).get();
+      const r2 = testDb.select().from(schema.jobs).where(eq(schema.jobs.id, running2.id)).get();
+      const q = testDb.select().from(schema.jobs).where(eq(schema.jobs.id, queued.id)).get();
+      const d = testDb.select().from(schema.jobs).where(eq(schema.jobs.id, done.id)).get();
+      const f = testDb.select().from(schema.jobs).where(eq(schema.jobs.id, failed.id)).get();
+
+      expect(r1!.status).toBe("queued");
+      expect(r2!.status).toBe("queued");
+      expect(q!.status).toBe("queued");
+      expect(d!.status).toBe("done");
+      expect(f!.status).toBe("failed");
     });
   });
 
