@@ -11,4 +11,5 @@ services:
       - .env
     volumes:
       - ./data:/app
+      - ./scripts:/app/scripts
     restart: always

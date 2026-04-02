@@ -278,10 +278,14 @@ export function startJobRunner(config: Config): void {
     }
   }
 
-  // Start the periodic download scanner
-  const scanIntervalMs = config.soulseek.fileScanIntervalMs ?? 15_000;
+  // Start the periodic download scanner.
+  // When webhook is enabled, use a longer interval — the scanner is just a safety net.
+  const webhookEnabled = config.soulseek.webhook?.enabled ?? false;
+  const scanIntervalMs = webhookEnabled
+    ? (config.soulseek.webhook?.fallbackScanIntervalMs ?? 60_000)
+    : (config.soulseek.fileScanIntervalMs ?? 15_000);
   scanInterval = setInterval(scheduleDownloadScan, scanIntervalMs);
-  log.info("Download scanner scheduled", { intervalMs: scanIntervalMs });
+  log.info("Download scanner scheduled", { intervalMs: scanIntervalMs, webhookEnabled });
 
   // Start periodic wishlist scan (once per hour)
   function scheduleWishlistRun() {

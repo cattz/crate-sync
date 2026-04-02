@@ -27,6 +27,12 @@ export interface SoulseekConfig {
   downloadTimeoutMs: number;
   /** How often the filesystem scanner checks for completed downloads (default: 15000 = 15s). */
   fileScanIntervalMs: number;
+  /** Webhook integration for immediate download notification from slskd. */
+  webhook?: {
+    enabled: boolean;
+    /** Reduced scan frequency when webhook is active (default: 60000 = 60s). */
+    fallbackScanIntervalMs: number;
+  };
 }
 
 export interface MatchingWeights {

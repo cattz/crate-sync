@@ -57,6 +57,13 @@
       "when": 1775123606634,
       "tag": "0007_odd_ezekiel",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1775296800000,
+      "tag": "0008_smooth_ender",
+      "breakpoints": true
     }
   ]
 }
