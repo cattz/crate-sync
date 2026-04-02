@@ -544,8 +544,21 @@ export class DownloadService {
           : undefined,
       };
 
+      // Remix/compilation fallback: if the file's title contains "OriginalArtist - Title",
+      // create an alternate TrackInfo with the artist extracted from the title
+      let altTagTrack: TrackInfo | undefined;
+      const titleDash = (common.title ?? "").indexOf(" - ");
+      if (titleDash > 0) {
+        altTagTrack = {
+          ...tagTrack,
+          artist: (common.title ?? "").slice(0, titleDash).trim(),
+          title: (common.title ?? "").slice(titleDash + 3).trim(),
+        };
+      }
+
       if (this.validationStrictness === "strict") {
-        const matches = this.matcher.match(expected, [tagTrack]);
+        const candidates = altTagTrack ? [tagTrack, altTagTrack] : [tagTrack];
+        const matches = this.matcher.match(expected, candidates);
         const score = matches.length > 0 ? matches[0].score : 0;
 
         if (score < 0.7) {
@@ -575,7 +588,8 @@ export class DownloadService {
         return false;
       }
 
-      const matches = this.matcher.match(expected, [tagTrack]);
+      const modCandidates = altTagTrack ? [tagTrack, altTagTrack] : [tagTrack];
+      const matches = this.matcher.match(expected, modCandidates);
       const score = matches.length > 0 ? matches[0].score : 0;
       if (matches.length === 0 || score <= 0.5) {
         const tagInfo = `"${tagTrack.artist} - ${tagTrack.title}"`;
