@@ -14,6 +14,7 @@ import {
 } from "./normalize.js";
 
 const MIN_THRESHOLD = 0.3;
+const MIN_TITLE_THRESHOLD = 0.3;
 
 const WEIGHT_PRESETS: Record<MatchContext, WeightProfile> = {
   lexicon: { title: 0.3, artist: 0.3, album: 0.15, duration: 0.25 },
@@ -217,6 +218,9 @@ export class FuzzyMatchStrategy implements MatchStrategy {
 
       // Album score with weight redistribution when missing
       let { title: wT, artist: wA, album: wAl, duration: wD } = this.weights;
+
+      // Title gate: if titles don't match at all, skip regardless of other fields
+      if (titleScore < MIN_TITLE_THRESHOLD) continue;
 
       let albumScore = 0;
       if (srcAlbum != null && candAlbum != null) {
