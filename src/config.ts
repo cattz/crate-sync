@@ -56,6 +56,13 @@ export interface DownloadConfig {
   validationStrictness: "strict" | "moderate" | "lenient";
 }
 
+export interface WishlistConfig {
+  /** How often to retry wishlisted tracks, in hours. Default: 24 */
+  retryIntervalHours: number;
+  /** Max retry attempts before giving up. Default: 5 */
+  maxRetries: number;
+}
+
 export interface JobRunnerConfig {
   /** Polling interval in milliseconds. Default: 1000 */
   pollIntervalMs: number;
@@ -72,6 +79,7 @@ export interface Config {
   matching: MatchingConfig;
   download: DownloadConfig;
   jobRunner: JobRunnerConfig;
+  wishlist: WishlistConfig;
   logging: LoggingConfig;
 }
 
@@ -119,6 +127,10 @@ const defaults: Config = {
     concurrency: 3,
     retentionDays: 7,
   },
+  wishlist: {
+    retryIntervalHours: 24,
+    maxRetries: 5,
+  },
   logging: {
     level: "info",
     file: true,
@@ -161,6 +173,7 @@ function mergeDefaults(
       formats: partial.download?.formats?.filter((f): f is string => f != null) ?? base.download.formats,
     },
     jobRunner: { ...base.jobRunner, ...(partial as any).jobRunner },
+    wishlist: { ...base.wishlist, ...(partial as any).wishlist },
     logging: { ...base.logging, ...(partial as any).logging },
   };
 

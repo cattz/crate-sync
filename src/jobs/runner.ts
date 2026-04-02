@@ -145,6 +145,7 @@ let running = false;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let scanInterval: ReturnType<typeof setInterval> | null = null;
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+let wishlistInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Purge completed/failed jobs older than retentionDays.
@@ -271,6 +272,31 @@ export function startJobRunner(config: Config): void {
   scanInterval = setInterval(scheduleDownloadScan, scanIntervalMs);
   log.info("Download scanner scheduled", { intervalMs: scanIntervalMs });
 
+  // Start periodic wishlist scan (once per hour)
+  function scheduleWishlistRun() {
+    const db = getDb();
+    const existing = db
+      .select()
+      .from(schema.jobs)
+      .where(sql`${schema.jobs.type} = 'wishlist_run' AND ${schema.jobs.status} IN ('queued', 'running')`)
+      .get();
+    if (!existing) {
+      // Only create if there are wishlisted downloads ready for retry
+      const ready = db
+        .select({ id: schema.downloads.id })
+        .from(schema.downloads)
+        .where(sql`${schema.downloads.status} = 'wishlisted' AND ${schema.downloads.nextRetryAt} <= ${Date.now()}`)
+        .limit(1)
+        .get();
+      if (ready) {
+        createJob({ type: "wishlist_run", status: "queued", priority: 1 });
+        log.info("Scheduled automatic wishlist run");
+      }
+    }
+  }
+  wishlistInterval = setInterval(scheduleWishlistRun, 3_600_000); // every hour
+  scheduleWishlistRun(); // run once on startup
+
   // Start periodic job cleanup (once per hour)
   const retentionDays = config.jobRunner.retentionDays ?? 7;
   purgeOldJobs(retentionDays); // run once on startup
@@ -297,6 +323,10 @@ export function stopJobRunner(): void {
   if (cleanupInterval) {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
+  }
+  if (wishlistInterval) {
+    clearInterval(wishlistInterval);
+    wishlistInterval = null;
   }
   log.info("Job runner stopped");
 }

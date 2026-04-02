@@ -22,6 +22,7 @@ export type TrackStatus =
   | "downloaded"
   | "download_failed"
   | "search_failed"
+  | "wishlisted"
   | "not_matched";
 
 export class PlaylistService {
@@ -144,8 +145,8 @@ export class PlaylistService {
     if (dl) {
       if (dl.status === "downloading" || dl.status === "searching" || dl.status === "validating" || dl.status === "moving") return "downloading";
       if (dl.status === "done") return "downloaded";
+      if (dl.status === "wishlisted") return "wishlisted";
       if (dl.status === "failed") return "download_failed";
-      // pending downloads
       if (dl.status === "pending") return "downloading";
     }
 

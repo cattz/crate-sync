@@ -124,7 +124,7 @@ export const downloads = sqliteTable("downloads", {
     .references(() => tracks.id),
   playlistId: text("playlist_id").references(() => playlists.id),
   status: text("status", {
-    enum: ["pending", "searching", "downloading", "validating", "moving", "done", "failed"],
+    enum: ["pending", "searching", "downloading", "validating", "moving", "done", "failed", "wishlisted"],
   }).notNull(),
   origin: text("origin", { enum: ["not_found", "review_rejected"] }).notNull().default("not_found"),
   soulseekPath: text("soulseek_path"),
@@ -134,6 +134,8 @@ export const downloads = sqliteTable("downloads", {
   error: text("error"),
   startedAt: integer("started_at"),
   completedAt: integer("completed_at"),
+  wishlistRetries: integer("wishlist_retries").default(0),
+  nextRetryAt: integer("next_retry_at"),
   createdAt,
 });
 
