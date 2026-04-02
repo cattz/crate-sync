@@ -78,27 +78,36 @@ export function Downloads() {
         </div>
       </div>
 
-      <div className="card">
-        <table>
+      <div className="card" style={{ overflow: "hidden" }}>
+        <table style={{ width: "100%", tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "8%" }} />
+          </colgroup>
           <thead>
             <tr>
               <th>Track</th>
-              <th style={{ width: "1%" }}>Status</th>
-              <th style={{ width: "1%" }}>Origin</th>
+              <th>Status</th>
+              <th>Origin</th>
               <th>File</th>
               <th>Error</th>
-              <th style={{ width: "1%" }}>Completed</th>
-              <th style={{ width: "1%" }}>Actions</th>
+              <th>Completed</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {downloads?.map((d) => (
               <tr key={d.id}>
-                <td>
+                <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.track ? `${d.track.artist} — ${d.track.title}` : d.trackId}>
                   {d.track ? (
-                    <span className="inline-track">
-                      {d.track.title} <span className="artist">— {d.track.artist}</span>
-                    </span>
+                    <>
+                      {d.track.title} <span className="text-muted">— {d.track.artist}</span>
+                    </>
                   ) : (
                     <span className="text-muted">{d.trackId}</span>
                   )}
@@ -111,17 +120,11 @@ export function Downloads() {
                 <td>
                   <span className="badge badge-gray">{d.origin}</span>
                 </td>
-                <td className="text-muted text-sm mono col-truncate">
+                <td className="text-muted text-sm mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.filePath ?? ""}>
                   {d.filePath ?? "—"}
                 </td>
-                <td className="text-sm" style={{ color: d.error ? "var(--danger)" : undefined }}>
-                  {d.error ? (
-                    <span title={d.error}>
-                      {d.error.length > 120 ? `${d.error.slice(0, 120)}...` : d.error}
-                    </span>
-                  ) : (
-                    ""
-                  )}
+                <td className="text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: d.error ? "var(--danger)" : undefined }} title={d.error ?? ""}>
+                  {d.error ?? ""}
                 </td>
                 <td className="text-muted text-sm">{formatTime(d.completedAt)}</td>
                 <td>
