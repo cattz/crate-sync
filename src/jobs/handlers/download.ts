@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type { Config } from "../../config.js";
 import type { Job } from "../../db/schema.js";
 import { getDb } from "../../db/client.js";
@@ -7,6 +7,8 @@ import { DownloadService } from "../../services/download-service.js";
 import { SoulseekService } from "../../services/soulseek-service.js";
 import { completeJob } from "../runner.js";
 import { createLogger } from "../../utils/logger.js";
+
+const MAX_PER_USER = 2;
 
 const log = createLogger("download-handler");
 
@@ -39,6 +41,37 @@ export async function handleDownload(job: Job, config: Config): Promise<void> {
   const db = getDb();
 
   const { username, filename, size } = payload.file;
+
+  // Per-user concurrency limit — avoid "Too many files" rejection from remote peers
+  const activeFromUser = db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.downloads)
+    .where(
+      and(
+        eq(schema.downloads.slskdUsername, username),
+        eq(schema.downloads.status, "downloading"),
+      ),
+    )
+    .get();
+
+  if ((activeFromUser?.count ?? 0) >= MAX_PER_USER) {
+    log.info(`Per-user limit reached (${MAX_PER_USER}), deferring download from ${username}`, {
+      username,
+      active: activeFromUser?.count,
+      filename,
+    });
+    // Put the job back to queued with lower priority — it'll be picked up
+    // after other jobs run and slots free up from this user
+    db.update(schema.jobs)
+      .set({
+        status: "queued",
+        startedAt: null,
+        priority: Math.max(0, (job.priority ?? 0) - 1),
+      })
+      .where(eq(schema.jobs.id, job.id))
+      .run();
+    return; // Exit without calling completeJob — job is back in the queue
+  }
 
   // Record download state
   const downloadRow = db
