@@ -66,6 +66,14 @@ function makeConfig(overrides: Partial<{
       level: "info",
       file: true,
     },
+    wishlist: {
+      retryIntervalHours: 24,
+      maxRetries: 5,
+    },
+    sources: {
+      priority: ["soulseek"],
+      local: {},
+    },
   };
 }
 

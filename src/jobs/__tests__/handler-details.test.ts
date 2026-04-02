@@ -157,7 +157,9 @@ const TEST_CONFIG: Config = {
     validationStrictness: "moderate",
   },
   jobRunner: { pollIntervalMs: 1000, concurrency: 3, retentionDays: 7 },
+  wishlist: { retryIntervalHours: 24, maxRetries: 5 },
   logging: { level: "info", file: false },
+  sources: { priority: ["soulseek"], local: {} },
 };
 
 // ---------------------------------------------------------------------------

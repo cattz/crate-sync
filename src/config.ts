@@ -72,6 +72,20 @@ export interface JobRunnerConfig {
   retentionDays: number;
 }
 
+export interface LocalSourceConfig {
+  path: string;
+  structure: "letter-artist-album" | "artist-album" | "flat" | "year-playlist";
+  formats: string[];
+  fileOp: "copy" | "move";
+}
+
+export interface SourcesConfig {
+  /** Ordered list of source IDs to try (e.g. ["local:lossless", "soulseek"]). */
+  priority: string[];
+  /** Named local filesystem sources. */
+  local?: Record<string, LocalSourceConfig>;
+}
+
 export interface Config {
   spotify: SpotifyConfig;
   lexicon: LexiconConfig;
@@ -81,6 +95,7 @@ export interface Config {
   jobRunner: JobRunnerConfig;
   wishlist: WishlistConfig;
   logging: LoggingConfig;
+  sources: SourcesConfig;
 }
 
 type DeepPartial<T> = {
@@ -135,6 +150,10 @@ const defaults: Config = {
     level: "info",
     file: true,
   },
+  sources: {
+    priority: ["soulseek"],
+    local: {},
+  },
 };
 
 export function getConfigPath(): string {
@@ -175,11 +194,25 @@ function mergeDefaults(
     jobRunner: { ...base.jobRunner, ...(partial as any).jobRunner },
     wishlist: { ...base.wishlist, ...(partial as any).wishlist },
     logging: { ...base.logging, ...(partial as any).logging },
+    sources: {
+      priority: (partial as any).sources?.priority ?? base.sources.priority,
+      local: { ...base.sources.local, ...(partial as any).sources?.local },
+    },
   };
 
   // Expand ~ in path-like config values
   merged.lexicon.downloadRoot = expandHome(merged.lexicon.downloadRoot);
   merged.soulseek.downloadDir = expandHome(merged.soulseek.downloadDir);
+
+  // Expand ~ in local source paths
+  if (merged.sources.local) {
+    for (const name of Object.keys(merged.sources.local)) {
+      merged.sources.local[name] = {
+        ...merged.sources.local[name],
+        path: expandHome(merged.sources.local[name].path),
+      };
+    }
+  }
 
   return merged;
 }
