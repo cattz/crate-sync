@@ -2,8 +2,12 @@ import type { Config } from "../../config.js";
 import type { Job } from "../../db/schema.js";
 import { getDb } from "../../db/client.js";
 import { DownloadService } from "../../services/download-service.js";
+import { SoulseekService } from "../../services/soulseek-service.js";
 import { completeJob, failJob, createJob } from "../runner.js";
 import { generateSearchQueries } from "../../search/query-builder.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("search-handler");
 
 interface SearchPayload {
   trackId: string;
@@ -38,6 +42,17 @@ export async function handleSearch(job: Job, config: Config): Promise<void> {
     // All strategies exhausted
     failJob(job.id, `All ${strategies.length} search strategies exhausted`, false);
     return;
+  }
+
+  // Wait for slskd to be connected before searching
+  const soulseek = new SoulseekService(config.soulseek);
+  if (!(await soulseek.isConnected())) {
+    log.info("slskd not connected, waiting up to 60s...");
+    const connected = await soulseek.waitForConnection(60_000);
+    if (!connected) {
+      failJob(job.id, "slskd not connected to Soulseek network (timed out after 60s)");
+      return;
+    }
   }
 
   const db = getDb();

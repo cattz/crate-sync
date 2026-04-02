@@ -114,6 +114,26 @@ export class SoulseekService {
     }
   }
 
+  /** Check if slskd is connected and logged into the Soulseek network. */
+  async isConnected(): Promise<boolean> {
+    try {
+      const data = await this.request<{ state?: string; isLoggedIn?: boolean }>("GET", "/server");
+      return data.isLoggedIn === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Wait for slskd to be connected, checking every 5s up to maxWaitMs. */
+  async waitForConnection(maxWaitMs = 60_000): Promise<boolean> {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      if (await this.isConnected()) return true;
+      await this.sleep(5000);
+    }
+    return false;
+  }
+
   /**
    * Search for a track. Waits for search to complete (polls).
    * Returns flat list of files from all users.
