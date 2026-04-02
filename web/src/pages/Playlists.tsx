@@ -449,7 +449,15 @@ export function Playlists() {
       )}
 
       <div className="card">
-        <table>
+        <table style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: 30 }} />
+            <col />
+            <col style={{ width: 70 }} />
+            <col style={{ width: 100 }} />
+            <col style={{ width: 120 }} />
+            <col style={{ width: 40 }} />
+          </colgroup>
           <thead>
             <tr>
               <th>
@@ -485,12 +493,12 @@ export function Playlists() {
                     onChange={() => selection.toggle(p.id)}
                   />
                 </td>
-                <td>
-                  <div className="flex items-center gap-1">
-                    {p.pinned ? <span className="badge badge-green" title="Pinned">pinned</span> : null}
-                    <Link to={`/playlists/${p.id}`}>{p.name}</Link>
-                    {parseTags(p.tags).map((tag) => (
-                      <span key={tag} className="badge badge-blue">{tag}</span>
+                <td style={{ overflow: "hidden" }}>
+                  <div className="flex items-center gap-1" style={{ flexWrap: "nowrap", overflow: "hidden" }}>
+                    {p.pinned ? <span className="badge badge-green" title="Pinned" style={{ flexShrink: 0 }}>pinned</span> : null}
+                    <Link to={`/playlists/${p.id}`} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.name}>{p.name}</Link>
+                    {parseTags(p.tags).slice(0, 3).map((tag) => (
+                      <span key={tag} className="badge badge-blue" style={{ flexShrink: 0, fontSize: "0.7rem" }}>{tag}</span>
                     ))}
                   </div>
                 </td>
