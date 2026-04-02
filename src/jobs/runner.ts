@@ -215,6 +215,17 @@ export function startJobRunner(config: Config): void {
   if (running) return;
   running = true;
 
+  // Reset orphaned "running" jobs from a previous crash back to queued
+  const db = getDb();
+  const orphaned = db
+    .update(schema.jobs)
+    .set({ status: "queued", error: null, startedAt: null })
+    .where(eq(schema.jobs.status, "running"))
+    .run();
+  if (orphaned.changes > 0) {
+    log.info(`Reset ${orphaned.changes} orphaned running jobs to queued`);
+  }
+
   const maxConcurrency = config.jobRunner.concurrency ?? 3;
   const activeJobs = new Set<Promise<void>>();
 
