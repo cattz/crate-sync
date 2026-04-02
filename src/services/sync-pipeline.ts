@@ -617,8 +617,21 @@ export class SyncPipeline {
     }
 
     // 7. Tag each confirmed track (category-scoped)
+    // Also tag duplicate Lexicon tracks with the same filename (same file in multiple playlist folders)
     let tagged = 0;
     let skipped = 0;
+
+    // Build filename → all Lexicon track IDs map for duplicate detection
+    const allLexiconTracks = await lexicon.getTracks();
+    const filenameToIds = new Map<string, string[]>();
+    for (const lt of allLexiconTracks) {
+      const fname = lt.filePath?.split("/").pop()?.toLowerCase();
+      if (fname) {
+        const ids = filenameToIds.get(fname) ?? [];
+        ids.push(lt.id);
+        filenameToIds.set(fname, ids);
+      }
+    }
 
     for (const track of confirmedTracks) {
       if (!track.lexiconTrackId) {
@@ -626,13 +639,27 @@ export class SyncPipeline {
         continue;
       }
 
-      try {
-        await lexicon.setTrackCategoryTags(track.lexiconTrackId, category.id, tagIds);
-        tagged++;
-      } catch (err) {
-        // Log and continue on individual track tagging errors
-        log.error(`Failed to tag track ${track.lexiconTrackId}: ${err}`);
-        skipped++;
+      // Collect all Lexicon track IDs to tag: the primary match + any duplicates by filename
+      const idsToTag = new Set<string>([track.lexiconTrackId]);
+
+      // Find the filename of the matched track and look for duplicates
+      const matchedTrack = allLexiconTracks.find(lt => lt.id === track.lexiconTrackId);
+      if (matchedTrack?.filePath) {
+        const fname = matchedTrack.filePath.split("/").pop()?.toLowerCase();
+        if (fname) {
+          const dupes = filenameToIds.get(fname) ?? [];
+          for (const id of dupes) idsToTag.add(id);
+        }
+      }
+
+      for (const lexId of idsToTag) {
+        try {
+          await lexicon.setTrackCategoryTags(lexId, category.id, tagIds);
+          tagged++;
+        } catch (err) {
+          log.error(`Failed to tag track ${lexId}: ${err}`);
+          skipped++;
+        }
       }
     }
 
