@@ -535,50 +535,70 @@ export class DownloadService {
       const metadata = await parseFile(filePath);
       const { common } = metadata;
 
+      const durationMs = metadata.format.duration
+        ? Math.round(metadata.format.duration * 1000)
+        : undefined;
+
+      // Build candidates from multiple sources — pick the best match
+      const candidates: TrackInfo[] = [];
+
+      // 1. Audio tags
       const tagTrack: TrackInfo = {
         title: common.title ?? "",
         artist: common.artist ?? "",
         album: common.album ?? undefined,
-        durationMs: metadata.format.duration
-          ? Math.round(metadata.format.duration * 1000)
-          : undefined,
+        durationMs,
       };
+      if (tagTrack.title || tagTrack.artist) candidates.push(tagTrack);
 
-      // Remix/compilation fallback: if the file's title contains "OriginalArtist - Title",
-      // create an alternate TrackInfo with the artist extracted from the title
-      let altTagTrack: TrackInfo | undefined;
+      // 2. Remix fallback: "OriginalArtist - Title" in tag title field
       const titleDash = (common.title ?? "").indexOf(" - ");
       if (titleDash > 0) {
-        altTagTrack = {
+        candidates.push({
           ...tagTrack,
           artist: (common.title ?? "").slice(0, titleDash).trim(),
           title: (common.title ?? "").slice(titleDash + 3).trim(),
-        };
+        });
       }
 
-      if (this.validationStrictness === "strict") {
-        const candidates = altTagTrack ? [tagTrack, altTagTrack] : [tagTrack];
-        const matches = this.matcher.match(expected, candidates);
-        const score = matches.length > 0 ? matches[0].score : 0;
+      // 3. Filename-derived info (sometimes better than tags)
+      const fnTrack = trackInfoFromFilename(file.filename);
+      if (fnTrack.title) {
+        candidates.push({ ...fnTrack, durationMs });
+      }
 
-        if (score < 0.7) {
-          const tagInfo = `"${tagTrack.artist} - ${tagTrack.title}"`;
+      if (candidates.length === 0) {
+        await this.recordRejection(trackId, fileKey, "No metadata or filename info to validate against");
+        return false;
+      }
+
+      // Match all candidates, use best score
+      const matches = this.matcher.match(expected, candidates);
+      const bestScore = matches.length > 0 ? matches[0].score : 0;
+      const bestCandidate = matches.length > 0 ? matches[0].candidate : tagTrack;
+
+      const threshold = this.validationStrictness === "strict" ? 0.7 : 0.5;
+      const tagInfo = `tags: "${tagTrack.artist} - ${tagTrack.title}", file: "${fnTrack.artist} - ${fnTrack.title}"`;
+
+      if (this.validationStrictness === "strict") {
+        if (bestScore < threshold) {
           await this.recordRejection(trackId, fileKey,
-            `Score ${score.toFixed(2)} below threshold 0.70 (strict) — tags: ${tagInfo}`);
+            `Score ${bestScore.toFixed(2)} below threshold ${threshold.toFixed(2)} (strict) — ${tagInfo}`);
           return false;
         }
 
         // Check duration within 5 seconds if both have duration
-        if (expected.durationMs != null && tagTrack.durationMs != null) {
-          const diffMs = Math.abs(expected.durationMs - tagTrack.durationMs);
+        if (expected.durationMs != null && durationMs != null) {
+          const diffMs = Math.abs(expected.durationMs - durationMs);
           if (diffMs > 5000) {
             const diffSec = (diffMs / 1000).toFixed(1);
             await this.recordRejection(trackId, fileKey,
-              `Duration mismatch: ${diffSec}s difference (expected ${(expected.durationMs / 1000).toFixed(0)}s, got ${(tagTrack.durationMs / 1000).toFixed(0)}s)`);
+              `Duration mismatch: ${diffSec}s difference (expected ${(expected.durationMs / 1000).toFixed(0)}s, got ${(durationMs / 1000).toFixed(0)}s)`);
             return false;
           }
         }
 
+        log.debug(`Validation passed (strict)`, { score: bestScore, source: bestCandidate === tagTrack ? "tags" : "filename" });
         return true;
       }
 
@@ -588,13 +608,9 @@ export class DownloadService {
         return false;
       }
 
-      const modCandidates = altTagTrack ? [tagTrack, altTagTrack] : [tagTrack];
-      const matches = this.matcher.match(expected, modCandidates);
-      const score = matches.length > 0 ? matches[0].score : 0;
-      if (matches.length === 0 || score <= 0.5) {
-        const tagInfo = `"${tagTrack.artist} - ${tagTrack.title}"`;
+      if (bestScore <= threshold) {
         await this.recordRejection(trackId, fileKey,
-          `Score ${score.toFixed(2)} below threshold 0.50 (moderate) — tags: ${tagInfo}`);
+          `Score ${bestScore.toFixed(2)} below threshold ${threshold.toFixed(2)} (moderate) — ${tagInfo}`);
         return false;
       }
 

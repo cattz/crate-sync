@@ -1047,7 +1047,7 @@ describe("DownloadService", () => {
       const service = makeService();
 
       const file = makeFile({
-        filename: "@@user1\\music\\Expected Artist\\Album\\01 - Expected Song.flac",
+        filename: "@@user1\\music\\Wrong Artist\\Album\\01 - Totally Wrong Song.flac",
       });
 
       vi.mocked(existsSync).mockImplementation((p) => {
