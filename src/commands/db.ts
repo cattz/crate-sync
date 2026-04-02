@@ -5,6 +5,7 @@ import { getDb } from "../db/client.js";
 import { count } from "drizzle-orm";
 import * as schema from "../db/schema.js";
 import { SpotifyService } from "../services/spotify-service.js";
+import { PlaylistService } from "../services/playlist-service.js";
 import { Progress } from "../utils/progress.js";
 import { isShutdownRequested } from "../utils/shutdown.js";
 
@@ -28,7 +29,12 @@ export function registerDbCommands(program: Command): void {
 
         console.log(chalk.dim("Syncing playlists from Spotify..."));
 
-        const result = await spotify.syncToDb();
+        const database = getDb();
+        const playlistService = PlaylistService.fromDb(database);
+
+        const apiPlaylists = await spotify.getPlaylists();
+        const currentUserId = await spotify.getCurrentUserId();
+        const result = playlistService.syncPlaylistsFromApi(apiPlaylists, currentUserId);
 
         console.log();
         console.log(chalk.bold("Playlist sync complete"));
@@ -37,7 +43,6 @@ export function registerDbCommands(program: Command): void {
         console.log(`  Unchanged  ${chalk.dim(String(result.unchanged))}`);
 
         // Now sync tracks for each playlist
-        const database = getDb();
         const allPlaylists = database.select().from(schema.playlists).all();
 
         const syncable = allPlaylists.filter((pl) => pl.spotifyId);
@@ -54,7 +59,8 @@ export function registerDbCommands(program: Command): void {
           }
 
           try {
-            const trackResult = await spotify.syncPlaylistTracks(pl.spotifyId!);
+            const apiTracks = await spotify.getPlaylistTracks(pl.spotifyId!);
+            const trackResult = playlistService.syncPlaylistTracksFromApi(pl.spotifyId!, apiTracks);
             progress.tick(
               `${pl.name.slice(0, 30)}  ${chalk.green(`+${trackResult.added}`)}${chalk.dim("/")}${chalk.yellow(`~${trackResult.updated}`)}`,
             );

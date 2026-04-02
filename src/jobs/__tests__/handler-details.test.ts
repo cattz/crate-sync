@@ -26,22 +26,34 @@ vi.mock("../../db/client.js", () => ({
 
 const mockMatchPlaylist = vi.fn();
 const mockSyncTags = vi.fn();
-vi.mock("../../services/sync-pipeline.js", () => ({
-  SyncPipeline: vi.fn().mockImplementation(function () {
+vi.mock("../../services/sync-pipeline.js", () => {
+  function createMockInstance() {
     return {
       matchPlaylist: mockMatchPlaylist,
       syncTags: mockSyncTags,
     };
-  }),
-}));
+  }
+  const MockSyncPipeline = vi.fn().mockImplementation(() => createMockInstance());
+  MockSyncPipeline.fromConfig = vi.fn().mockImplementation(() => createMockInstance());
+  return { SyncPipeline: MockSyncPipeline };
+});
 
-const mockSyncPlaylistTracks = vi.fn().mockResolvedValue({ added: 0, updated: 0 });
+const mockGetPlaylistTracks = vi.fn().mockResolvedValue([]);
 vi.mock("../../services/spotify-service.js", () => ({
   SpotifyService: vi.fn().mockImplementation(function () {
     return {
-      syncPlaylistTracks: mockSyncPlaylistTracks,
+      getPlaylistTracks: mockGetPlaylistTracks,
     };
   }),
+}));
+
+const mockSyncPlaylistTracksFromApi = vi.fn().mockReturnValue({ added: 0, updated: 0 });
+vi.mock("../../services/playlist-service.js", () => ({
+  PlaylistService: {
+    fromDb: vi.fn().mockImplementation(() => ({
+      syncPlaylistTracksFromApi: mockSyncPlaylistTracksFromApi,
+    })),
+  },
 }));
 
 const mockFindDownloadedFile = vi.fn();
@@ -49,8 +61,8 @@ const mockCheckFileStable = vi.fn();
 const mockValidateDownload = vi.fn();
 const mockMoveToPlaylistFolder = vi.fn();
 const mockSearchAndRank = vi.fn();
-vi.mock("../../services/download-service.js", () => ({
-  DownloadService: vi.fn().mockImplementation(function () {
+vi.mock("../../services/download-service.js", () => {
+  function createMockInstance() {
     return {
       findDownloadedFile: mockFindDownloadedFile,
       checkFileStable: mockCheckFileStable,
@@ -58,8 +70,11 @@ vi.mock("../../services/download-service.js", () => ({
       moveToPlaylistFolder: mockMoveToPlaylistFolder,
       searchAndRank: mockSearchAndRank,
     };
-  }),
-}));
+  }
+  const MockDownloadService = vi.fn().mockImplementation(() => createMockInstance());
+  MockDownloadService.fromDb = vi.fn().mockImplementation(() => createMockInstance());
+  return { DownloadService: MockDownloadService };
+});
 
 vi.mock("../../services/soulseek-service.js", () => ({
   SoulseekService: vi.fn().mockImplementation(function () {
@@ -771,7 +786,7 @@ describe("Handler Details", () => {
       await handleSpotifySync(job, TEST_CONFIG);
 
       // Spotify sync should have been called
-      expect(mockSyncPlaylistTracks).toHaveBeenCalled();
+      expect(mockGetPlaylistTracks).toHaveBeenCalled();
 
       // Job should be completed
       const updated = testDb
@@ -831,7 +846,7 @@ describe("Handler Details", () => {
       await handleSpotifySync(job, TEST_CONFIG);
 
       // Spotify API should NOT have been called
-      expect(mockSyncPlaylistTracks).not.toHaveBeenCalled();
+      expect(mockGetPlaylistTracks).not.toHaveBeenCalled();
 
       // But a lexicon_match job should still be created
       const matchJobs = testDb

@@ -4,6 +4,7 @@ import type { Job } from "../../db/schema.js";
 import { getDb } from "../../db/client.js";
 import * as schema from "../../db/schema.js";
 import { SpotifyService } from "../../services/spotify-service.js";
+import { PlaylistService } from "../../services/playlist-service.js";
 import { completeJob, createJob } from "../runner.js";
 
 interface SpotifySyncPayload {
@@ -28,7 +29,9 @@ export async function handleSpotifySync(job: Job, config: Config): Promise<void>
   // If the playlist has a Spotify ID, refresh from Spotify
   if (playlist.spotifyId) {
     const spotify = new SpotifyService(config.spotify);
-    await spotify.syncPlaylistTracks(playlist.spotifyId);
+    const playlistService = PlaylistService.fromDb(db);
+    const apiTracks = await spotify.getPlaylistTracks(playlist.spotifyId);
+    playlistService.syncPlaylistTracksFromApi(playlist.spotifyId, apiTracks);
   }
 
   const playlistName = playlist.name;
