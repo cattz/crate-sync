@@ -6,6 +6,7 @@ import {
   playlistTracks,
   matches,
   downloads,
+  jobs,
   type Playlist,
   type Track,
   type PlaylistTrack,
@@ -20,6 +21,7 @@ export type TrackStatus =
   | "downloading"
   | "downloaded"
   | "download_failed"
+  | "search_failed"
   | "not_matched";
 
 export class PlaylistService {
@@ -146,6 +148,22 @@ export class PlaylistService {
       // pending downloads
       if (dl.status === "pending") return "downloading";
     }
+
+    // Check for failed search jobs (track went through pipeline but search found nothing)
+    const searchJob = this.db
+      .select({ status: jobs.status })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.type, "search"),
+          sql`json_extract(${jobs.payload}, '$.trackId') = ${trackId}`,
+        ),
+      )
+      .orderBy(desc(jobs.createdAt))
+      .limit(1)
+      .get();
+
+    if (searchJob?.status === "failed") return "search_failed";
 
     return "not_matched";
   }

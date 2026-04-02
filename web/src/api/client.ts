@@ -172,6 +172,7 @@ export type TrackStatus =
   | "downloading"
   | "downloaded"
   | "download_failed"
+  | "search_failed"
   | "not_matched";
 
 export interface Track {

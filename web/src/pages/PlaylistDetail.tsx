@@ -28,6 +28,7 @@ const statusConfig: Record<TrackStatus, { label: string; className: string }> = 
   downloading: { label: "Downloading", className: "badge badge-blue" },
   downloaded: { label: "Downloaded", className: "badge badge-gray" },
   download_failed: { label: "Failed", className: "badge badge-red" },
+  search_failed: { label: "Not Found", className: "badge badge-red" },
   not_matched: { label: "", className: "" },
 };
 
@@ -146,7 +147,8 @@ export function PlaylistDetail() {
     downloading: 3,
     pending_review: 4,
     download_failed: 5,
-    not_matched: 6,
+    search_failed: 6,
+    not_matched: 7,
   };
 
   const filteredTracks = useMemo(() => {
@@ -423,6 +425,7 @@ export function PlaylistDetail() {
             <option value="downloading">Downloading</option>
             <option value="pending_review">Pending Review</option>
             <option value="download_failed">Failed</option>
+            <option value="search_failed">Not Found</option>
             <option value="not_matched">Not Matched</option>
           </select>
           <input
