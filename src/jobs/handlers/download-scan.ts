@@ -38,7 +38,7 @@ export async function handleDownloadScan(job: Job, config: Config): Promise<void
     return;
   }
 
-  log.debug(`Scanning ${pending.length} pending downloads`);
+  log.info(`Scanning ${pending.length} pending downloads`);
 
   const downloadService = new DownloadService(
     db,
@@ -63,7 +63,7 @@ export async function handleDownloadScan(job: Job, config: Config): Promise<void
       // File found — check if it's stable (not still being written)
       const stable = await downloadService.checkFileStable(filePath);
       if (!stable) {
-        log.debug(`File found but still being written`, { filename, filePath });
+        log.info(`File found but still being written`, { filename, filePath });
         continue;
       }
 
@@ -108,7 +108,7 @@ export async function handleDownloadScan(job: Job, config: Config): Promise<void
       // Validate
       const valid = await downloadService.validateDownload(filePath, trackInfo, dl.trackId, slskdFile);
       if (!valid) {
-        log.debug(`Downloaded file failed validation`, { filename, filePath });
+        log.info(`Downloaded file failed validation`, { filename, filePath });
         // Leave as downloading — might get a different file, or will time out
         continue;
       }
