@@ -236,8 +236,14 @@ export class FuzzyMatchStrategy implements MatchStrategy {
         wAl = 0;
       }
 
-      const score =
+      let score =
         wT * titleScore + wA * artScore + wAl * albumScore + wD * durScore;
+
+      // When title + artist both match strongly, don't let album mismatch tank the score
+      // (same song on different albums/compilations is a valid match)
+      if (titleScore >= 0.9 && artScore >= 0.9 && score < 0.9) {
+        score = Math.max(score, 0.9 + (durScore * 0.05));
+      }
 
       if (score >= MIN_THRESHOLD) {
         results.push({
