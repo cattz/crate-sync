@@ -22,7 +22,7 @@ export function registerPlaylistCommands(program: Command): void {
     .option("--regex", "Treat --filter as a regular expression")
     .action((opts: { owner: string; filter?: string; regex?: boolean }) => {
       const db = getDb();
-      const service = new PlaylistService(db);
+      const service = PlaylistService.fromDb(db);
       let rows = service.getPlaylists();
 
       if (opts.owner === "own") {
@@ -87,7 +87,7 @@ export function registerPlaylistCommands(program: Command): void {
     .action((id: string) => {
       try {
         const db = getDb();
-        const service = new PlaylistService(db);
+        const service = PlaylistService.fromDb(db);
 
         const playlist = service.getPlaylist(id);
         if (!playlist) {
@@ -149,7 +149,7 @@ export function registerPlaylistCommands(program: Command): void {
     .action(async (id: string, name: string, opts: { push?: boolean }) => {
       try {
         const db = getDb();
-        const service = new PlaylistService(db);
+        const service = PlaylistService.fromDb(db);
 
         const playlist = service.getPlaylist(id);
         if (!playlist) {
@@ -198,7 +198,7 @@ export function registerPlaylistCommands(program: Command): void {
     .action((pattern: string, replacement: string, opts: { regex?: boolean; dryRun?: boolean; filter?: string }) => {
       try {
         const db = getDb();
-        const service = new PlaylistService(db);
+        const service = PlaylistService.fromDb(db);
 
         let regexPattern: string | RegExp;
         if (opts.regex) {
@@ -251,7 +251,7 @@ export function registerPlaylistCommands(program: Command): void {
     .action(async (id: string, opts: { spotify?: boolean }) => {
       try {
         const db = getDb();
-        const service = new PlaylistService(db);
+        const service = PlaylistService.fromDb(db);
 
         const playlist = service.getPlaylist(id);
         if (!playlist) {
@@ -323,7 +323,7 @@ export function registerPlaylistCommands(program: Command): void {
         }
 
         const db = getDb();
-        const service = new PlaylistService(db);
+        const service = PlaylistService.fromDb(db);
 
         // Resolve which playlists to push
         let playlistsToPush: schema.Playlist[];

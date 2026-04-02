@@ -18,7 +18,7 @@ interface LexiconMatchPayload {
  */
 export async function handleLexiconMatch(job: Job, config: Config): Promise<void> {
   const payload: LexiconMatchPayload = JSON.parse(job.payload ?? "{}");
-  const pipeline = new SyncPipeline(config);
+  const pipeline = SyncPipeline.fromConfig(config);
 
   // Resolve playlist name (prefer payload, fall back to DB lookup)
   let playlistName = payload.playlistName;

@@ -1,9 +1,20 @@
-import { eq, and, sql, inArray } from "drizzle-orm";
-
 import type { Config } from "../config.js";
 import type { TrackInfo } from "../types/common.js";
+import type {
+  IMatchRepository,
+  ITrackRepository,
+  IPlaylistRepository,
+  IPlaylistTrackRepository,
+  IDownloadRepository,
+} from "../ports/repositories.js";
 import { getDb } from "../db/client.js";
-import * as schema from "../db/schema.js";
+import {
+  DrizzleMatchRepository,
+  DrizzleTrackRepository,
+  DrizzlePlaylistRepository,
+  DrizzlePlaylistTrackRepository,
+  DrizzleDownloadRepository,
+} from "../db/repositories/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,7 +42,11 @@ export interface ReviewStats {
 // ---------------------------------------------------------------------------
 
 export interface ReviewServiceDeps {
-  db?: ReturnType<typeof getDb>;
+  matches: IMatchRepository;
+  tracks: ITrackRepository;
+  playlists: IPlaylistRepository;
+  playlistTracks: IPlaylistTrackRepository;
+  downloads: IDownloadRepository;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,17 +54,33 @@ export interface ReviewServiceDeps {
 // ---------------------------------------------------------------------------
 
 export class ReviewService {
-  private deps: ReviewServiceDeps;
+  private matches: IMatchRepository;
+  private trackRepo: ITrackRepository;
+  private playlistRepo: IPlaylistRepository;
+  private playlistTrackRepo: IPlaylistTrackRepository;
+  private downloadRepo: IDownloadRepository;
 
   constructor(
     private config: Config,
-    deps?: ReviewServiceDeps,
+    deps: ReviewServiceDeps,
   ) {
-    this.deps = deps ?? {};
+    this.matches = deps.matches;
+    this.trackRepo = deps.tracks;
+    this.playlistRepo = deps.playlists;
+    this.playlistTrackRepo = deps.playlistTracks;
+    this.downloadRepo = deps.downloads;
   }
 
-  private getDb() {
-    return this.deps.db ?? getDb();
+  /** Create a ReviewService from a raw DB handle (convenience factory). */
+  static fromDb(config: Config, db?: ReturnType<typeof getDb>): ReviewService {
+    const database = db ?? getDb();
+    return new ReviewService(config, {
+      matches: new DrizzleMatchRepository(database),
+      tracks: new DrizzleTrackRepository(database),
+      playlists: new DrizzlePlaylistRepository(database),
+      playlistTracks: new DrizzlePlaylistTrackRepository(database),
+      downloads: new DrizzleDownloadRepository(database),
+    });
   }
 
   /**
@@ -57,26 +88,12 @@ export class ReviewService {
    * Sorted by parkedAt ASC (FIFO).
    */
   async getPending(playlistId?: string): Promise<PendingReview[]> {
-    const db = this.getDb();
-
     // Get all pending spotify→lexicon matches
-    let matchRows = await db
-      .select()
-      .from(schema.matches)
-      .where(
-        and(
-          eq(schema.matches.status, "pending"),
-          eq(schema.matches.sourceType, "spotify"),
-          eq(schema.matches.targetType, "lexicon"),
-        ),
-      );
+    let matchRows = this.matches.findByStatus("pending", "spotify", "lexicon");
 
     // Filter by playlist if provided
     if (playlistId) {
-      const ptRows = await db
-        .select({ trackId: schema.playlistTracks.trackId })
-        .from(schema.playlistTracks)
-        .where(eq(schema.playlistTracks.playlistId, playlistId));
+      const ptRows = this.playlistTrackRepo.findTrackIdsByPlaylistId(playlistId);
       const trackIdSet = new Set(ptRows.map((r) => r.trackId));
       matchRows = matchRows.filter((m) => trackIdSet.has(m.sourceId));
     }
@@ -89,9 +106,7 @@ export class ReviewService {
 
     for (const match of matchRows) {
       // Load spotify track
-      const trackRow = await db.query.tracks.findFirst({
-        where: eq(schema.tracks.id, match.sourceId),
-      });
+      const trackRow = this.trackRepo.findById(match.sourceId);
       if (!trackRow) continue;
 
       const spotifyTrack: TrackInfo = {
@@ -118,17 +133,8 @@ export class ReviewService {
       }
 
       // Resolve playlist name
-      const ptRow = await db.query.playlistTracks.findFirst({
-        where: eq(schema.playlistTracks.trackId, match.sourceId),
-      });
-
-      let playlistName = "";
-      if (ptRow) {
-        const pl = await db.query.playlists.findFirst({
-          where: eq(schema.playlists.id, ptRow.playlistId),
-        });
-        playlistName = pl?.name ?? "";
-      }
+      const playlistsForTrack = this.playlistTrackRepo.findPlaylistsForTrack(match.sourceId);
+      const playlistName = playlistsForTrack[0]?.playlistName ?? "";
 
       results.push({
         matchId: match.id,
@@ -147,11 +153,7 @@ export class ReviewService {
 
   /** Confirm a single pending match. Idempotent on already-confirmed. */
   async confirm(matchId: string): Promise<void> {
-    const db = this.getDb();
-
-    const match = await db.query.matches.findFirst({
-      where: eq(schema.matches.id, matchId),
-    });
+    const match = this.matches.findById(matchId);
 
     if (!match) {
       throw new Error(`Match not found: ${matchId}`);
@@ -164,19 +166,12 @@ export class ReviewService {
       throw new Error(`Unexpected match status: ${match.status}`);
     }
 
-    await db
-      .update(schema.matches)
-      .set({ status: "confirmed", updatedAt: Date.now() })
-      .where(eq(schema.matches.id, matchId));
+    this.matches.updateStatus(matchId, "confirmed");
   }
 
   /** Reject a single pending match and auto-queue a download. Idempotent on already-rejected. */
   async reject(matchId: string): Promise<void> {
-    const db = this.getDb();
-
-    const match = await db.query.matches.findFirst({
-      where: eq(schema.matches.id, matchId),
-    });
+    const match = this.matches.findById(matchId);
 
     if (!match) {
       throw new Error(`Match not found: ${matchId}`);
@@ -189,21 +184,16 @@ export class ReviewService {
       throw new Error(`Unexpected match status: ${match.status}`);
     }
 
-    await db
-      .update(schema.matches)
-      .set({ status: "rejected", method: "manual", updatedAt: Date.now() })
-      .where(eq(schema.matches.id, matchId));
+    this.matches.updateStatus(matchId, "rejected", { method: "manual" as const });
 
-    // Auto-queue download — use INSERT OR IGNORE to avoid duplicates
+    // Auto-queue download — use try/catch to avoid duplicates
     try {
-      await db
-        .insert(schema.downloads)
-        .values({
-          trackId: match.sourceId,
-          status: "pending",
-          origin: "review_rejected",
-          createdAt: Date.now(),
-        });
+      this.downloadRepo.insert({
+        trackId: match.sourceId,
+        status: "pending",
+        origin: "review_rejected",
+        createdAt: Date.now(),
+      });
     } catch {
       // Ignore conflict (download already exists for this track)
     }
@@ -229,10 +219,7 @@ export class ReviewService {
     let downloadsQueued = 0;
     for (const id of matchIds) {
       try {
-        const db = this.getDb();
-        const match = await db.query.matches.findFirst({
-          where: eq(schema.matches.id, id),
-        });
+        const match = this.matches.findById(id);
 
         if (!match) continue;
         if (match.status === "rejected") continue;
@@ -249,27 +236,6 @@ export class ReviewService {
 
   /** Get aggregate counts of matches by status. */
   async getStats(): Promise<ReviewStats> {
-    const db = this.getDb();
-
-    const rows = await db
-      .select({
-        pending: sql<number>`SUM(CASE WHEN ${schema.matches.status} = 'pending' THEN 1 ELSE 0 END)`,
-        confirmed: sql<number>`SUM(CASE WHEN ${schema.matches.status} = 'confirmed' THEN 1 ELSE 0 END)`,
-        rejected: sql<number>`SUM(CASE WHEN ${schema.matches.status} = 'rejected' THEN 1 ELSE 0 END)`,
-      })
-      .from(schema.matches)
-      .where(
-        and(
-          eq(schema.matches.sourceType, "spotify"),
-          eq(schema.matches.targetType, "lexicon"),
-        ),
-      );
-
-    const row = rows[0];
-    return {
-      pending: Number(row?.pending ?? 0),
-      confirmed: Number(row?.confirmed ?? 0),
-      rejected: Number(row?.rejected ?? 0),
-    };
+    return this.matches.getStats("spotify", "lexicon");
   }
 }

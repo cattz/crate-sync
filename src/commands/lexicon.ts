@@ -51,7 +51,7 @@ export function registerLexiconCommands(program: Command): void {
         }
 
         const db = getDb();
-        const playlistService = new PlaylistService(db);
+        const playlistService = PlaylistService.fromDb(db);
 
         // Resolve playlist by ID, spotify ID, or name
         let resolved = playlistService.getPlaylist(playlist);
@@ -71,7 +71,7 @@ export function registerLexiconCommands(program: Command): void {
         console.log(chalk.bold(`Matching "${resolved.name}" against Lexicon library...`));
         console.log();
 
-        const pipeline = new SyncPipeline(config);
+        const pipeline = SyncPipeline.fromConfig(config);
         const result = await pipeline.matchPlaylist(resolved.id);
 
         console.log(chalk.bold("Match results"));

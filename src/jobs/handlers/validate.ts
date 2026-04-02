@@ -25,7 +25,7 @@ export async function handleValidate(job: Job, config: Config): Promise<void> {
   const payload: ValidatePayload = JSON.parse(job.payload ?? "{}");
   const db = getDb();
 
-  const downloadService = new DownloadService(
+  const downloadService = DownloadService.fromDb(
     db,
     config.soulseek,
     config.download,

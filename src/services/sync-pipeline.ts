@@ -1,9 +1,21 @@
-import { eq, and, sql } from "drizzle-orm";
-
 import type { Config } from "../config.js";
 import type { TrackInfo } from "../types/common.js";
+import type { NewMatch } from "../db/schema.js";
+import type {
+  IPlaylistRepository,
+  ITrackRepository,
+  IPlaylistTrackRepository,
+  IMatchRepository,
+  IDownloadRepository,
+} from "../ports/repositories.js";
 import { getDb } from "../db/client.js";
-import * as schema from "../db/schema.js";
+import {
+  DrizzlePlaylistRepository,
+  DrizzleTrackRepository,
+  DrizzlePlaylistTrackRepository,
+  DrizzleMatchRepository,
+  DrizzleDownloadRepository,
+} from "../db/repositories/index.js";
 import { createMatcher } from "../matching/index.js";
 import { LexiconService } from "./lexicon-service.js";
 import { createLogger } from "../utils/logger.js";
@@ -16,9 +28,11 @@ const log = createLogger("sync-pipeline");
 // ---------------------------------------------------------------------------
 
 export interface SyncPipelineDeps {
-  /** Override the DB instance (useful for tests). */
-  db?: ReturnType<typeof getDb>;
-  /** Override the LexiconService factory (useful for tests). */
+  playlists: IPlaylistRepository;
+  tracks: ITrackRepository;
+  playlistTracks: IPlaylistTrackRepository;
+  matches: IMatchRepository;
+  downloads: IDownloadRepository;
   lexiconService?: LexiconService;
 }
 
@@ -66,13 +80,22 @@ export class SyncPipeline {
 
   constructor(
     private config: Config,
-    deps?: SyncPipelineDeps,
+    deps: SyncPipelineDeps,
   ) {
-    this.deps = deps ?? {};
+    this.deps = deps;
   }
 
-  private getDb() {
-    return this.deps.db ?? getDb();
+  /** Create a SyncPipeline from config with Drizzle-backed repositories. */
+  static fromConfig(config: Config, overrides?: Partial<SyncPipelineDeps>): SyncPipeline {
+    const db = getDb();
+    return new SyncPipeline(config, {
+      playlists: overrides?.playlists ?? new DrizzlePlaylistRepository(db),
+      tracks: overrides?.tracks ?? new DrizzleTrackRepository(db),
+      playlistTracks: overrides?.playlistTracks ?? new DrizzlePlaylistTrackRepository(db),
+      matches: overrides?.matches ?? new DrizzleMatchRepository(db),
+      downloads: overrides?.downloads ?? new DrizzleDownloadRepository(db),
+      lexiconService: overrides?.lexiconService,
+    });
   }
 
   private getLexiconService() {
@@ -84,12 +107,8 @@ export class SyncPipeline {
   // -------------------------------------------------------------------------
 
   async matchTrack(trackId: string): Promise<MatchTrackResult> {
-    const db = this.getDb();
-
-    // 1. Fetch track from DB
-    const row = await db.query.tracks.findFirst({
-      where: eq(schema.tracks.id, trackId),
-    });
+    // 1. Fetch track
+    const row = this.deps.tracks.findById(trackId);
 
     if (!row) {
       throw new Error(`Track not found: ${trackId}`);
@@ -105,30 +124,17 @@ export class SyncPipeline {
     };
 
     // 2. Find playlists this track belongs to (for tags)
-    const playlistRows = await db
-      .select({
-        playlistId: schema.playlistTracks.playlistId,
-        playlistName: schema.playlists.name,
-        playlistTags: schema.playlists.tags,
-      })
-      .from(schema.playlistTracks)
-      .innerJoin(schema.playlists, eq(schema.playlistTracks.playlistId, schema.playlists.id))
-      .where(eq(schema.playlistTracks.trackId, trackId));
+    const playlistRows = this.deps.playlistTracks.findPlaylistsForTrack(trackId);
 
-    // 3. Check for existing confirmed match
-    const existingMatches = await db
-      .select()
-      .from(schema.matches)
-      .where(
-        and(
-          eq(schema.matches.sourceType, "spotify"),
-          eq(schema.matches.sourceId, trackId),
-          eq(schema.matches.targetType, "lexicon"),
-        ),
-      );
+    // 3. Check for existing matches
+    const existingMatches = this.deps.matches.findBySourceIdAndTargetType(
+      "spotify",
+      trackId,
+      "lexicon",
+    );
 
     const rejectedPairs = new Set<string>();
-    let existingConfirmed: schema.Match | undefined;
+    let existingConfirmed: (typeof existingMatches)[0] | undefined;
 
     for (const m of existingMatches) {
       if (m.status === "confirmed") {
@@ -211,37 +217,18 @@ export class SyncPipeline {
       ? JSON.stringify(lexiconById.get(lexiconTrackId))
       : undefined;
 
-    await db
-      .insert(schema.matches)
-      .values({
-        sourceType: "spotify",
-        sourceId: trackId,
-        targetType: "lexicon",
-        targetId: lexiconTrackId,
-        score: best.score,
-        confidence: best.confidence,
-        method: best.method as "isrc" | "fuzzy" | "manual",
-        status,
-        targetMeta,
-        parkedAt: status === "pending" ? Date.now() : undefined,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.matches.sourceType,
-          schema.matches.sourceId,
-          schema.matches.targetType,
-          schema.matches.targetId,
-        ],
-        set: {
-          score: sql`excluded.score`,
-          confidence: sql`excluded.confidence`,
-          method: sql`excluded.method`,
-          targetMeta: sql`excluded.target_meta`,
-          status: sql`CASE WHEN ${schema.matches.status} = 'confirmed' THEN 'confirmed' WHEN ${schema.matches.status} = 'rejected' AND ${schema.matches.method} = 'manual' THEN 'rejected' ELSE excluded.status END`,
-          parkedAt: sql`excluded.parked_at`,
-          updatedAt: sql`excluded.updated_at`,
-        },
-      });
+    this.deps.matches.upsertWithConflict({
+      sourceType: "spotify",
+      sourceId: trackId,
+      targetType: "lexicon",
+      targetId: lexiconTrackId,
+      score: best.score,
+      confidence: best.confidence,
+      method: best.method as "isrc" | "fuzzy" | "manual",
+      status,
+      targetMeta,
+      parkedAt: status === "pending" ? Date.now() : undefined,
+    });
 
     // 6. Tag if confirmed
     let tagged = false;
@@ -308,7 +295,7 @@ export class SyncPipeline {
       await lexicon.setTrackCategoryTags(lexiconTrackId, category.id, tagIds);
       return true;
     } catch (err) {
-      log.error(`Failed to tag track ${lexiconTrackId}:`, err);
+      log.error(`Failed to tag track ${lexiconTrackId}: ${err}`);
       return false;
     }
   }
@@ -318,31 +305,19 @@ export class SyncPipeline {
   // -------------------------------------------------------------------------
 
   async matchPlaylist(playlistId: string): Promise<MatchPlaylistResult> {
-    const db = this.getDb();
-
     // 1. Fetch playlist metadata
-    const playlist = await db.query.playlists.findFirst({
-      where: eq(schema.playlists.id, playlistId),
-    });
+    const playlist = this.deps.playlists.findById(playlistId);
 
     if (!playlist) {
       throw new Error(`Playlist not found: ${playlistId}`);
     }
 
     // 2. Fetch tracks for this playlist (ordered by position)
-    const playlistTrackRows = await db
-      .select({
-        trackId: schema.playlistTracks.trackId,
-        position: schema.playlistTracks.position,
-      })
-      .from(schema.playlistTracks)
-      .where(eq(schema.playlistTracks.playlistId, playlistId))
-      .orderBy(schema.playlistTracks.position);
-
+    const playlistTrackRows = this.deps.playlistTracks.findTrackIdsByPlaylistId(playlistId);
     const trackIds = playlistTrackRows.map((r) => r.trackId);
 
     // 3. Load all track rows for O(1) lookup
-    const trackRows = await db.query.tracks.findMany();
+    const trackRows = this.deps.tracks.findAll();
     const trackMap = new Map(trackRows.map((t) => [t.id, t]));
 
     // 4. Get Lexicon tracks via service
@@ -367,18 +342,10 @@ export class SyncPipeline {
     const matcher = createMatcher(this.config.matching, "lexicon", this.config.matching.lexiconWeights);
 
     // 6. Load existing matches from DB
-    const existingMatches = await db
-      .select()
-      .from(schema.matches)
-      .where(
-        and(
-          eq(schema.matches.sourceType, "spotify"),
-          eq(schema.matches.targetType, "lexicon"),
-        ),
-      );
+    const existingMatches = this.deps.matches.findBySourceAndTargetType("spotify", "lexicon");
 
     // Confirmed: most recent confirmed match per source
-    const confirmedBySource = new Map<string, schema.Match>();
+    const confirmedBySource = new Map<(typeof existingMatches)[0]["sourceId"], (typeof existingMatches)[0]>();
     // User-rejected pairs (method='manual'): NEVER re-propose
     const userRejectedPairs = new Set<string>();
     // System-rejected pairs (low score): can be re-evaluated if score improves
@@ -401,15 +368,11 @@ export class SyncPipeline {
     }
 
     // 6b. Load completed downloads for placed-file matching
-    const completedDownloads = db
-      .select({ trackId: schema.downloads.trackId, filePath: schema.downloads.filePath })
-      .from(schema.downloads)
-      .where(and(eq(schema.downloads.status, "done"), sql`${schema.downloads.filePath} IS NOT NULL`))
-      .all();
+    const completedDownloads = this.deps.downloads.findCompletedWithFilePath();
 
     const placedFileByTrackId = new Map<string, string>();
     for (const d of completedDownloads) {
-      if (d.filePath) placedFileByTrackId.set(d.trackId, d.filePath);
+      placedFileByTrackId.set(d.trackId, d.filePath);
     }
 
     // Build Lexicon filename → track index for placed-file lookup
@@ -427,7 +390,7 @@ export class SyncPipeline {
     const confirmed: MatchedTrack[] = [];
     const pending: MatchedTrack[] = [];
     const notFound: Array<{ dbTrackId: string; track: TrackInfo }> = [];
-    const newMatchRows: schema.NewMatch[] = [];
+    const newMatchRows: NewMatch[] = [];
 
     for (const dbTrackId of trackIds) {
       const row = trackMap.get(dbTrackId);
@@ -501,7 +464,6 @@ export class SyncPipeline {
       const notFoundThreshold = this.config.matching.notFoundThreshold;
       let best: (typeof results)[0] | undefined;
       let lexiconTrackId: string | undefined;
-      let wasRejectedPair = false;
 
       for (const candidate of results) {
         const lexIdx = lexiconCandidates.indexOf(candidate.candidate);
@@ -518,7 +480,6 @@ export class SyncPipeline {
           if (candidate.score >= notFoundThreshold) {
             best = candidate;
             lexiconTrackId = candidateId;
-            wasRejectedPair = true;
             break;
           }
           continue;
@@ -557,7 +518,7 @@ export class SyncPipeline {
         : undefined;
 
       // Queue a new match row for persistence
-      const status =
+      const matchStatus =
         best.confidence === "high"
           ? ("confirmed" as const)
           : ("pending" as const);
@@ -571,39 +532,16 @@ export class SyncPipeline {
           score: best.score,
           confidence: best.confidence,
           method: best.method as "isrc" | "fuzzy" | "manual",
-          status,
+          status: matchStatus,
           targetMeta,
-          parkedAt: status === "pending" ? Date.now() : undefined,
+          parkedAt: matchStatus === "pending" ? Date.now() : undefined,
         });
       }
     }
 
-    // 8. Persist new matches — update score/confidence on conflict,
-    //    but never downgrade a confirmed match back to pending/rejected
-    if (newMatchRows.length > 0) {
-      for (const row of newMatchRows) {
-        await db
-          .insert(schema.matches)
-          .values(row)
-          .onConflictDoUpdate({
-            target: [
-              schema.matches.sourceType,
-              schema.matches.sourceId,
-              schema.matches.targetType,
-              schema.matches.targetId,
-            ],
-            set: {
-              score: sql`excluded.score`,
-              confidence: sql`excluded.confidence`,
-              method: sql`excluded.method`,
-              targetMeta: sql`excluded.target_meta`,
-              // Only update status if existing is not confirmed
-              status: sql`CASE WHEN ${schema.matches.status} = 'confirmed' THEN 'confirmed' WHEN ${schema.matches.status} = 'rejected' AND ${schema.matches.method} = 'manual' THEN 'rejected' ELSE excluded.status END`,
-              parkedAt: sql`excluded.parked_at`,
-              updatedAt: sql`excluded.updated_at`,
-            },
-          });
-      }
+    // 8. Persist new matches
+    for (const row of newMatchRows) {
+      this.deps.matches.upsertWithConflict(row);
     }
 
     // 9. Tag confirmed tracks
@@ -693,7 +631,7 @@ export class SyncPipeline {
         tagged++;
       } catch (err) {
         // Log and continue on individual track tagging errors
-        log.error(`Failed to tag track ${track.lexiconTrackId}:`, err);
+        log.error(`Failed to tag track ${track.lexiconTrackId}: ${err}`);
         skipped++;
       }
     }
@@ -706,29 +644,17 @@ export class SyncPipeline {
   // -------------------------------------------------------------------------
 
   async dryRun(playlistId: string): Promise<MatchPlaylistResult> {
-    const db = this.getDb();
-
     // Same as matchPlaylist but without tagging
-    const playlist = await db.query.playlists.findFirst({
-      where: eq(schema.playlists.id, playlistId),
-    });
+    const playlist = this.deps.playlists.findById(playlistId);
 
     if (!playlist) {
       throw new Error(`Playlist not found: ${playlistId}`);
     }
 
-    const playlistTrackRows = await db
-      .select({
-        trackId: schema.playlistTracks.trackId,
-        position: schema.playlistTracks.position,
-      })
-      .from(schema.playlistTracks)
-      .where(eq(schema.playlistTracks.playlistId, playlistId))
-      .orderBy(schema.playlistTracks.position);
-
+    const playlistTrackRows = this.deps.playlistTracks.findTrackIdsByPlaylistId(playlistId);
     const trackIds = playlistTrackRows.map((r) => r.trackId);
 
-    const trackRows = await db.query.tracks.findMany();
+    const trackRows = this.deps.tracks.findAll();
     const trackMap = new Map(trackRows.map((t) => [t.id, t]));
 
     const lexicon = this.getLexiconService();
@@ -748,17 +674,9 @@ export class SyncPipeline {
 
     const matcher = createMatcher(this.config.matching, "lexicon", this.config.matching.lexiconWeights);
 
-    const existingMatches = await db
-      .select()
-      .from(schema.matches)
-      .where(
-        and(
-          eq(schema.matches.sourceType, "spotify"),
-          eq(schema.matches.targetType, "lexicon"),
-        ),
-      );
+    const existingMatches = this.deps.matches.findBySourceAndTargetType("spotify", "lexicon");
 
-    const confirmedBySource = new Map<string, schema.Match>();
+    const confirmedBySource = new Map<string, (typeof existingMatches)[0]>();
     const rejectedPairs = new Set<string>();
 
     for (const m of existingMatches) {
@@ -775,7 +693,7 @@ export class SyncPipeline {
     const confirmed: MatchedTrack[] = [];
     const pendingArr: MatchedTrack[] = [];
     const notFound: Array<{ dbTrackId: string; track: TrackInfo }> = [];
-    const newMatchRows: schema.NewMatch[] = [];
+    const newMatchRows: NewMatch[] = [];
 
     for (const dbTrackId of trackIds) {
       const row = trackMap.get(dbTrackId);
@@ -850,7 +768,7 @@ export class SyncPipeline {
         ? JSON.stringify(lexiconById.get(lexiconTrackId))
         : undefined;
 
-      const status =
+      const matchStatus =
         best.confidence === "high"
           ? ("confirmed" as const)
           : best.confidence === "review"
@@ -866,37 +784,16 @@ export class SyncPipeline {
           score: best.score,
           confidence: best.confidence,
           method: best.method as "isrc" | "fuzzy" | "manual",
-          status,
+          status: matchStatus,
           targetMeta,
-          parkedAt: status === "pending" ? Date.now() : undefined,
+          parkedAt: matchStatus === "pending" ? Date.now() : undefined,
         });
       }
     }
 
     // Persist matches (even in dry run, for cache/rejection memory)
-    if (newMatchRows.length > 0) {
-      for (const row of newMatchRows) {
-        await db
-          .insert(schema.matches)
-          .values(row)
-          .onConflictDoUpdate({
-            target: [
-              schema.matches.sourceType,
-              schema.matches.sourceId,
-              schema.matches.targetType,
-              schema.matches.targetId,
-            ],
-            set: {
-              score: sql`excluded.score`,
-              confidence: sql`excluded.confidence`,
-              method: sql`excluded.method`,
-              targetMeta: sql`excluded.target_meta`,
-              status: sql`CASE WHEN ${schema.matches.status} = 'confirmed' THEN 'confirmed' WHEN ${schema.matches.status} = 'rejected' AND ${schema.matches.method} = 'manual' THEN 'rejected' ELSE excluded.status END`,
-              parkedAt: sql`excluded.parked_at`,
-              updatedAt: sql`excluded.updated_at`,
-            },
-          });
-      }
+    for (const row of newMatchRows) {
+      this.deps.matches.upsertWithConflict(row);
     }
 
     // No tagging in dry run

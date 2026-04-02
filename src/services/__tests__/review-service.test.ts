@@ -129,7 +129,7 @@ describe("ReviewService", () => {
     const result = createTestDb();
     db = result.db;
     sqlite = result.sqlite;
-    svc = new ReviewService(TEST_CONFIG, { db });
+    svc = ReviewService.fromDb(TEST_CONFIG, db);
   });
 
   afterEach(() => {

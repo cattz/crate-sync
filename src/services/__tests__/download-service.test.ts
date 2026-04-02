@@ -151,7 +151,7 @@ function makeFile(overrides: Partial<SlskdFile> = {}): SlskdFile {
 }
 
 function makeService(db?: any, overrides?: Partial<DownloadConfig>): DownloadService {
-  return new DownloadService(
+  return DownloadService.fromDb(
     db ?? mockDb(),
     soulseekConfig,
     { ...downloadConfig, ...overrides },

@@ -41,7 +41,7 @@ export function registerSyncCommand(program: Command): void {
         console.log(chalk.bold(`Syncing "${track.title}" by ${track.artist}`));
         console.log();
 
-        const pipeline = new SyncPipeline(config);
+        const pipeline = SyncPipeline.fromConfig(config);
         const result = await pipeline.matchTrack(track.id);
 
         if (result.status === "confirmed") {
@@ -94,7 +94,7 @@ export function registerSyncCommand(program: Command): void {
 
             // Resolve playlists locally so we can pass IDs to the server
             const db = getDb();
-            const playlistService = new PlaylistService(db);
+            const playlistService = PlaylistService.fromDb(db);
 
             let playlistsToSync: schema.Playlist[] = [];
             if (opts.all) {
@@ -136,8 +136,8 @@ export function registerSyncCommand(program: Command): void {
         // --- Standalone mode: run pipeline directly ---
         const config = loadConfig();
         const db = getDb();
-        const playlistService = new PlaylistService(db);
-        const pipeline = new SyncPipeline(config);
+        const playlistService = PlaylistService.fromDb(db);
+        const pipeline = SyncPipeline.fromConfig(config);
 
         // Pre-flight health checks
         const health = await checkHealth(config);

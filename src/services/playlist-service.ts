@@ -1,19 +1,28 @@
 import { eq, and, sql, desc } from "drizzle-orm";
-import { getDb } from "../db/client.js";
 import {
-  playlists,
-  tracks,
-  playlistTracks,
   matches,
   downloads,
   jobs,
   type Playlist,
   type Track,
-  type PlaylistTrack,
 } from "../db/schema.js";
-import type { SpotifyTrack } from "../types/spotify.js";
+import type { SpotifyPlaylist, SpotifyTrack } from "../types/spotify.js";
+import type {
+  IPlaylistRepository,
+  ITrackRepository,
+  IPlaylistTrackRepository,
+} from "../ports/repositories.js";
 import { extractPlaylistId } from "../utils/spotify-url.js";
-import { SpotifyService } from "./spotify-service.js";
+import { composeDescription, parseDescription } from "../utils/description.js";
+import { isShutdownRequested } from "../utils/shutdown.js";
+import { getDb } from "../db/client.js";
+import {
+  DrizzlePlaylistRepository,
+  DrizzleTrackRepository,
+  DrizzlePlaylistTrackRepository,
+  DrizzleMatchRepository,
+  DrizzleDownloadRepository,
+} from "../db/repositories/index.js";
 
 export type TrackStatus =
   | "in_lexicon"
@@ -25,16 +34,52 @@ export type TrackStatus =
   | "wishlisted"
   | "not_matched";
 
+// ---------------------------------------------------------------------------
+// Dependency injection
+// ---------------------------------------------------------------------------
+
+export interface PlaylistServiceDeps {
+  playlists: IPlaylistRepository;
+  tracks: ITrackRepository;
+  playlistTracks: IPlaylistTrackRepository;
+  /**
+   * Raw DB handle — only used for cross-domain deriveTrackStatus queries
+   * (matches, downloads, jobs) that don't warrant full repository abstraction
+   * in PlaylistService. These are read-only status lookups.
+   */
+  db: ReturnType<typeof getDb>;
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
 export class PlaylistService {
+  private playlists: IPlaylistRepository;
+  private tracks: ITrackRepository;
+  private playlistTracks: IPlaylistTrackRepository;
   private db: ReturnType<typeof getDb>;
 
-  constructor(db: ReturnType<typeof getDb>) {
-    this.db = db;
+  constructor(deps: PlaylistServiceDeps) {
+    this.playlists = deps.playlists;
+    this.tracks = deps.tracks;
+    this.playlistTracks = deps.playlistTracks;
+    this.db = deps.db;
+  }
+
+  /** Create a PlaylistService from a raw DB handle (convenience factory). */
+  static fromDb(db: ReturnType<typeof getDb>): PlaylistService {
+    return new PlaylistService({
+      playlists: new DrizzlePlaylistRepository(db),
+      tracks: new DrizzleTrackRepository(db),
+      playlistTracks: new DrizzlePlaylistTrackRepository(db),
+      db,
+    });
   }
 
   /** Get all playlists, optionally filtered by name. */
   getPlaylists(options?: { filter?: string | RegExp }): Playlist[] {
-    const all = this.db.select().from(playlists).all();
+    const all = this.playlists.findAll();
     if (!options?.filter) return all;
 
     const pattern = options.filter;
@@ -49,32 +94,12 @@ export class PlaylistService {
   getPlaylist(id: string): Playlist | null {
     const normalizedId = extractPlaylistId(id);
 
-    // Try local id first
-    const byId = this.db
-      .select()
-      .from(playlists)
-      .where(eq(playlists.id, normalizedId))
-      .get();
-
-    if (byId) return byId;
-
-    // Fall back to spotify_id
-    const bySpotifyId = this.db
-      .select()
-      .from(playlists)
-      .where(eq(playlists.spotifyId, normalizedId))
-      .get();
-
-    if (bySpotifyId) return bySpotifyId;
-
-    // Fall back to name (exact match)
-    const byName = this.db
-      .select()
-      .from(playlists)
-      .where(eq(playlists.name, normalizedId))
-      .get();
-
-    return byName ?? null;
+    return (
+      this.playlists.findById(normalizedId) ??
+      this.playlists.findBySpotifyId(normalizedId) ??
+      this.playlists.findByName(normalizedId) ??
+      null
+    );
   }
 
   /** Get tracks for a playlist, ordered by position. */
@@ -82,25 +107,7 @@ export class PlaylistService {
     playlistId: string,
     options?: { enriched?: boolean },
   ): Array<Track & { position: number; trackStatus?: TrackStatus }> {
-    const rows = this.db
-      .select({
-        id: tracks.id,
-        spotifyId: tracks.spotifyId,
-        title: tracks.title,
-        artist: tracks.artist,
-        album: tracks.album,
-        durationMs: tracks.durationMs,
-        isrc: tracks.isrc,
-        spotifyUri: tracks.spotifyUri,
-        createdAt: tracks.createdAt,
-        updatedAt: tracks.updatedAt,
-        position: playlistTracks.position,
-      })
-      .from(playlistTracks)
-      .innerJoin(tracks, eq(playlistTracks.trackId, tracks.id))
-      .where(eq(playlistTracks.playlistId, playlistId))
-      .orderBy(playlistTracks.position)
-      .all();
+    const rows = this.playlistTracks.findByPlaylistId(playlistId);
 
     if (!options?.enriched) return rows;
 
@@ -176,27 +183,7 @@ export class PlaylistService {
     description?: string;
     snapshotId?: string;
   }): Playlist {
-    const row = this.db
-      .insert(playlists)
-      .values({
-        spotifyId: data.spotifyId,
-        name: data.name,
-        description: data.description,
-        snapshotId: data.snapshotId,
-      })
-      .onConflictDoUpdate({
-        target: playlists.spotifyId,
-        set: {
-          name: data.name,
-          description: data.description,
-          snapshotId: data.snapshotId,
-          updatedAt: Date.now(),
-        },
-      })
-      .returning()
-      .get();
-
-    return row;
+    return this.playlists.upsert(data);
   }
 
   /** Upsert a track (insert or update by spotify_id). */
@@ -209,33 +196,7 @@ export class PlaylistService {
     isrc?: string;
     spotifyUri?: string;
   }): Track {
-    const row = this.db
-      .insert(tracks)
-      .values({
-        spotifyId: data.spotifyId,
-        title: data.title,
-        artist: data.artist,
-        album: data.album,
-        durationMs: data.durationMs,
-        isrc: data.isrc,
-        spotifyUri: data.spotifyUri,
-      })
-      .onConflictDoUpdate({
-        target: tracks.spotifyId,
-        set: {
-          title: data.title,
-          artist: data.artist,
-          album: data.album,
-          durationMs: data.durationMs,
-          isrc: data.isrc,
-          spotifyUri: data.spotifyUri,
-          updatedAt: Date.now(),
-        },
-      })
-      .returning()
-      .get();
-
-    return row;
+    return this.tracks.upsert(data);
   }
 
   /** Set tracks for a playlist (replaces all playlist_tracks entries). */
@@ -244,33 +205,12 @@ export class PlaylistService {
     trackIds: string[],
     addedAt?: number,
   ): void {
-    // Delete existing entries for this playlist
-    this.db
-      .delete(playlistTracks)
-      .where(eq(playlistTracks.playlistId, playlistId))
-      .run();
-
-    // Insert new entries with positions
-    for (let i = 0; i < trackIds.length; i++) {
-      this.db
-        .insert(playlistTracks)
-        .values({
-          playlistId,
-          trackId: trackIds[i],
-          position: i,
-          addedAt: addedAt ?? null,
-        })
-        .run();
-    }
+    this.playlistTracks.setTracks(playlistId, trackIds, addedAt);
   }
 
   /** Rename a playlist in the local DB. */
   renamePlaylist(playlistId: string, newName: string): void {
-    this.db
-      .update(playlists)
-      .set({ name: newName, updatedAt: Date.now() })
-      .where(eq(playlists.id, playlistId))
-      .run();
+    this.playlists.updateFields(playlistId, { name: newName });
   }
 
   /** Bulk rename playlists matching a pattern. Optionally scoped to specific playlist IDs. */
@@ -310,11 +250,7 @@ export class PlaylistService {
     playlistId: string,
     data: { tags?: string; notes?: string; pinned?: number },
   ): void {
-    this.db
-      .update(playlists)
-      .set({ ...data, updatedAt: Date.now() })
-      .where(eq(playlists.id, playlistId))
-      .run();
+    this.playlists.updateFields(playlistId, data);
   }
 
   /** Compose a Spotify description string from playlist tags + notes. */
@@ -323,22 +259,13 @@ export class PlaylistService {
     if (!playlist) {
       throw new Error(`Playlist not found: ${playlistId}`);
     }
-    return SpotifyService.composeDescription(playlist.notes ?? null, playlist.tags ?? null);
+    return composeDescription(playlist.notes ?? null, playlist.tags ?? null);
   }
 
   /** Remove a playlist and its playlist_tracks entries. */
   removePlaylist(playlistId: string): void {
-    // Delete playlist_tracks first (foreign key)
-    this.db
-      .delete(playlistTracks)
-      .where(eq(playlistTracks.playlistId, playlistId))
-      .run();
-
-    // Delete the playlist
-    this.db
-      .delete(playlists)
-      .where(eq(playlists.id, playlistId))
-      .run();
+    this.playlistTracks.removeByPlaylistId(playlistId);
+    this.playlists.remove(playlistId);
   }
 
   /**
@@ -374,8 +301,6 @@ export class PlaylistService {
     // URIs in Spotify but not in local → need to remove
     const toRemove = [...spotifyUris].filter((uri) => !localUris.has(uri));
 
-    // Check if name differs (we can't know the Spotify name here, so
-    // the caller is responsible for comparing names separately)
     const renamed = false;
 
     return { toAdd, toRemove, renamed };
@@ -383,10 +308,142 @@ export class PlaylistService {
 
   /** Update the snapshot_id for a playlist. */
   updateSnapshotId(playlistId: string, snapshotId: string): void {
-    this.db
-      .update(playlists)
-      .set({ snapshotId, updatedAt: Date.now() })
-      .where(eq(playlists.id, playlistId))
-      .run();
+    this.playlists.updateFields(playlistId, { snapshotId });
+  }
+
+  // ---------------------------------------------------------------------------
+  // API → DB sync (moved from SpotifyService)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Sync playlists from the Spotify API into the local DB.
+   * Upserts each playlist by spotify_id.
+   */
+  syncPlaylistsFromApi(
+    apiPlaylists: SpotifyPlaylist[],
+    currentUserId: string,
+  ): { added: number; updated: number; unchanged: number } {
+    let added = 0;
+    let updated = 0;
+    let unchanged = 0;
+
+    for (const pl of apiPlaylists) {
+      if (isShutdownRequested()) break;
+
+      const isOwned = pl.ownerId === currentUserId ? 1 : 0;
+      const existing = this.playlists.findBySpotifyId(pl.id);
+
+      if (!existing) {
+        const parsed = parseDescription(pl.description);
+        this.playlists.upsert({
+          spotifyId: pl.id,
+          name: pl.name,
+          description: pl.description ?? null,
+          snapshotId: pl.snapshotId,
+          isOwned,
+          ownerId: pl.ownerId,
+          ownerName: pl.ownerName,
+          notes: parsed.notes || null,
+          tags: parsed.tags.length > 0 ? JSON.stringify(parsed.tags) : null,
+        });
+        // Update lastSynced separately since upsert doesn't handle it
+        const inserted = this.playlists.findBySpotifyId(pl.id);
+        if (inserted) this.playlists.updateFields(inserted.id, { lastSynced: Date.now() });
+        added++;
+      } else if (
+        existing.snapshotId !== pl.snapshotId ||
+        existing.name !== pl.name ||
+        existing.isOwned !== isOwned
+      ) {
+        this.playlists.updateFields(existing.id, {
+          name: pl.name,
+          description: pl.description ?? null,
+          snapshotId: pl.snapshotId,
+          isOwned,
+          ownerId: pl.ownerId,
+          ownerName: pl.ownerName,
+          lastSynced: Date.now(),
+        });
+        updated++;
+      } else {
+        unchanged++;
+      }
+    }
+
+    return { added, updated, unchanged };
+  }
+
+  /**
+   * Sync a single playlist's tracks from Spotify API data into the local DB.
+   * Upserts each track by spotify_id, then syncs the playlist_tracks junction.
+   */
+  syncPlaylistTracksFromApi(
+    spotifyPlaylistId: string,
+    apiTracks: SpotifyTrack[],
+  ): { added: number; updated: number } {
+    const playlist = this.playlists.findBySpotifyId(spotifyPlaylistId);
+
+    if (!playlist) {
+      throw new Error(
+        `Playlist with spotify_id "${spotifyPlaylistId}" not found in DB. Run syncPlaylistsFromApi() first.`,
+      );
+    }
+
+    let added = 0;
+    let updated = 0;
+
+    for (let position = 0; position < apiTracks.length; position++) {
+      const t = apiTracks[position];
+
+      const existingTrack = this.tracks.findBySpotifyId(t.id);
+      let trackId: string;
+
+      if (!existingTrack) {
+        const inserted = this.tracks.upsert({
+          spotifyId: t.id,
+          title: t.title,
+          artist: t.artist,
+          album: t.album,
+          durationMs: t.durationMs,
+          isrc: t.isrc ?? null,
+          spotifyUri: t.uri,
+        });
+        trackId = inserted.id;
+        added++;
+      } else {
+        if (
+          existingTrack.title !== t.title ||
+          existingTrack.artist !== t.artist ||
+          existingTrack.album !== t.album
+        ) {
+          this.tracks.upsert({
+            spotifyId: t.id,
+            title: t.title,
+            artist: t.artist,
+            album: t.album,
+            durationMs: t.durationMs,
+            isrc: t.isrc ?? null,
+            spotifyUri: t.uri,
+          });
+          updated++;
+        }
+        trackId = existingTrack.id;
+      }
+
+      this.playlistTracks.upsertJunction(playlist.id, trackId, position);
+    }
+
+    // Remove tracks no longer in the playlist
+    const validTrackIds = new Set<string>();
+    for (const t of apiTracks) {
+      const row = this.tracks.findBySpotifyId(t.id);
+      if (row) validTrackIds.add(row.id);
+    }
+    this.playlistTracks.removeStale(playlist.id, validTrackIds);
+
+    // Update playlist lastSynced
+    this.playlists.updateFields(playlist.id, { lastSynced: Date.now() });
+
+    return { added, updated };
   }
 }

@@ -67,7 +67,7 @@ describe("PlaylistService", () => {
     const result = createTestDb();
     db = result.db;
     sqlite = result.sqlite;
-    svc = new PlaylistService(db);
+    svc = PlaylistService.fromDb(db);
   });
 
   afterEach(() => {

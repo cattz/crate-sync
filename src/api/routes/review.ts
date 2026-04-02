@@ -6,7 +6,7 @@ export const reviewRoutes = new Hono();
 
 function getService() {
   const config = loadConfig();
-  return new ReviewService(config);
+  return ReviewService.fromDb(config);
 }
 
 // GET /api/review — list pending reviews, optional ?playlistId= filter

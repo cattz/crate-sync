@@ -15,6 +15,7 @@ import {
   type MatchPlaylistResult,
   type MatchedTrack,
 } from "../sync-pipeline.js";
+import { createRepositories } from "../../db/repositories/index.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -173,11 +174,13 @@ function mockLexiconService(lexiconTracks: LexiconTrack[]) {
 describe("SyncPipeline", () => {
   let db: ReturnType<typeof drizzle<typeof schema>>;
   let sqlite: InstanceType<typeof Database>;
+  let repos: ReturnType<typeof createRepositories>;
 
   beforeEach(() => {
     const result = createTestDb();
     db = result.db;
     sqlite = result.sqlite;
+    repos = createRepositories(db);
   });
 
   afterEach(() => {
@@ -201,7 +204,7 @@ describe("SyncPipeline", () => {
       ];
 
       const lexicon = mockLexiconService(lexiconTracks);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.matchPlaylist(playlistId);
 
@@ -224,7 +227,7 @@ describe("SyncPipeline", () => {
       ];
 
       const lexicon = mockLexiconService(lexiconTracks);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.matchPlaylist(playlistId);
 
@@ -243,7 +246,7 @@ describe("SyncPipeline", () => {
       seedMatch(db, trackIds[0], "lex-pre-1", "confirmed");
 
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.matchPlaylist(playlistId);
 
@@ -267,7 +270,7 @@ describe("SyncPipeline", () => {
       ];
 
       const lexicon = mockLexiconService(lexiconTracks);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.matchPlaylist(playlistId);
 
@@ -284,7 +287,7 @@ describe("SyncPipeline", () => {
       seedMatch(db, trackIds[0], "lex-rej-1", "rejected");
 
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.matchPlaylist(playlistId);
 
@@ -304,7 +307,7 @@ describe("SyncPipeline", () => {
       ];
 
       const lexicon = mockLexiconService(lexiconTracks);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       await pipeline.matchPlaylist(playlistId);
 
@@ -332,7 +335,7 @@ describe("SyncPipeline", () => {
       ];
 
       const lexicon = mockLexiconService(lexiconTracks);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.matchPlaylist(playlistId);
 
@@ -350,7 +353,7 @@ describe("SyncPipeline", () => {
 
     it("should throw for non-existent playlist", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       await expect(pipeline.matchPlaylist("non-existent")).rejects.toThrow(
         "Playlist not found: non-existent",
@@ -361,7 +364,7 @@ describe("SyncPipeline", () => {
       const { playlistId } = seedPlaylist(db, "Empty", []);
 
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.matchPlaylist(playlistId);
 
@@ -381,7 +384,7 @@ describe("SyncPipeline", () => {
       ];
 
       const lexicon = mockLexiconService(lexiconTracks);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.matchPlaylist(playlistId);
 
@@ -414,7 +417,7 @@ describe("SyncPipeline", () => {
 
     it("should extract tags from playlist name segments", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const tracks = [makeConfirmedTrack("t1", "lex-1")];
       const result = await pipeline.syncTags("DJP/26/MT/Indie", tracks);
@@ -431,7 +434,7 @@ describe("SyncPipeline", () => {
 
     it("should merge manual tags with name segments", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const tracks = [makeConfirmedTrack("t1", "lex-1")];
       const result = await pipeline.syncTags("House", tracks, ["Energy/High", "DJ Set"]);
@@ -443,7 +446,7 @@ describe("SyncPipeline", () => {
 
     it("should deduplicate manual tags with name segments", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const tracks = [makeConfirmedTrack("t1", "lex-1")];
       await pipeline.syncTags("House", tracks, ["House"]);
@@ -454,7 +457,7 @@ describe("SyncPipeline", () => {
 
     it("should ensure category is created once", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const tracks = [
         makeConfirmedTrack("t1", "lex-1"),
@@ -467,7 +470,7 @@ describe("SyncPipeline", () => {
 
     it("should use setTrackCategoryTags for category-scoped tagging", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const tracks = [makeConfirmedTrack("t1", "lex-1")];
       await pipeline.syncTags("House", tracks);
@@ -483,7 +486,7 @@ describe("SyncPipeline", () => {
 
     it("should skip tracks without lexiconTrackId", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const track: MatchedTrack = {
         dbTrackId: "t1",
@@ -502,7 +505,7 @@ describe("SyncPipeline", () => {
 
     it("should return zeros for empty playlist name", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.syncTags("", []);
 
@@ -512,7 +515,7 @@ describe("SyncPipeline", () => {
 
     it("should return zeros for '//' (all empty segments)", async () => {
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.syncTags("//", []);
 
@@ -526,7 +529,7 @@ describe("SyncPipeline", () => {
         .mockRejectedValueOnce(new Error("API error"))
         .mockResolvedValueOnce(undefined);
 
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const tracks = [
         makeConfirmedTrack("t1", "lex-1"),
@@ -558,7 +561,7 @@ describe("SyncPipeline", () => {
       ];
 
       const lexicon = mockLexiconService(lexiconTracks);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.dryRun(playlistId);
 
@@ -576,7 +579,7 @@ describe("SyncPipeline", () => {
       const { playlistId } = seedPlaylist(db, "Dry Run 2", []);
 
       const lexicon = mockLexiconService([]);
-      const pipeline = new SyncPipeline(TEST_CONFIG, { db, lexiconService: lexicon });
+      const pipeline = new SyncPipeline(TEST_CONFIG, { ...repos, lexiconService: lexicon });
 
       const result = await pipeline.dryRun(playlistId);
       expect(result.tagged).toBe(0);

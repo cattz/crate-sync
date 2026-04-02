@@ -14,7 +14,7 @@ export const syncRoutes = new Hono();
 // NOTE: must be registered before /:playlistId to avoid being shadowed
 syncRoutes.post("/track/:trackId", async (c) => {
   const config = loadConfig();
-  const pipeline = new SyncPipeline(config);
+  const pipeline = SyncPipeline.fromConfig(config);
 
   try {
     const result = await pipeline.matchTrack(c.req.param("trackId"));
@@ -32,7 +32,7 @@ syncRoutes.post("/track/:trackId", async (c) => {
 syncRoutes.post("/:playlistId", async (c) => {
   const db = getDb();
   const config = loadConfig();
-  const svc = new PlaylistService(db);
+  const svc = PlaylistService.fromDb(db);
   const playlist = svc.getPlaylist(c.req.param("playlistId"));
 
   if (!playlist) {
@@ -77,14 +77,14 @@ syncRoutes.post("/:playlistId", async (c) => {
 // POST /api/sync/:playlistId/dry-run — match only (no tagging), returns JSON
 syncRoutes.post("/:playlistId/dry-run", async (c) => {
   const config = loadConfig();
-  const svc = new PlaylistService(getDb());
+  const svc = PlaylistService.fromDb(getDb());
   const playlist = svc.getPlaylist(c.req.param("playlistId"));
 
   if (!playlist) {
     return c.json({ error: "Playlist not found" }, 404);
   }
 
-  const pipeline = new SyncPipeline(config);
+  const pipeline = SyncPipeline.fromConfig(config);
   const result = await pipeline.dryRun(playlist.id);
 
   return c.json(result);
@@ -165,7 +165,7 @@ function pushEvent(syncId: string, type: string, data: unknown) {
 }
 
 async function runSync(syncId: string, playlistId: string, config: Config) {
-  const pipeline = new SyncPipeline(config);
+  const pipeline = SyncPipeline.fromConfig(config);
 
   pushEvent(syncId, "phase", { phase: "match" });
 

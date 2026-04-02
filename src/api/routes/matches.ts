@@ -67,7 +67,7 @@ matchRoutes.put("/:id", async (c) => {
   }
 
   const config = loadConfig();
-  const reviewService = new ReviewService(config);
+  const reviewService = ReviewService.fromDb(config);
 
   if (body.status === "confirmed") {
     await reviewService.confirm(c.req.param("id"));

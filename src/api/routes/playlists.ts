@@ -10,7 +10,7 @@ import { eq, sql } from "drizzle-orm";
 export const playlistRoutes = new Hono();
 
 function getService() {
-  return new PlaylistService(getDb());
+  return PlaylistService.fromDb(getDb());
 }
 
 // ---- Literal routes (before any :id params) ----
@@ -50,17 +50,22 @@ playlistRoutes.post("/sync", async (c) => {
     return c.json({ error: "Spotify not authenticated" }, 401);
   }
 
-  const result = await spotify.syncToDb();
+  const database = getDb();
+  const playlistService = PlaylistService.fromDb(database);
+
+  const apiPlaylists = await spotify.getPlaylists();
+  const currentUserId = await spotify.getCurrentUserId();
+  const result = playlistService.syncPlaylistsFromApi(apiPlaylists, currentUserId);
 
   // Also sync tracks for each playlist
-  const database = getDb();
   const allPlaylists = database.select().from(playlists).all();
   const syncable = allPlaylists.filter((pl) => pl.spotifyId);
 
   let tracksSynced = 0;
   for (const pl of syncable) {
     try {
-      const trackResult = await spotify.syncPlaylistTracks(pl.spotifyId);
+      const apiTracks = await spotify.getPlaylistTracks(pl.spotifyId!);
+      const trackResult = playlistService.syncPlaylistTracksFromApi(pl.spotifyId!, apiTracks);
       tracksSynced += trackResult.added + trackResult.updated;
     } catch {
       // continue with other playlists
@@ -83,7 +88,8 @@ playlistRoutes.post("/:id/pull", async (c) => {
   const authenticated = await spotify.isAuthenticated();
   if (!authenticated) return c.json({ error: "Spotify not authenticated" }, 401);
 
-  const result = await spotify.syncPlaylistTracks(playlist.spotifyId);
+  const apiTracks = await spotify.getPlaylistTracks(playlist.spotifyId);
+  const result = svc.syncPlaylistTracksFromApi(playlist.spotifyId, apiTracks);
   return c.json({ ok: true, ...result });
 });
 

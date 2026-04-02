@@ -27,7 +27,7 @@ export function registerDownloadCommands(program: Command): void {
       const db = getDb();
       const config = loadConfig();
 
-      const svc = new DownloadService(
+      const svc = DownloadService.fromDb(
         db,
         config.soulseek,
         config.download,

@@ -58,7 +58,7 @@ export async function handleSearch(job: Job, config: Config): Promise<void> {
   }
 
   const db = getDb();
-  const downloadService = new DownloadService(
+  const downloadService = DownloadService.fromDb(
     db,
     config.soulseek,
     config.download,

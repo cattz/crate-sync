@@ -92,7 +92,7 @@ downloadRoutes.post("/clean-empty-dirs", (c) => {
   const db = getDb();
   const config = loadConfig();
 
-  const svc = new DownloadService(
+  const svc = DownloadService.fromDb(
     db,
     config.soulseek,
     config.download,
@@ -142,7 +142,7 @@ downloadRoutes.delete("/:id/file", (c) => {
     return c.json({ deleted: false, reason: "File not found on disk" });
   }
 
-  const svc = new DownloadService(
+  const svc = DownloadService.fromDb(
     db,
     config.soulseek,
     config.download,

@@ -64,7 +64,7 @@ export async function handleLexiconTag(job: Job, config: Config): Promise<void> 
     method: m.method,
   }));
 
-  const pipeline = new SyncPipeline(config);
+  const pipeline = SyncPipeline.fromConfig(config);
   await pipeline.syncTags(playlist.name, confirmedTracks);
 
   completeJob(job.id, { tagged: confirmedMatches.length });

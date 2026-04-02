@@ -40,7 +40,7 @@ export async function handleDownloadScan(job: Job, config: Config): Promise<void
 
   log.info(`Scanning ${pending.length} pending downloads`);
 
-  const downloadService = new DownloadService(
+  const downloadService = DownloadService.fromDb(
     db,
     config.soulseek,
     config.download,

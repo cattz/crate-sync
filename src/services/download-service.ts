@@ -11,8 +11,6 @@ import {
 import { extname, join, basename, dirname } from "node:path";
 import { parseFile } from "music-metadata";
 import crypto from "node:crypto";
-import { eq, and } from "drizzle-orm";
-
 import type {
   SoulseekConfig,
   DownloadConfig,
@@ -21,13 +19,14 @@ import type {
 } from "../config.js";
 import type { TrackInfo } from "../types/common.js";
 import type { SlskdFile } from "../types/soulseek.js";
+import type { IRejectionRepository } from "../ports/repositories.js";
 import { SoulseekService } from "./soulseek-service.js";
 import { FuzzyMatchStrategy } from "../matching/fuzzy.js";
 import { isShutdownRequested } from "../utils/shutdown.js";
 import { createLogger } from "../utils/logger.js";
 import { generateSearchQueries, type QueryStrategy } from "../search/query-builder.js";
 import { getDb } from "../db/client.js";
-import * as schema from "../db/schema.js";
+import { DrizzleRejectionRepository } from "../db/repositories/index.js";
 
 const log = createLogger("download");
 
@@ -113,7 +112,7 @@ function buildFileKey(username: string, filepath: string): string {
 // ---------------------------------------------------------------------------
 
 export class DownloadService {
-  private readonly db: Database;
+  private readonly rejections: IRejectionRepository;
   private readonly soulseek: SoulseekService;
   private readonly matcher: FuzzyMatchStrategy;
   private readonly allowedFormats: Set<string>;
@@ -123,14 +122,31 @@ export class DownloadService {
   private readonly slskdDownloadDir: string;
   private readonly validationStrictness: ValidationStrictness;
 
-  constructor(
+  /** Create a DownloadService from a raw DB handle (convenience factory). */
+  static fromDb(
     db: Database,
     soulseekConfig: SoulseekConfig,
     downloadConfig: DownloadConfig,
     lexiconConfig: LexiconConfig,
     matchingConfig?: MatchingConfig,
+  ): DownloadService {
+    return new DownloadService(
+      new DrizzleRejectionRepository(db),
+      soulseekConfig,
+      downloadConfig,
+      lexiconConfig,
+      matchingConfig,
+    );
+  }
+
+  constructor(
+    rejections: IRejectionRepository,
+    soulseekConfig: SoulseekConfig,
+    downloadConfig: DownloadConfig,
+    lexiconConfig: LexiconConfig,
+    matchingConfig?: MatchingConfig,
   ) {
-    this.db = db;
+    this.rejections = rejections;
     this.soulseek = new SoulseekService(soulseekConfig);
     this.matcher = new FuzzyMatchStrategy({
       autoAcceptThreshold: matchingConfig?.autoAcceptThreshold ?? 0.9,
@@ -157,37 +173,19 @@ export class DownloadService {
    * Get all rejected file keys for a track in the soulseek_download context.
    */
   private getRejectionsForTrack(trackId: string): Set<string> {
-    const rows = this.db
-      .select({ fileKey: schema.rejections.fileKey })
-      .from(schema.rejections)
-      .where(
-        and(
-          eq(schema.rejections.trackId, trackId),
-          eq(schema.rejections.context, "soulseek_download"),
-        ),
-      )
-      .all();
-
-    return new Set(rows.map((r) => r.fileKey));
+    return this.rejections.findFileKeysByTrackAndContext(trackId, "soulseek_download");
   }
 
   /**
    * Record a rejection for a Soulseek file so it won't be tried again.
-   * Uses INSERT OR IGNORE to handle the unique constraint gracefully.
    */
   async recordRejection(trackId: string, fileKey: string, reason: string): Promise<void> {
-    this.db
-      .insert(schema.rejections)
-      .values({
-        id: crypto.randomUUID(),
-        trackId,
-        context: "soulseek_download",
-        fileKey,
-        reason,
-        createdAt: Date.now(),
-      })
-      .onConflictDoNothing()
-      .run();
+    this.rejections.insert({
+      trackId,
+      context: "soulseek_download",
+      fileKey,
+      reason,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -633,18 +631,8 @@ export class DownloadService {
       if (!valid) {
         // Look up the rejection reason we just recorded
         const fileKey = buildFileKey(file.username, file.filename);
-        const rejection = this.db
-          .select({ reason: schema.rejections.reason })
-          .from(schema.rejections)
-          .where(
-            and(
-              eq(schema.rejections.trackId, dbTrackId),
-              eq(schema.rejections.context, "soulseek_download"),
-              eq(schema.rejections.fileKey, fileKey),
-            ),
-          )
-          .get();
-        const reason = rejection?.reason ?? "Unknown validation failure";
+        const reason = this.rejections.findReason(dbTrackId, "soulseek_download", fileKey)
+          ?? "Unknown validation failure";
         return {
           trackId: dbTrackId,
           success: false,

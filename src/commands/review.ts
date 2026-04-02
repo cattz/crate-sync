@@ -33,7 +33,7 @@ export function registerReviewCommands(program: Command): void {
       try {
         const config = loadConfig();
         const db = getDb();
-        const reviewService = new ReviewService(config, { db });
+        const reviewService = ReviewService.fromDb(config, db);
 
         const pending = await reviewService.getPending(opts.playlist);
 
@@ -104,7 +104,7 @@ export function registerReviewCommands(program: Command): void {
       try {
         const config = loadConfig();
         const db = getDb();
-        const reviewService = new ReviewService(config, { db });
+        const reviewService = ReviewService.fromDb(config, db);
 
         // Prefix-match the ID
         const pending = await reviewService.getPending();
@@ -134,7 +134,7 @@ export function registerReviewCommands(program: Command): void {
       try {
         const config = loadConfig();
         const db = getDb();
-        const reviewService = new ReviewService(config, { db });
+        const reviewService = ReviewService.fromDb(config, db);
 
         // Prefix-match the ID
         const pending = await reviewService.getPending();
@@ -166,7 +166,7 @@ export function registerReviewCommands(program: Command): void {
       try {
         const config = loadConfig();
         const db = getDb();
-        const reviewService = new ReviewService(config, { db });
+        const reviewService = ReviewService.fromDb(config, db);
 
         const pending = await reviewService.getPending(opts.playlist);
 
@@ -207,7 +207,7 @@ export function registerReviewCommands(program: Command): void {
       try {
         const config = loadConfig();
         const db = getDb();
-        const reviewService = new ReviewService(config, { db });
+        const reviewService = ReviewService.fromDb(config, db);
 
         const pending = await reviewService.getPending(opts.playlist);
 
@@ -248,7 +248,7 @@ export function registerReviewCommands(program: Command): void {
       try {
         const config = loadConfig();
         const db = getDb();
-        const reviewService = new ReviewService(config, { db });
+        const reviewService = ReviewService.fromDb(config, db);
 
         const stats = await reviewService.getStats();
 
