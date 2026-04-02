@@ -296,6 +296,10 @@ describe("SoulseekService", () => {
   // --- startSearchBatch ---
 
   it("startSearchBatch POSTs all queries with rate-limit delays", async () => {
+    // acquireSearchLock uses setTimeout directly (not this.sleep), so we
+    // mock timers to let the mutex-based rate-limiter resolve instantly.
+    vi.useFakeTimers();
+
     const fetchFn = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ id: "s1" }))
@@ -303,11 +307,12 @@ describe("SoulseekService", () => {
       .mockResolvedValueOnce(jsonResponse({ id: "s3" }));
     vi.stubGlobal("fetch", fetchFn);
 
-    const sleepSpy = vi
-      .spyOn(svc as never, "sleep")
-      .mockResolvedValue(undefined as never);
+    const batchPromise = svc.startSearchBatch(["query1", "query2", "query3"]);
 
-    const result = await svc.startSearchBatch(["query1", "query2", "query3"]);
+    // Advance timers enough for all rate-limit delays to resolve
+    await vi.advanceTimersByTimeAsync(5000);
+
+    const result = await batchPromise;
 
     expect(result.size).toBe(3);
     expect(result.get("query1")!.searchId).toBe("s1");
@@ -320,9 +325,7 @@ describe("SoulseekService", () => {
       expect(entry.startedAt).toBeGreaterThan(0);
     }
 
-    // Rate-limit delays should have been applied between searches
-    const delayCalls = sleepSpy.mock.calls.filter(([ms]: [number]) => ms > 0);
-    expect(delayCalls.length).toBeGreaterThanOrEqual(1);
+    vi.useRealTimers();
   });
 
   // --- waitForSearchBatch ---

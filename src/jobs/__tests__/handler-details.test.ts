@@ -65,6 +65,8 @@ vi.mock("../../services/soulseek-service.js", () => ({
   SoulseekService: vi.fn().mockImplementation(function () {
     return {
       rateLimitedSearch: vi.fn().mockResolvedValue([]),
+      isConnected: vi.fn().mockResolvedValue(true),
+      waitForConnection: vi.fn().mockResolvedValue(true),
     };
   }),
 }));
@@ -647,6 +649,11 @@ describe("Handler Details", () => {
     });
 
     it("no results fails the job", async () => {
+      // Seed track and playlist so the wishlist insert satisfies FK constraints
+      const { trackIds, playlistId } = seedPlaylist("SearchPL", [
+        { title: "Title", artist: "Artist" },
+      ]);
+
       mockSearchAndRank.mockResolvedValue({
         ranked: [],
         diagnostics: "0 results from soulseek",
@@ -657,8 +664,8 @@ describe("Handler Details", () => {
       const job = makeJob({
         type: "search",
         payload: JSON.stringify({
-          trackId: "t1",
-          playlistId: "p1",
+          trackId: trackIds[0],
+          playlistId,
           title: "Title",
           artist: "Artist",
           durationMs: 200_000,
@@ -678,6 +685,11 @@ describe("Handler Details", () => {
     });
 
     it("low-scoring results also fail the job", async () => {
+      // Seed track and playlist so the wishlist insert satisfies FK constraints
+      const { trackIds, playlistId } = seedPlaylist("SearchPL", [
+        { title: "Title", artist: "Artist" },
+      ]);
+
       mockSearchAndRank.mockResolvedValue({
         ranked: [
           {
@@ -698,8 +710,8 @@ describe("Handler Details", () => {
       const job = makeJob({
         type: "search",
         payload: JSON.stringify({
-          trackId: "t1",
-          playlistId: "p1",
+          trackId: trackIds[0],
+          playlistId,
           title: "Title",
           artist: "Artist",
           durationMs: 200_000,

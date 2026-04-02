@@ -281,7 +281,7 @@ describe("Job Handlers", () => {
       const wishlistResult = JSON.parse(
         testDb.select().from(schema.jobs).where(eq(schema.jobs.id, wishlistJob.id)).get()!.result!,
       );
-      expect(wishlistResult.requeued).toBe(2);
+      expect(wishlistResult.failedRequeued).toBe(2);
     });
 
     it("completes with requeued: 0 when no eligible jobs", async () => {
@@ -291,8 +291,8 @@ describe("Job Handlers", () => {
       const result = JSON.parse(
         testDb.select().from(schema.jobs).where(eq(schema.jobs.id, wishlistJob.id)).get()!.result!,
       );
-      expect(result.scanned).toBe(0);
-      expect(result.requeued).toBe(0);
+      expect(result.wishlistProcessed).toBe(0);
+      expect(result.failedRequeued).toBe(0);
     });
   });
 
