@@ -15,22 +15,45 @@ export const webhookRoutes = new Hono();
  * POST /api/webhooks/slskd/download-complete
  *
  * Called by slskd's DownloadFileComplete script hook.
- * Body: { username: string, filename: string, localPath: string }
+ * Body is $SLSKD_SCRIPT_DATA JSON:
+ * {
+ *   localFilename: string,
+ *   remoteFilename: string,
+ *   transfer: { username: string, filename: string, size: number, ... }
+ * }
  */
 webhookRoutes.post("/slskd/download-complete", async (c) => {
   const body = await c.req.json<{
+    localFilename?: string;
+    remoteFilename?: string;
+    transfer?: {
+      username?: string;
+      filename?: string;
+      size?: number;
+    };
+    // Also accept flat format for backward compat / manual testing
     username?: string;
     filename?: string;
     localPath?: string;
   }>().catch(() => ({}));
 
-  const { username, filename, localPath } = body;
+  // Extract fields from slskd's nested format or flat format
+  const username = body.transfer?.username ?? body.username;
+  const filename = body.transfer?.filename ?? body.remoteFilename ?? body.filename;
+  const localPath = body.localFilename ?? body.localPath;
 
   if (!username || !filename) {
-    return c.json({ ok: false, reason: "Missing required fields: username, filename" }, 400);
+    return c.json({ ok: false, reason: "Missing required fields: transfer.username, transfer.filename (or remoteFilename)" }, 400);
   }
 
-  log.info("Received slskd download-complete webhook", { username, filename, localPath });
+  // Map container path to host path (slskd reports /app/downloads/..., host has config.soulseek.downloadDir)
+  const config = loadConfig();
+  let hostPath = localPath;
+  if (hostPath && hostPath.startsWith("/app/downloads/")) {
+    hostPath = hostPath.replace("/app/downloads/", config.soulseek.downloadDir.replace(/\/$/, "") + "/");
+  }
+
+  log.info("Received slskd download-complete webhook", { username, filename, localPath: hostPath });
 
   const db = getDb();
 
@@ -74,7 +97,6 @@ webhookRoutes.post("/slskd/download-complete", async (c) => {
     : undefined;
   const playlistName = playlist?.name ?? "Unknown";
 
-  const config = loadConfig();
   const downloadService = DownloadService.fromDb(
     db,
     config.soulseek,
@@ -85,14 +107,14 @@ webhookRoutes.post("/slskd/download-complete", async (c) => {
 
   // Find the file on disk — use localPath hint from webhook or fall back to search
   let filePath: string | null = null;
-  if (localPath && existsSync(localPath)) {
-    filePath = localPath;
+  if (hostPath && existsSync(hostPath)) {
+    filePath = hostPath;
   } else {
     filePath = downloadService.findDownloadedFile(username, filename);
   }
 
   if (!filePath) {
-    log.warn("Webhook fired but file not found on disk yet", { username, filename, localPath });
+    log.warn("Webhook fired but file not found on disk yet", { username, filename, hostPath });
     // Don't fail the download — the scanner will pick it up later
     return c.json({ ok: false, reason: "File not found on disk yet — scanner will retry" });
   }
