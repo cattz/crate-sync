@@ -7,6 +7,7 @@
 - **Webhook API tests** — POST with valid download match, missing fields, no matching download, and non-downloading state.
 
 ### Added
+- **Multi-source search in job handler (Phase 3)** — search handler queries local filesystem sources (via AcquisitionService) before falling back to Soulseek. Local matches are validated and placed directly in Lexicon/Incoming, skipping the download job. New `sourceId`/`sourceKey` columns on downloads table track which source found each track. Backward compatible with existing Soulseek-only workflows.
 - **slskd webhook integration (Phase 2)** — `POST /api/webhooks/slskd/download-complete` endpoint for immediate download notification from slskd. Shell script hook for slskd's `DownloadFileComplete` event. When webhook is enabled, download scanner interval increases to 60s (safety net). Webhook config in `soulseek.webhook` section.
 - **Job queue cleanup** — "Clear Done" and "Clear Failed" buttons on Queue page, auto-purge of completed/failed jobs older than configurable retention period (default 7 days), "Job Retention (days)" setting in Settings page.
 - **Cleanup failed download files and empty folders** — `DELETE /api/downloads/:id/file` endpoint to delete physical files for failed downloads. "Delete File" button in web UI for failed downloads. `downloads clean --failed --empty-dirs` CLI command. Auto-cleanup of empty source directories after file moves.

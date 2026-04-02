@@ -50,6 +50,8 @@ export async function handleDownload(job: Job, config: Config): Promise<void> {
       soulseekPath: filename,
       slskdUsername: username,
       slskdFilename: filename,
+      sourceId: "soulseek",
+      sourceKey: `${username}:${filename}`,
       startedAt: Date.now(),
     })
     .returning()

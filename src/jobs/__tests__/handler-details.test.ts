@@ -119,6 +119,11 @@ vi.mock("../../search/query-builder.js", () => ({
   ]),
 }));
 
+// Mock the source registry to return no local sources (tests exercise Soulseek path)
+vi.mock("../../sources/registry.js", () => ({
+  buildSources: vi.fn().mockReturnValue([]),
+}));
+
 import { handleDownloadScan } from "../handlers/download-scan.js";
 import { handleLexiconMatch } from "../handlers/lexicon-match.js";
 import { handleLexiconTag } from "../handlers/lexicon-tag.js";

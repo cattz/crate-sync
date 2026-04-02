@@ -131,6 +131,10 @@ export const downloads = sqliteTable("downloads", {
   filePath: text("file_path"),
   slskdUsername: text("slskd_username"),
   slskdFilename: text("slskd_filename"),
+  /** Which source found the track (e.g. "local:lossless", "soulseek"). */
+  sourceId: text("source_id"),
+  /** Source-specific key for the candidate (for rejection tracking). */
+  sourceKey: text("source_key"),
   error: text("error"),
   startedAt: integer("started_at"),
   completedAt: integer("completed_at"),
@@ -181,8 +185,8 @@ export const rejections = sqliteTable(
     trackId: text("track_id")
       .notNull()
       .references(() => tracks.id),
-    context: text("context", { enum: ["soulseek_download"] }).notNull(),
-    fileKey: text("file_key").notNull(), // username + filepath
+    context: text("context", { enum: ["soulseek_download", "source_acquisition"] }).notNull(),
+    fileKey: text("file_key").notNull(), // source key or username:filepath
     reason: text("reason"),             // "validation_failed", "user_rejected", "wrong_track"
     createdAt,
   },

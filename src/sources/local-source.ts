@@ -291,7 +291,7 @@ export class LocalFilesystemSource implements TrackSource {
       sourceId: this.id,
       trackInfo,
       localPath: filePath,
-      meta: { filename, structure: this.config.structure },
+      meta: { filename, structure: this.config.structure, fileOp: this.config.fileOp },
       quality: { format: ext },
     };
   }

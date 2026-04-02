@@ -4,7 +4,10 @@ import type { Job } from "../../db/schema.js";
 import { getDb } from "../../db/client.js";
 import * as schema from "../../db/schema.js";
 import { DownloadService } from "../../services/download-service.js";
+import { AcquisitionService } from "../../services/acquisition-service.js";
 import { SoulseekService } from "../../services/soulseek-service.js";
+import { DrizzleRejectionRepository } from "../../db/repositories/index.js";
+import { buildSources } from "../../sources/registry.js";
 import { completeJob, failJob, createJob } from "../runner.js";
 import { generateSearchQueries } from "../../search/query-builder.js";
 import { createLogger } from "../../utils/logger.js";
@@ -22,8 +25,9 @@ interface SearchPayload {
 }
 
 /**
- * Run search with query builder strategies. On results: create download job.
- * On failure: re-queue with next strategy or mark failed with backoff.
+ * Run search across all configured sources. Local sources are tried first via
+ * AcquisitionService; if a local match is found the file is validated and placed
+ * directly (skipping the download job). Soulseek is used as a fallback.
  */
 export async function handleSearch(job: Job, config: Config): Promise<void> {
   const payload: SearchPayload = JSON.parse(job.payload ?? "{}");
@@ -46,6 +50,87 @@ export async function handleSearch(job: Job, config: Config): Promise<void> {
     return;
   }
 
+  const db = getDb();
+
+  // -------------------------------------------------------------------------
+  // Phase 1: Try local sources via AcquisitionService
+  // -------------------------------------------------------------------------
+  const localSources = buildSources(config);
+
+  if (localSources.length > 0) {
+    const rejections = new DrizzleRejectionRepository(db);
+    const acquisitionService = new AcquisitionService(
+      localSources,
+      rejections,
+      config.matching,
+      config.download,
+      config.lexicon,
+    );
+
+    const localResult = await acquisitionService.searchAllSources(track, payload.trackId);
+
+    if (localResult && localResult.candidates.length > 0) {
+      const best = localResult.candidates[0];
+
+      if (best.score >= 0.3 && best.candidate.localPath) {
+        // Local match found — validate and place directly
+        log.info(`Local source match`, {
+          sourceId: localResult.sourceId,
+          score: best.score,
+          localPath: best.candidate.localPath,
+        });
+
+        // Look up playlist name
+        const playlist = await db.query.playlists.findFirst({
+          where: eq(schema.playlists.id, payload.playlistId),
+        });
+        const playlistName = playlist?.name ?? "Unknown";
+
+        const placed = await acquisitionService.validateAndPlace(
+          best.candidate,
+          track,
+          payload.trackId,
+          playlistName,
+        );
+
+        if (placed) {
+          // Record download as done (skip download job entirely)
+          db.insert(schema.downloads)
+            .values({
+              trackId: payload.trackId,
+              playlistId: payload.playlistId,
+              status: "done",
+              origin: "not_found",
+              filePath: placed.finalPath,
+              sourceId: placed.sourceId,
+              sourceKey: placed.sourceKey,
+              startedAt: Date.now(),
+              completedAt: Date.now(),
+            })
+            .run();
+
+          completeJob(job.id, {
+            source: placed.sourceId,
+            localMatch: true,
+            filePath: placed.finalPath,
+            score: best.score,
+            diagnostics: localResult.diagnostics,
+          });
+          return;
+        }
+
+        // Validation failed — fall through to Soulseek
+        log.info(`Local match failed validation, falling through to Soulseek`, {
+          sourceId: localResult.sourceId,
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 2: Soulseek search (existing behavior)
+  // -------------------------------------------------------------------------
+
   // Wait for slskd to be connected before searching
   const soulseek = new SoulseekService(config.soulseek);
   if (!(await soulseek.isConnected())) {
@@ -57,7 +142,6 @@ export async function handleSearch(job: Job, config: Config): Promise<void> {
     }
   }
 
-  const db = getDb();
   const downloadService = DownloadService.fromDb(
     db,
     config.soulseek,
@@ -102,7 +186,6 @@ export async function handleSearch(job: Job, config: Config): Promise<void> {
     });
   } else {
     // No viable results — add to wishlist for periodic retry
-    const db = getDb();
     const retryIntervalMs = (config.wishlist?.retryIntervalHours ?? 24) * 3600_000;
     const maxRetries = config.wishlist?.maxRetries ?? 5;
 
