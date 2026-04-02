@@ -53,9 +53,25 @@ interface SlskdUserTransfers {
   }>;
 }
 
-// Global rate limiter — shared across all SoulseekService instances
-// so concurrent jobs respect the delay between searches
+// Global search mutex — ensures only one search fires at a time across
+// all SoulseekService instances, preventing slskd concurrency errors
 let globalLastSearchTime = 0;
+let searchLock: Promise<void> = Promise.resolve();
+
+function acquireSearchLock(delayMs: number): Promise<void> {
+  const prev = searchLock;
+  let resolve: () => void;
+  searchLock = new Promise<void>((r) => { resolve = r; });
+  return prev.then(async () => {
+    const now = Date.now();
+    const remaining = delayMs - (now - globalLastSearchTime);
+    if (remaining > 0) {
+      await new Promise<void>((r) => setTimeout(r, remaining));
+    }
+    globalLastSearchTime = Date.now();
+    resolve!();
+  });
+}
 
 export class SoulseekService {
   private readonly baseUrl: string;
@@ -329,15 +345,7 @@ export class SoulseekService {
    * Uses the searchDelayMs from config.
    */
   async rateLimitedSearch(query: string): Promise<SlskdFile[]> {
-    const now = Date.now();
-    const elapsed = now - globalLastSearchTime;
-    const remaining = this.searchDelayMs - elapsed;
-
-    if (remaining > 0) {
-      await this.sleep(remaining);
-    }
-
-    globalLastSearchTime = Date.now();
+    await acquireSearchLock(this.searchDelayMs);
     return this.search(query);
   }
 
@@ -352,15 +360,7 @@ export class SoulseekService {
     const result = new Map<string, { searchId: string; startedAt: number }>();
 
     for (const query of queries) {
-      const now = Date.now();
-      const elapsed = now - globalLastSearchTime;
-      const remaining = this.searchDelayMs - elapsed;
-
-      if (remaining > 0) {
-        await this.sleep(remaining);
-      }
-
-      globalLastSearchTime = Date.now();
+      await acquireSearchLock(this.searchDelayMs);
       const searchId = await this.startSearch(query);
       log.debug(`Batch: posted search`, { query, searchId });
       result.set(query, { searchId, startedAt: Date.now() });
