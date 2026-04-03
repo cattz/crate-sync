@@ -550,12 +550,18 @@ export function Playlists() {
         <button
           className="primary"
           onClick={() => {
-            bulkSync.mutate([...selection.selected]);
-            selection.clear();
+            const ids = [...selection.selected];
+            if (ids.length === 0) return;
+            bulkSync.mutate(ids, {
+              onSuccess: (data) => {
+                selection.clear();
+                alert(`Queued ${data.queued} playlist(s) for matching & tagging`);
+              },
+            });
           }}
           disabled={bulkSync.isPending}
         >
-          {bulkSync.isPending ? "Syncing..." : "Match & Tag Selected"}
+          {bulkSync.isPending ? "Syncing..." : `Match & Tag (${selection.count})`}
         </button>
         <button onClick={() => setShowBulkRename(true)}>
           Bulk Rename
