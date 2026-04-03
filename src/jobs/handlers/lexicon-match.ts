@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type { Config } from "../../config.js";
 import type { Job } from "../../db/schema.js";
 import { getDb } from "../../db/client.js";
@@ -32,23 +32,39 @@ export async function handleLexiconMatch(job: Job, config: Config): Promise<void
 
   const result = await pipeline.matchPlaylist(payload.playlistId);
 
-  // Create search jobs for tracks not found in Lexicon
+  // Create search jobs for tracks not found in Lexicon (skip if already queued/running)
+  const db = getDb();
   for (const item of result.notFound) {
-    createJob({
-      type: "search",
-      status: "queued",
-      priority: 3,
-      payload: JSON.stringify({
-        trackId: item.dbTrackId,
-        playlistId: payload.playlistId,
-        title: item.track.title,
-        artist: item.track.artist,
-        album: item.track.album,
-        durationMs: item.track.durationMs,
-        queryIndex: 0,
-      }),
-      parentJobId: job.id,
-    });
+    const existing = db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.type, "search"),
+          sql`${schema.jobs.status} IN ('queued', 'running')`,
+          sql`json_extract(${schema.jobs.payload}, '$.trackId') = ${item.dbTrackId}`,
+        ),
+      )
+      .limit(1)
+      .get();
+
+    if (!existing) {
+      createJob({
+        type: "search",
+        status: "queued",
+        priority: 3,
+        payload: JSON.stringify({
+          trackId: item.dbTrackId,
+          playlistId: payload.playlistId,
+          title: item.track.title,
+          artist: item.track.artist,
+          album: item.track.album,
+          durationMs: item.track.durationMs,
+          queryIndex: 0,
+        }),
+        parentJobId: job.id,
+      });
+    }
   }
 
   completeJob(job.id, {

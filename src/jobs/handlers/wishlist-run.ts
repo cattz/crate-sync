@@ -58,21 +58,36 @@ export async function handleWishlistRun(job: Job, config: Config): Promise<void>
       continue;
     }
 
-    // Create a new search job
-    createJob({
-      type: "search",
-      status: "queued",
-      priority: 2, // lower priority than fresh searches
-      payload: JSON.stringify({
-        trackId: dl.trackId,
-        playlistId: dl.playlistId,
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        durationMs: track.durationMs,
-        queryIndex: 0,
-      }),
-    });
+    // Create a new search job (skip if one is already queued/running for this track)
+    const existingSearch = db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.type, "search"),
+          sql`${schema.jobs.status} IN ('queued', 'running')`,
+          sql`json_extract(${schema.jobs.payload}, '$.trackId') = ${dl.trackId}`,
+        ),
+      )
+      .limit(1)
+      .get();
+
+    if (!existingSearch) {
+      createJob({
+        type: "search",
+        status: "queued",
+        priority: 2,
+        payload: JSON.stringify({
+          trackId: dl.trackId,
+          playlistId: dl.playlistId,
+          title: track.title,
+          artist: track.artist,
+          album: track.album,
+          durationMs: track.durationMs,
+          queryIndex: 0,
+        }),
+      });
+    }
 
     // Update retry count and next retry time
     const retryIntervalMs = (config.wishlist?.retryIntervalHours ?? 24) * 3600_000;
