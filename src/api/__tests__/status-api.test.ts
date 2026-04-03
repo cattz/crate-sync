@@ -167,7 +167,7 @@ describe("Status API", () => {
       // Health checks from mock
       expect(body.spotify).toEqual({ ok: true });
       expect(body.lexicon).toEqual({ ok: true });
-      expect(body.soulseek).toEqual({ ok: false, error: "Not reachable" });
+      expect(body.soulseek).toEqual({ ok: false, error: "Not reachable", signalr: false });
 
       // Database stats
       expect(body.database).toBeDefined();

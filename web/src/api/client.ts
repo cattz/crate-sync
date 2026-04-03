@@ -261,6 +261,8 @@ export interface DownloadWithTrack {
   status: string;
   soulseekPath: string | null;
   filePath: string | null;
+  slskdUsername: string | null;
+  slskdFilename: string | null;
   error: string | null;
   startedAt: number | null;
   completedAt: number | null;

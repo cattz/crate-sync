@@ -43,8 +43,14 @@ function jobDetail(p: Record<string, unknown>, jobId: string): string {
   return jobId.slice(0, 8);
 }
 
+interface DownloadSummary {
+  activeCount: number;
+  totalSpeed: number;
+}
+
 function StatusBar() {
   const [lines, setLines] = useState<LogLine[]>([]);
+  const [dlSummary, setDlSummary] = useState<DownloadSummary>({ activeCount: 0, totalSpeed: 0 });
 
   const addLine = useCallback((line: LogLine) => {
     setLines((prev) => [...prev.slice(-2), line]);
@@ -52,8 +58,10 @@ function StatusBar() {
 
   useEffect(() => {
     const es = api.jobEvents();
+    // Track active downloads by key for aggregate stats
+    const activeDownloads = new Map<string, { speed: number }>();
 
-    const handleEvent = (e: MessageEvent) => {
+    const handleJobEvent = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
         const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
@@ -70,17 +78,55 @@ function StatusBar() {
       }
     };
 
+    const handleProgress = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        const p = data.payload;
+        if (!p?.username || !p?.filename) return;
+        const key = `${p.username}\0${p.filename}`;
+
+        if (p.percentComplete >= 100) {
+          activeDownloads.delete(key);
+        } else {
+          activeDownloads.set(key, { speed: p.speed ?? 0 });
+        }
+
+        let totalSpeed = 0;
+        for (const v of activeDownloads.values()) totalSpeed += v.speed;
+        setDlSummary({ activeCount: activeDownloads.size, totalSpeed });
+      } catch {
+        // ignore
+      }
+    };
+
     for (const evt of ["job-started", "job-done", "job-failed"]) {
-      es.addEventListener(evt, handleEvent);
+      es.addEventListener(evt, handleJobEvent);
     }
+    es.addEventListener("download-progress", handleProgress);
 
     return () => es.close();
   }, [addLine]);
 
-  if (lines.length === 0) return null;
+  const hasContent = lines.length > 0 || dlSummary.activeCount > 0;
+  if (!hasContent) return null;
 
   return (
     <div className="status-bar">
+      {dlSummary.activeCount > 0 && (
+        <div className="status-line">
+          <span className="status-type">Downloads</span>
+          <span className="status-running">
+            {dlSummary.activeCount} active
+          </span>
+          {dlSummary.totalSpeed > 0 && (
+            <span className="text-muted">
+              {" "}{dlSummary.totalSpeed >= 1_000_000
+                ? `${(dlSummary.totalSpeed / 1_000_000).toFixed(1)} MB/s`
+                : `${(dlSummary.totalSpeed / 1_000).toFixed(0)} KB/s`}
+            </span>
+          )}
+        </div>
+      )}
       {lines.map((line, i) => (
         <div key={i} className="status-line">
           <span className="status-time">{line.time}</span>

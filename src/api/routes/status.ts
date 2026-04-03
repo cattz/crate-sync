@@ -4,6 +4,7 @@ import { checkHealth } from "../../utils/health.js";
 import { SpotifyService } from "../../services/spotify-service.js";
 import { waitForAuthCallback } from "../../services/spotify-auth-server.js";
 import { SoulseekService } from "../../services/soulseek-service.js";
+import { isSignalRConnected } from "../../jobs/runner.js";
 import { getDb } from "../../db/client.js";
 import { playlists, tracks, matches, downloads } from "../../db/schema.js";
 import { sql } from "drizzle-orm";
@@ -37,7 +38,11 @@ statusRoutes.get("/", async (c) => {
     dbStats = { ok: false, error: "Not available" };
   }
 
-  return c.json({ ...health, database: dbStats });
+  return c.json({
+    ...health,
+    soulseek: { ...health.soulseek, signalr: isSignalRConnected() },
+    database: dbStats,
+  });
 });
 
 // GET /api/config — return non-sensitive config

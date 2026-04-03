@@ -1,4 +1,5 @@
 import { eq, and, sql, desc, asc } from "drizzle-orm";
+import type { HubConnection } from "@microsoft/signalr";
 import type { Config } from "../config.js";
 import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
@@ -11,6 +12,14 @@ import { handleDownloadScan } from "./handlers/download-scan.js";
 import { handleValidate } from "./handlers/validate.js";
 import { handleLexiconTag } from "./handlers/lexicon-tag.js";
 import { handleWishlistRun } from "./handlers/wishlist-run.js";
+import {
+  connectTransferHub,
+  disconnectTransferHub,
+  isHubConnected,
+  type TransferEvent,
+  type SlskdHubTransfer,
+} from "../services/slskd-hub.js";
+import { handleTransferCompleted, handleTransferFailed } from "./handlers/transfer-event.js";
 
 const log = createLogger("job-runner");
 
@@ -146,6 +155,7 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let scanInterval: ReturnType<typeof setInterval> | null = null;
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 let wishlistInterval: ReturnType<typeof setInterval> | null = null;
+let hubConnection: HubConnection | null = null;
 
 /**
  * Purge completed/failed jobs older than retentionDays.
@@ -278,14 +288,34 @@ export function startJobRunner(config: Config): void {
     }
   }
 
+  // Connect to slskd SignalR transfer hub for real-time download events.
+  // Requires slskdUrl and slskdApiKey to be configured.
+  let signalrConnected = false;
+  if (config.soulseek.slskdUrl && config.soulseek.slskdApiKey) {
+    try {
+      hubConnection = connectTransferHub(
+        config.soulseek.slskdUrl,
+        config.soulseek.slskdApiKey,
+        (event: TransferEvent) => handleTransferEvent(event, config),
+      );
+      signalrConnected = true;
+      log.info("SignalR transfer hub connection initiated");
+    } catch (err) {
+      log.warn("Failed to initiate SignalR connection, falling back to scanner", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // Start the periodic download scanner.
-  // When webhook is enabled, use a longer interval — the scanner is just a safety net.
+  // When SignalR or webhook is active, use a longer interval — the scanner is just a safety net.
   const webhookEnabled = config.soulseek.webhook?.enabled ?? false;
-  const scanIntervalMs = webhookEnabled
+  const hasRealtimeSource = signalrConnected || webhookEnabled;
+  const scanIntervalMs = hasRealtimeSource
     ? (config.soulseek.webhook?.fallbackScanIntervalMs ?? 60_000)
     : (config.soulseek.fileScanIntervalMs ?? 15_000);
   scanInterval = setInterval(scheduleDownloadScan, scanIntervalMs);
-  log.info("Download scanner scheduled", { intervalMs: scanIntervalMs, webhookEnabled });
+  log.info("Download scanner scheduled", { intervalMs: scanIntervalMs, signalrConnected, webhookEnabled });
 
   // Start periodic wishlist scan (once per hour)
   function scheduleWishlistRun() {
@@ -322,6 +352,74 @@ export function startJobRunner(config: Config): void {
   poll();
 }
 
+// ---------------------------------------------------------------------------
+// SignalR event dispatch
+// ---------------------------------------------------------------------------
+
+function handleTransferEvent(event: TransferEvent, config: Config): void {
+  switch (event.type) {
+    case "COMPLETED":
+      if (event.transfer) {
+        handleTransferCompleted(event.transfer, config).catch((err) => {
+          log.error("Error handling transfer COMPLETED", {
+            error: err instanceof Error ? err.message : String(err),
+            filename: event.transfer?.filename,
+          });
+        });
+      }
+      break;
+
+    case "FAILED":
+      if (event.transfer) {
+        handleTransferFailed(event.transfer, config).catch((err) => {
+          log.error("Error handling transfer FAILED", {
+            error: err instanceof Error ? err.message : String(err),
+            filename: event.transfer?.filename,
+          });
+        });
+      }
+      break;
+
+    case "PROGRESS":
+      if (event.transfer) {
+        emitDownloadProgress(event.transfer);
+      }
+      break;
+
+    case "LIST":
+      // Initial list of downloads on connect — emit progress for any active ones
+      if (event.transfers) {
+        for (const t of event.transfers) {
+          if (t.percentComplete > 0 && t.percentComplete < 100) {
+            emitDownloadProgress(t);
+          }
+        }
+      }
+      break;
+
+    // ENQUEUED and UPDATE are informational — no action needed
+    default:
+      break;
+  }
+}
+
+/** Emit a download-progress event to SSE listeners for the frontend. */
+function emitDownloadProgress(transfer: SlskdHubTransfer): void {
+  emitJobEvent("signalr", "download-progress", "downloading", {
+    username: transfer.username,
+    filename: transfer.filename,
+    percentComplete: transfer.percentComplete,
+    speed: transfer.averageSpeed,
+    bytesTransferred: transfer.bytesTransferred,
+    size: transfer.size,
+  });
+}
+
+/** Check if the SignalR hub is currently connected. */
+export function isSignalRConnected(): boolean {
+  return isHubConnected(hubConnection);
+}
+
 /**
  * Stop the job runner.
  */
@@ -342,6 +440,11 @@ export function stopJobRunner(): void {
   if (wishlistInterval) {
     clearInterval(wishlistInterval);
     wishlistInterval = null;
+  }
+  // Disconnect SignalR hub
+  if (hubConnection) {
+    disconnectTransferHub(hubConnection).catch(() => {});
+    hubConnection = null;
   }
   log.info("Job runner stopped");
 }
