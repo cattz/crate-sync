@@ -5,7 +5,7 @@ import { useMultiSelect } from "../hooks/useMultiSelect.js";
 import { BulkToolbar } from "../components/BulkToolbar.js";
 
 function formatTime(ms: number | null) {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   return new Date(ms).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -15,7 +15,7 @@ function formatTime(ms: number | null) {
 }
 
 function formatRelative(ms: number | null): string {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   const diff = ms - Date.now();
   if (diff <= 0) return "overdue";
   const hours = Math.floor(diff / 3_600_000);
@@ -50,11 +50,11 @@ function WishlistRow({
       </td>
       <td
         style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        title={`${item.trackArtist} \u2014 ${item.trackTitle}`}
+        title={`${item.trackArtist} — ${item.trackTitle}`}
       >
-        {item.trackTitle} <span className="text-muted">\u2014 {item.trackArtist}</span>
+        {item.trackTitle} <span className="text-muted">— {item.trackArtist}</span>
       </td>
-      <td className="text-muted text-sm">{item.playlistName ?? "\u2014"}</td>
+      <td className="text-muted text-sm">{item.playlistName ?? "—"}</td>
       <td className="text-sm" style={{ textAlign: "center" }}>{item.wishlistRetries ?? 0}</td>
       <td className="text-muted text-sm">{formatRelative(item.nextRetryAt)}</td>
       <td
