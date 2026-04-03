@@ -191,6 +191,41 @@ function purgeOldJobs(retentionDays: number): void {
 function scheduleDownloadScan(): void {
   try {
     const db = getDb();
+
+    // Clear stale scan jobs that were never claimed (queued > 5min) or stuck running (> 10min)
+    const now = Date.now();
+    const staleQueued = db
+      .select()
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.type, "download_scan"),
+          eq(schema.jobs.status, "queued"),
+          sql`${schema.jobs.createdAt} < ${now - 5 * 60_000}`,
+        ),
+      )
+      .all();
+
+    const staleRunning = db
+      .select()
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.type, "download_scan"),
+          eq(schema.jobs.status, "running"),
+          sql`${schema.jobs.startedAt} < ${now - 10 * 60_000}`,
+        ),
+      )
+      .all();
+
+    if (staleQueued.length > 0 || staleRunning.length > 0) {
+      const staleIds = [...staleQueued, ...staleRunning].map((j) => j.id);
+      for (const id of staleIds) {
+        db.delete(schema.jobs).where(eq(schema.jobs.id, id)).run();
+      }
+      log.warn(`Cleared ${staleIds.length} stale download_scan jobs`);
+    }
+
     const existing = db
       .select()
       .from(schema.jobs)
@@ -320,6 +355,17 @@ export function startJobRunner(config: Config): void {
   // Start periodic wishlist scan (once per hour)
   function scheduleWishlistRun() {
     const db = getDb();
+
+    // Clear stale wishlist_run jobs (queued > 5min or running > 30min)
+    const now = Date.now();
+    db.delete(schema.jobs).where(
+      and(
+        eq(schema.jobs.type, "wishlist_run"),
+        sql`(${schema.jobs.status} = 'queued' AND ${schema.jobs.createdAt} < ${now - 5 * 60_000})
+          OR (${schema.jobs.status} = 'running' AND ${schema.jobs.startedAt} < ${now - 30 * 60_000})`,
+      ),
+    ).run();
+
     const existing = db
       .select()
       .from(schema.jobs)
