@@ -1,4 +1,4 @@
-import type { LexiconTrack, LexiconTagCategory, LexiconTag } from "../types/lexicon.js";
+import type { LexiconTrack, LexiconPlaylist, LexiconTagCategory, LexiconTag } from "../types/lexicon.js";
 import type { LexiconConfig } from "../config.js";
 import { withRetry } from "../utils/retry.js";
 
@@ -44,6 +44,32 @@ function normalizeLexiconTrack(raw: Record<string, unknown>): LexiconTrack {
     album: raw.albumTitle != null ? String(raw.albumTitle) : raw.album != null ? String(raw.album) : undefined,
     durationMs,
   };
+}
+
+function normalizeLexiconPlaylist(raw: Record<string, unknown>): LexiconPlaylist {
+  const rawTrackIds = (raw.trackIds ?? raw.track_ids ?? []) as unknown[];
+  return {
+    id: normalizeId(raw.id),
+    name: String(raw.name ?? ""),
+    trackIds: Array.isArray(rawTrackIds) ? rawTrackIds.map(normalizeId) : [],
+  };
+}
+
+function findPlaylistInTree(
+  nodes: Record<string, unknown>[],
+  name: string,
+): Record<string, unknown> | null {
+  for (const node of nodes) {
+    if (node.name === name) return node;
+    if (Array.isArray(node.playlists)) {
+      const found = findPlaylistInTree(
+        node.playlists as Record<string, unknown>[],
+        name,
+      );
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 export class LexiconService {
@@ -140,6 +166,76 @@ export class LexiconService {
     } catch (err) {
       if (err instanceof Error && err.message.includes("404")) return null;
       throw err;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Playlists
+  // -------------------------------------------------------------------------
+
+  /** Get all playlists (flattened from tree structure). */
+  async getPlaylists(): Promise<LexiconPlaylist[]> {
+    const raw = await this.request<unknown>("/playlists");
+    const tree = unwrapResponse<Record<string, unknown>[]>(raw, "playlists");
+    const results: LexiconPlaylist[] = [];
+    const flatten = (nodes: Record<string, unknown>[]) => {
+      for (const node of nodes) {
+        results.push(normalizeLexiconPlaylist(node));
+        if (Array.isArray(node.playlists)) {
+          flatten(node.playlists as Record<string, unknown>[]);
+        }
+      }
+    };
+    flatten(tree);
+    return results;
+  }
+
+  /** Find a playlist by name (recursive tree search). */
+  async getPlaylistByName(name: string): Promise<LexiconPlaylist | null> {
+    const raw = await this.request<unknown>("/playlists");
+    const tree = unwrapResponse<Record<string, unknown>[]>(raw, "playlists");
+    const found = findPlaylistInTree(tree, name);
+    if (!found) return null;
+    return normalizeLexiconPlaylist(found);
+  }
+
+  /** Create a playlist with the given name. Returns the new playlist. */
+  async createPlaylist(name: string): Promise<LexiconPlaylist> {
+    const raw = await this.request<unknown>("/playlist", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    const playlist = unwrapResponse<Record<string, unknown>>(raw, "playlist");
+    return normalizeLexiconPlaylist(playlist);
+  }
+
+  /** Set the tracks for a playlist (ordered). Replaces existing tracks. */
+  async setPlaylistTracks(playlistId: string, trackIds: string[]): Promise<void> {
+    // Fetch current tracks to delete them first
+    const raw = await this.request<unknown>(`/playlist?id=${playlistId}`);
+    const current = unwrapResponse<Record<string, unknown>>(raw, "playlist");
+    const existingPlaylist = normalizeLexiconPlaylist(current);
+
+    // Delete existing tracks if any
+    if (existingPlaylist.trackIds.length > 0) {
+      await this.request("/playlist-tracks", {
+        method: "DELETE",
+        body: JSON.stringify({
+          id: Number(playlistId),
+          trackIds: existingPlaylist.trackIds.map(Number),
+        }),
+      });
+    }
+
+    // Add new tracks in order
+    if (trackIds.length > 0) {
+      await this.request("/playlist-tracks", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id: Number(playlistId),
+          trackIds: trackIds.map(Number),
+        }),
+      });
     }
   }
 

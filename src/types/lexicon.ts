@@ -24,3 +24,9 @@ export interface LexiconTag {
   categoryId: string;
   label: string;
 }
+
+export interface LexiconPlaylist {
+  id: string;
+  name: string;
+  trackIds: string[];
+}

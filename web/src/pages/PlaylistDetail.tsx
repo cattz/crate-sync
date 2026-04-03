@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router";
-import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, usePullPlaylist, useUpdatePlaylistMeta } from "../api/hooks.js";
+import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, usePullPlaylist, useUpdatePlaylistMeta, useCreateLexiconPlaylist } from "../api/hooks.js";
 import { api, type TrackStatus } from "../api/client.js";
 import { SpotifyPlayButton } from "../components/SpotifyPlayButton.js";
 
@@ -63,6 +63,7 @@ export function PlaylistDetail() {
   const del = useDeletePlaylist();
   const push = usePushPlaylist();
   const pull = usePullPlaylist();
+  const createLexicon = useCreateLexiconPlaylist();
   const updateMeta = useUpdatePlaylistMeta();
   const { data: allPlaylists } = usePlaylists();
 
@@ -299,6 +300,12 @@ export function PlaylistDetail() {
             {push.isPending ? "Pushing..." : "Push to Spotify"}
           </button>
           <button
+            onClick={() => createLexicon.mutate(playlist.id)}
+            disabled={createLexicon.isPending}
+          >
+            {createLexicon.isPending ? "Creating..." : "Create Lexicon Playlist"}
+          </button>
+          <button
             onClick={() => { setNewName(playlist.name); setRenameOpen(true); }}
             disabled={playlist.isOwned === 0}
           >
@@ -323,6 +330,18 @@ export function PlaylistDetail() {
       {push.isError && (
         <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
           Push failed: {push.error.message}
+        </div>
+      )}
+
+      {/* Lexicon playlist result */}
+      {createLexicon.isSuccess && (
+        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
+          Lexicon playlist: Created with {createLexicon.data.trackCount} tracks, {createLexicon.data.skipped} skipped
+        </div>
+      )}
+      {createLexicon.isError && (
+        <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
+          Lexicon playlist failed: {createLexicon.error.message}
         </div>
       )}
 

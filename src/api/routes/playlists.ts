@@ -3,9 +3,10 @@ import { loadConfig } from "../../config.js";
 import { getDb } from "../../db/client.js";
 import { PlaylistService } from "../../services/playlist-service.js";
 import { SpotifyService } from "../../services/spotify-service.js";
+import { LexiconService } from "../../services/lexicon-service.js";
 import { pushPlaylist } from "../../services/spotify-push.js";
-import { playlists, playlistTracks, tracks } from "../../db/schema.js";
-import { eq, sql } from "drizzle-orm";
+import { playlists, playlistTracks, tracks, matches } from "../../db/schema.js";
+import { eq, and, sql } from "drizzle-orm";
 
 export const playlistRoutes = new Hono();
 
@@ -163,6 +164,66 @@ playlistRoutes.post("/:id/push", async (c) => {
   });
 
   return c.json(summary);
+});
+
+// POST /api/playlists/:id/lexicon — create Lexicon playlist from Spotify playlist
+playlistRoutes.post("/:id/lexicon", async (c) => {
+  const config = loadConfig();
+  const svc = getService();
+  const db = getDb();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) return c.json({ error: "Playlist not found" }, 404);
+
+  // Get tracks in order (by position)
+  const playlistTrackRows = svc.getPlaylistTracks(playlist.id);
+
+  // For each track, look up confirmed Lexicon match
+  const lexiconTrackIds: string[] = [];
+  let skipped = 0;
+
+  for (const track of playlistTrackRows) {
+    const match = db
+      .select({ targetId: matches.targetId })
+      .from(matches)
+      .where(
+        and(
+          eq(matches.sourceId, track.id),
+          eq(matches.targetType, "lexicon"),
+          eq(matches.status, "confirmed"),
+        ),
+      )
+      .limit(1)
+      .get();
+
+    if (match) {
+      lexiconTrackIds.push(match.targetId);
+    } else {
+      skipped++;
+    }
+  }
+
+  if (lexiconTrackIds.length === 0) {
+    return c.json({ error: "No tracks have confirmed Lexicon matches" }, 400);
+  }
+
+  // Create or update Lexicon playlist
+  const lexicon = new LexiconService(config.lexicon);
+  const existing = await lexicon.getPlaylistByName(playlist.name);
+
+  if (existing) {
+    await lexicon.setPlaylistTracks(existing.id, lexiconTrackIds);
+  } else {
+    const created = await lexicon.createPlaylist(playlist.name);
+    await lexicon.setPlaylistTracks(created.id, lexiconTrackIds);
+  }
+
+  return c.json({
+    ok: true,
+    name: playlist.name,
+    trackCount: lexiconTrackIds.length,
+    skipped,
+  });
 });
 
 // GET /api/playlists/:id/tracks

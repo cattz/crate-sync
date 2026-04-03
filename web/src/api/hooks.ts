@@ -71,6 +71,12 @@ export function usePushPlaylist() {
   });
 }
 
+export function useCreateLexiconPlaylist() {
+  return useMutation({
+    mutationFn: (id: string) => api.createLexiconPlaylist(id),
+  });
+}
+
 export function usePullPlaylist() {
   const qc = useQueryClient();
   return useMutation({

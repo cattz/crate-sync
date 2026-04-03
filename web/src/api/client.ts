@@ -27,6 +27,8 @@ export const api = {
     request<PushResult>(`/playlists/${id}/push`, { method: "POST" }),
   pullPlaylist: (id: string) =>
     request<{ ok: boolean; added: number; updated: number; removed: number }>(`/playlists/${id}/pull`, { method: "POST" }),
+  createLexiconPlaylist: (id: string) =>
+    request<LexiconPlaylistResult>(`/playlists/${id}/lexicon`, { method: "POST" }),
   updatePlaylistMeta: (id: string, meta: PlaylistMeta) =>
     request<{ ok: boolean }>(`/playlists/${id}`, { method: "PATCH", body: JSON.stringify(meta) }),
   bulkRename: (params: BulkRenameParams) =>
@@ -365,6 +367,13 @@ export interface JobListResponse {
 export interface JobStats {
   byStatus: Record<string, number>;
   byType: Record<string, number>;
+}
+
+export interface LexiconPlaylistResult {
+  ok: boolean;
+  name: string;
+  trackCount: number;
+  skipped: number;
 }
 
 export interface PushResult {
