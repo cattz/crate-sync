@@ -49,6 +49,27 @@ describe("normalizeArtist", () => {
       "beastie boys and friends",
     );
   });
+
+  it("collapses single-char sequences (E.T.A., M.I.A.)", () => {
+    expect(normalizeArtist("E.T.A.")).toBe("eta");
+    expect(normalizeArtist("E T A")).toBe("eta");
+    expect(normalizeArtist("ETA")).toBe("eta");
+    expect(normalizeArtist("M.I.A.")).toBe("mia");
+    expect(normalizeArtist("M I A")).toBe("mia");
+  });
+
+  it("handles punctuation variants (BLOND:ISH, AC/DC)", () => {
+    expect(normalizeArtist("BLOND:ISH")).toBe("blondish");
+    expect(normalizeArtist("Blond-Ish")).toBe("blondish");
+    expect(normalizeArtist("Blondish")).toBe("blondish");
+    expect(normalizeArtist("AC/DC")).toBe("acdc");
+    expect(normalizeArtist("ACDC")).toBe("acdc");
+  });
+
+  it("preserves multi-char words with spaces", () => {
+    expect(normalizeArtist("DJ Shadow")).toBe("dj shadow");
+    expect(normalizeArtist("Bonobo")).toBe("bonobo");
+  });
 });
 
 describe("removeStopwords", () => {

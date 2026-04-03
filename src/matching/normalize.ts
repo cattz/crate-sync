@@ -53,11 +53,14 @@ export function normalizeBase(s: string): string {
     .trim();
 }
 
-/** Like normalizeBase but also strips leading "the " and normalizes "&" to "and". */
+/** Like normalizeBase but also strips leading "the ", normalizes "&" to "and",
+ *  and collapses single-char sequences (e.g. "A C D C" → "acdc", "E T A" → "eta"). */
 export function normalizeArtist(s: string): string {
   let result = s.replace(/\s*&\s*/g, " and ");
   result = normalizeBase(result);
   result = result.replace(/^the\s+/, "");
+  // Collapse sequences of single characters separated by spaces: "a c d c" → "acdc"
+  result = result.replace(/\b(\w) (?=\w\b)/g, "$1");
   return result;
 }
 
