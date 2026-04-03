@@ -252,15 +252,19 @@ export class SoulseekService {
     return finalResult.files;
   }
 
-  /** Initiate a download from a specific user. */
+  /** Initiate a download from a specific user. Optionally specify destination path. */
   async download(
     username: string,
     filename: string,
     size?: number,
+    destination?: string,
   ): Promise<void> {
     const item: Record<string, unknown> = { filename };
     if (size !== undefined) {
       item.size = size;
+    }
+    if (destination) {
+      item.destination = destination;
     }
     await this.request(
       "POST",

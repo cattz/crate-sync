@@ -1,4 +1,6 @@
 import { eq, and, sql } from "drizzle-orm";
+import { join, basename } from "node:path";
+import { existsSync } from "node:fs";
 import type { Config } from "../../config.js";
 import type { Job } from "../../db/schema.js";
 import { getDb } from "../../db/client.js";
@@ -124,16 +126,24 @@ export async function handleDownload(job: Job, config: Config): Promise<void> {
   };
 
   // 1. Initiate the download via slskd API (fire-and-forget)
+  // Use destination = playlist name folder so files are organized (slskd bg02)
+  const sanitizedPlaylist = playlistName.replace(/[/:*?"<>|\\]/g, " ").replace(/\s+/g, " ").trim();
+  const containerDest = `/app/downloads/${sanitizedPlaylist}`;
+  const hostDest = join(config.soulseek.downloadDir, sanitizedPlaylist);
+  const expectedFilename = basename(filename.replaceAll("\\", "/"));
+  const expectedHostPath = join(hostDest, expectedFilename);
+
   try {
-    await soulseek.download(username, filename, size);
+    await soulseek.download(username, filename, size, containerDest);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(`Failed to initiate download, may already be queued`, { filename, error: message });
-    // Don't fail — the file might already be downloading or completed from a previous attempt
   }
 
-  // 2. Check if file already exists on disk (from a previous run or fast transfer)
-  const tempPath = downloadService.findDownloadedFile(username, filename);
+  // 2. Check if file already exists on disk — try expected path first, then fallback search
+  const tempPath = existsSync(expectedHostPath)
+    ? expectedHostPath
+    : downloadService.findDownloadedFile(username, filename);
 
   if (tempPath) {
     log.debug(`File already on disk, validating immediately`, { filename, tempPath });
