@@ -621,15 +621,24 @@ export class SyncPipeline {
     let tagged = 0;
     let skipped = 0;
 
-    // Build filename → all Lexicon track IDs map for duplicate detection
+    // Build filename → all Lexicon track IDs maps for duplicate detection
+    // Match by both exact filename AND base name (without extension) to catch format variants
     const allLexiconTracks = await lexicon.getTracks();
     const filenameToIds = new Map<string, string[]>();
+    const basenameToIds = new Map<string, string[]>();
     for (const lt of allLexiconTracks) {
       const fname = lt.filePath?.split("/").pop()?.toLowerCase();
       if (fname) {
         const ids = filenameToIds.get(fname) ?? [];
         ids.push(lt.id);
         filenameToIds.set(fname, ids);
+
+        // Strip extension for format-variant matching (e.g. track.mp3 and track.flac)
+        const dotIdx = fname.lastIndexOf(".");
+        const base = dotIdx > 0 ? fname.slice(0, dotIdx) : fname;
+        const baseIds = basenameToIds.get(base) ?? [];
+        baseIds.push(lt.id);
+        basenameToIds.set(base, baseIds);
       }
     }
 
@@ -642,13 +651,18 @@ export class SyncPipeline {
       // Collect all Lexicon track IDs to tag: the primary match + any duplicates by filename
       const idsToTag = new Set<string>([track.lexiconTrackId]);
 
-      // Find the filename of the matched track and look for duplicates
+      // Find duplicates by exact filename AND by base name (format variants)
       const matchedTrack = allLexiconTracks.find(lt => lt.id === track.lexiconTrackId);
       if (matchedTrack?.filePath) {
         const fname = matchedTrack.filePath.split("/").pop()?.toLowerCase();
         if (fname) {
-          const dupes = filenameToIds.get(fname) ?? [];
-          for (const id of dupes) idsToTag.add(id);
+          // Exact filename duplicates (same file in different folders)
+          for (const id of filenameToIds.get(fname) ?? []) idsToTag.add(id);
+
+          // Base name duplicates (same track, different format: .mp3 vs .flac)
+          const dotIdx = fname.lastIndexOf(".");
+          const base = dotIdx > 0 ? fname.slice(0, dotIdx) : fname;
+          for (const id of basenameToIds.get(base) ?? []) idsToTag.add(id);
         }
       }
 
