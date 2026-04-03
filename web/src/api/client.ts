@@ -82,6 +82,11 @@ export const api = {
     request<{ ok: boolean; jobId: string }>("/downloads/rescue", { method: "POST" }),
 
   // Wishlist
+  getWishlist: () => request<WishlistItem[]>("/downloads/wishlist"),
+  removeFromWishlist: (id: string) =>
+    request<{ ok: boolean }>(`/downloads/${id}`, { method: "DELETE" }),
+  retryWishlistItem: (id: string) =>
+    request<{ ok: boolean; jobId: string }>(`/downloads/${id}/retry`, { method: "POST" }),
   runWishlist: () =>
     request<{ ok: boolean; jobId: string }>("/wishlist/run", { method: "POST" }),
 
@@ -409,4 +414,15 @@ export interface RecentDownload {
   playlistName: string | null;
   filePath: string | null;
   completedAt: number | null;
+}
+
+export interface WishlistItem {
+  id: string;
+  trackTitle: string;
+  trackArtist: string;
+  playlistName: string | null;
+  wishlistRetries: number | null;
+  nextRetryAt: number | null;
+  error: string | null;
+  createdAt: number;
 }

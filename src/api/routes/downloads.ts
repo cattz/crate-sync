@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getDb } from "../../db/client.js";
 import { downloads, tracks, playlists } from "../../db/schema.js";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, and } from "drizzle-orm";
 import { loadConfig } from "../../config.js";
 import { DownloadService } from "../../services/download-service.js";
 import { createJob } from "../../jobs/runner.js";
@@ -112,6 +112,92 @@ downloadRoutes.post("/rescue", (c) => {
     type: "orphan_rescue",
     status: "queued",
     priority: 2,
+  });
+
+  return c.json({ ok: true, jobId: job.id });
+});
+
+// GET /api/downloads/wishlist — wishlisted downloads with track + playlist info
+downloadRoutes.get("/wishlist", (c) => {
+  const db = getDb();
+
+  const rows = db
+    .select({
+      id: downloads.id,
+      trackTitle: tracks.title,
+      trackArtist: tracks.artist,
+      playlistName: playlists.name,
+      wishlistRetries: downloads.wishlistRetries,
+      nextRetryAt: downloads.nextRetryAt,
+      error: downloads.error,
+      createdAt: downloads.createdAt,
+    })
+    .from(downloads)
+    .innerJoin(tracks, eq(downloads.trackId, tracks.id))
+    .leftJoin(playlists, eq(downloads.playlistId, playlists.id))
+    .where(eq(downloads.status, "wishlisted"))
+    .orderBy(desc(downloads.createdAt))
+    .all();
+
+  return c.json(rows);
+});
+
+// DELETE /api/downloads/:id — delete a single wishlisted/failed download record
+downloadRoutes.delete("/:id", (c) => {
+  const db = getDb();
+  const id = c.req.param("id");
+  const download = db.select().from(downloads).where(eq(downloads.id, id)).get();
+
+  if (!download) {
+    return c.json({ error: "Download not found" }, 404);
+  }
+
+  const allowed = ["wishlisted", "failed"] as const;
+  if (!allowed.includes(download.status as (typeof allowed)[number])) {
+    return c.json({ error: "Can only delete wishlisted or failed downloads" }, 400);
+  }
+
+  db.delete(downloads).where(eq(downloads.id, id)).run();
+  return c.json({ ok: true });
+});
+
+// POST /api/downloads/:id/retry — force-retry a wishlisted track
+downloadRoutes.post("/:id/retry", (c) => {
+  const db = getDb();
+  const id = c.req.param("id");
+  const download = db.select().from(downloads).where(eq(downloads.id, id)).get();
+
+  if (!download) {
+    return c.json({ error: "Download not found" }, 404);
+  }
+
+  if (download.status !== "wishlisted") {
+    return c.json({ error: "Can only retry wishlisted downloads" }, 400);
+  }
+
+  const track = db.select().from(tracks).where(eq(tracks.id, download.trackId)).get();
+  if (!track) {
+    return c.json({ error: "Track not found" }, 404);
+  }
+
+  // Reset wishlist state to pending so the search pipeline picks it up
+  db.update(downloads)
+    .set({ status: "pending", error: null, nextRetryAt: null })
+    .where(eq(downloads.id, id))
+    .run();
+
+  // Create a search job for this track
+  const job = createJob({
+    type: "search",
+    status: "queued",
+    priority: 2,
+    payload: JSON.stringify({
+      trackId: track.id,
+      downloadId: download.id,
+      playlistId: download.playlistId,
+      title: track.title,
+      artist: track.artist,
+    }),
   });
 
   return c.json({ ok: true, jobId: job.id });

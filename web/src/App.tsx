@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Outlet, NavLink } from "react-router";
-import { useStatus, useReviewStats } from "./api/hooks.js";
+import { useStatus, useReviewStats, useWishlist } from "./api/hooks.js";
 import { api } from "./api/client.js";
 
 interface LogLine {
@@ -163,6 +163,7 @@ function StatusDot({ ok }: { ok: boolean }) {
 export function App() {
   const { data: status } = useStatus();
   const { data: reviewStats } = useReviewStats();
+  const { data: wishlistItems } = useWishlist();
 
   return (
     <div className="app">
@@ -186,6 +187,12 @@ export function App() {
           </NavLink>
           <NavLink to="/downloads" className={({ isActive }) => (isActive ? "active" : "")}>
             Downloads
+          </NavLink>
+          <NavLink to="/wishlist" className={({ isActive }) => (isActive ? "active" : "")}>
+            Wishlist
+            {wishlistItems && wishlistItems.length > 0 && (
+              <span className="badge badge-yellow review-badge">{wishlistItems.length}</span>
+            )}
           </NavLink>
           <NavLink to="/queue" className={({ isActive }) => (isActive ? "active" : "")}>
             Queue

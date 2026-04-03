@@ -13,6 +13,7 @@ import { JobDetail } from "./pages/JobDetail.js";
 import { Review } from "./pages/Review.js";
 import { TrackDetail } from "./pages/TrackDetail.js";
 import { Logs } from "./pages/Logs.js";
+import { Wishlist } from "./pages/Wishlist.js";
 import { Settings } from "./pages/Settings.js";
 import "./styles/globals.css";
 
@@ -31,6 +32,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="playlists/:id" element={<PlaylistDetail />} />
             <Route path="matches" element={<Matches />} />
             <Route path="downloads" element={<Downloads />} />
+            <Route path="wishlist" element={<Wishlist />} />
             <Route path="queue" element={<Queue />} />
             <Route path="queue/:id" element={<JobDetail />} />
             <Route path="logs" element={<Logs />} />

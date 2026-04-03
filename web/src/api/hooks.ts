@@ -224,6 +224,38 @@ export function useRescueOrphanDownloads() {
 
 // Wishlist
 
+export function useWishlist() {
+  return useQuery({
+    queryKey: ["wishlist"],
+    queryFn: api.getWishlist,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useRemoveFromWishlist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.removeFromWishlist(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["wishlist"] });
+      qc.invalidateQueries({ queryKey: ["downloads"] });
+    },
+  });
+}
+
+export function useRetryWishlistItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.retryWishlistItem(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["wishlist"] });
+      qc.invalidateQueries({ queryKey: ["downloads"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job-stats"] });
+    },
+  });
+}
+
 export function useWishlistRun() {
   const qc = useQueryClient();
   return useMutation({
