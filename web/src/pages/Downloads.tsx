@@ -23,7 +23,7 @@ interface DownloadProgress {
 }
 
 function formatTime(ms: number | null) {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   return new Date(ms).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -128,10 +128,10 @@ function DownloadRow({
 
   return (
     <tr>
-      <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.track ? `${d.track.artist} \u2014 ${d.track.title}` : d.trackId}>
+      <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.track ? `${d.track.artist} — ${d.track.title}` : d.trackId}>
         {d.track ? (
           <>
-            {d.track.title} <span className="text-muted">\u2014 {d.track.artist}</span>
+            {d.track.title} <span className="text-muted">— {d.track.artist}</span>
           </>
         ) : (
           <span className="text-muted">{d.trackId}</span>
@@ -158,7 +158,7 @@ function DownloadRow({
         <span className="badge badge-gray">{d.origin}</span>
       </td>
       <td className="text-muted text-sm mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.filePath ?? ""}>
-        {d.filePath ?? "\u2014"}
+        {d.filePath ?? "—"}
       </td>
       <td className="text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: d.error ? "var(--danger)" : undefined }} title={d.error ?? ""}>
         {d.error ?? ""}

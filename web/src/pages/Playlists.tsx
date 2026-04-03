@@ -454,10 +454,9 @@ export function Playlists() {
           <colgroup>
             <col style={{ width: 30 }} />
             <col />
-            <col style={{ width: 70 }} />
+            <col style={{ width: 60 }} />
             <col style={{ width: 100 }} />
-            <col style={{ width: 120 }} />
-            <col style={{ width: 40 }} />
+            <col style={{ width: 110 }} />
           </colgroup>
           <thead>
             <tr>
@@ -510,15 +509,6 @@ export function Playlists() {
                   </td>
                 )}
                 <td className="text-muted text-sm">{formatDate(p.lastSynced)}</td>
-                <td>
-                  <div className="flex gap-1">
-                    <Link to={`/playlists/${p.id}`}>
-                      <button>View</button>
-                    </Link>
-                    <button onClick={() => setRenaming(p)} disabled={p.isOwned === 0}>Rename</button>
-                    <button className="danger" onClick={() => setDeleting(p)} disabled={p.isOwned === 0}>Delete</button>
-                  </div>
-                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
