@@ -245,7 +245,7 @@ function scheduleDownloadScan(): void {
       createJob({
         type: "download_scan",
         status: "queued",
-        priority: 1,
+        priority: 20,
       });
     }
   } catch (err) {
@@ -288,7 +288,7 @@ function scheduleOrphanRescue(): void {
       createJob({
         type: "orphan_rescue",
         status: "queued",
-        priority: 1,
+        priority: 20,
       });
       log.info("Scheduled orphan rescue scan");
     }
@@ -427,7 +427,7 @@ export function startJobRunner(config: Config): void {
         .limit(1)
         .get();
       if (ready) {
-        createJob({ type: "wishlist_run", status: "queued", priority: 1 });
+        createJob({ type: "wishlist_run", status: "queued", priority: 20 });
         log.info("Scheduled automatic wishlist run");
       }
     }
