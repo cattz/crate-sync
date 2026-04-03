@@ -158,6 +158,7 @@ export const jobs = sqliteTable("jobs", {
       "validate",
       "lexicon_tag",
       "wishlist_run",
+      "orphan_rescue",
     ],
   }).notNull(),
   status: text("status", {

@@ -7,6 +7,7 @@ import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { loadConfig } from "../config.js";
 import { DownloadService } from "../services/download-service.js";
+import { createJob } from "../jobs/runner.js";
 
 export function registerDownloadCommands(program: Command): void {
   const downloads = program
@@ -88,5 +89,18 @@ export function registerDownloadCommands(program: Command): void {
             : chalk.dim("No empty directories found"),
         );
       }
+    });
+
+  downloads
+    .command("rescue")
+    .description("Rescue orphan downloads from slskd by creating an orphan_rescue job")
+    .action(async () => {
+      const job = createJob({
+        type: "orphan_rescue",
+        status: "queued",
+        priority: 2,
+      });
+
+      console.log(chalk.green(`Orphan rescue job queued: ${job.id}`));
     });
 }

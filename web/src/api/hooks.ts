@@ -210,6 +210,18 @@ export function useCleanEmptyDirs() {
   });
 }
 
+export function useRescueOrphanDownloads() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.rescueOrphanDownloads,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job-stats"] });
+      qc.invalidateQueries({ queryKey: ["downloads"] });
+    },
+  });
+}
+
 // Wishlist
 
 export function useWishlistRun() {

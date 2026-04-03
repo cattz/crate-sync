@@ -78,6 +78,8 @@ export const api = {
     request<{ deleted: boolean; reason?: string }>(`/downloads/${id}/file`, { method: "DELETE" }),
   cleanEmptyDirs: () =>
     request<{ removed: number }>("/downloads/clean-empty-dirs", { method: "POST" }),
+  rescueOrphanDownloads: () =>
+    request<{ ok: boolean; jobId: string }>("/downloads/rescue", { method: "POST" }),
 
   // Wishlist
   runWishlist: () =>

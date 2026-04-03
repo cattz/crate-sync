@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useDownloads, useWishlistRun, useClearDownloads, useDeleteDownloadFile, useCleanEmptyDirs } from "../api/hooks.js";
+import { useDownloads, useWishlistRun, useClearDownloads, useDeleteDownloadFile, useCleanEmptyDirs, useRescueOrphanDownloads } from "../api/hooks.js";
 import { api } from "../api/client.js";
 import type { DownloadWithTrack } from "../api/client.js";
 
@@ -187,6 +187,7 @@ export function Downloads() {
   const clearDownloads = useClearDownloads();
   const deleteFile = useDeleteDownloadFile();
   const cleanDirs = useCleanEmptyDirs();
+  const rescue = useRescueOrphanDownloads();
   const progressMap = useDownloadProgress();
 
   if (isLoading) return <p className="text-muted">Loading downloads...</p>;
@@ -224,6 +225,16 @@ export function Downloads() {
               : cleanDirs.isSuccess
                 ? `Removed ${cleanDirs.data.removed} dirs`
                 : "Clean Empty Dirs"}
+          </button>
+          <button
+            onClick={() => rescue.mutate()}
+            disabled={rescue.isPending}
+          >
+            {rescue.isPending
+              ? "Rescuing..."
+              : rescue.isSuccess
+                ? `Queued (job ${rescue.data.jobId.slice(0, 8)})`
+                : "Rescue Orphans"}
           </button>
           <button
             onClick={() => wishlist.mutate()}

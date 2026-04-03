@@ -12,6 +12,7 @@ import { handleDownloadScan } from "./handlers/download-scan.js";
 import { handleValidate } from "./handlers/validate.js";
 import { handleLexiconTag } from "./handlers/lexicon-tag.js";
 import { handleWishlistRun } from "./handlers/wishlist-run.js";
+import { handleOrphanRescue } from "./handlers/orphan-rescue.js";
 import {
   connectTransferHub,
   disconnectTransferHub,
@@ -37,6 +38,7 @@ const handlers: Record<string, JobHandler> = {
   validate: handleValidate,
   lexicon_tag: handleLexiconTag,
   wishlist_run: handleWishlistRun,
+  orphan_rescue: handleOrphanRescue,
 };
 
 /** Emit a job event for SSE listeners. */
@@ -155,6 +157,7 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let scanInterval: ReturnType<typeof setInterval> | null = null;
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 let wishlistInterval: ReturnType<typeof setInterval> | null = null;
+let orphanRescueInterval: ReturnType<typeof setInterval> | null = null;
 let hubConnection: HubConnection | null = null;
 
 /**
@@ -247,6 +250,50 @@ function scheduleDownloadScan(): void {
     }
   } catch (err) {
     log.error(`Failed to schedule download scan`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Create an orphan_rescue job if none is already queued or running.
+ */
+function scheduleOrphanRescue(): void {
+  try {
+    const db = getDb();
+    const now = Date.now();
+
+    // Clear stale orphan_rescue jobs (queued > 5min or running > 30min)
+    db.delete(schema.jobs).where(
+      and(
+        eq(schema.jobs.type, "orphan_rescue"),
+        sql`(${schema.jobs.status} = 'queued' AND ${schema.jobs.createdAt} < ${now - 5 * 60_000})
+          OR (${schema.jobs.status} = 'running' AND ${schema.jobs.startedAt} < ${now - 30 * 60_000})`,
+      ),
+    ).run();
+
+    const existing = db
+      .select()
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.type, "orphan_rescue"),
+          sql`${schema.jobs.status} IN ('queued', 'running')`,
+        ),
+      )
+      .limit(1)
+      .get();
+
+    if (!existing) {
+      createJob({
+        type: "orphan_rescue",
+        status: "queued",
+        priority: 1,
+      });
+      log.info("Scheduled orphan rescue scan");
+    }
+  } catch (err) {
+    log.error(`Failed to schedule orphan rescue`, {
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -394,6 +441,11 @@ export function startJobRunner(config: Config): void {
   cleanupInterval = setInterval(() => purgeOldJobs(retentionDays), 3_600_000);
   log.info("Job cleanup scheduled", { retentionDays, intervalMs: 3_600_000 });
 
+  // Start daily orphan rescue scan (once per day)
+  orphanRescueInterval = setInterval(scheduleOrphanRescue, 24 * 3_600_000);
+  scheduleOrphanRescue(); // run once on startup
+  log.info("Orphan rescue scan scheduled", { intervalMs: 24 * 3_600_000 });
+
   // Start polling
   poll();
 }
@@ -486,6 +538,10 @@ export function stopJobRunner(): void {
   if (wishlistInterval) {
     clearInterval(wishlistInterval);
     wishlistInterval = null;
+  }
+  if (orphanRescueInterval) {
+    clearInterval(orphanRescueInterval);
+    orphanRescueInterval = null;
   }
   // Disconnect SignalR hub
   if (hubConnection) {

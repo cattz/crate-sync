@@ -6,6 +6,7 @@ import { downloads, tracks, playlists } from "../../db/schema.js";
 import { eq, desc, inArray } from "drizzle-orm";
 import { loadConfig } from "../../config.js";
 import { DownloadService } from "../../services/download-service.js";
+import { createJob } from "../../jobs/runner.js";
 
 export const downloadRoutes = new Hono();
 
@@ -102,6 +103,18 @@ downloadRoutes.post("/clean-empty-dirs", (c) => {
   const removed = svc.cleanupEmptyDirs();
 
   return c.json({ removed });
+});
+
+// POST /api/downloads/rescue — trigger an orphan rescue scan
+// (must be registered before /:id to avoid matching "rescue" as an id)
+downloadRoutes.post("/rescue", (c) => {
+  const job = createJob({
+    type: "orphan_rescue",
+    status: "queued",
+    priority: 2,
+  });
+
+  return c.json({ ok: true, jobId: job.id });
 });
 
 // GET /api/downloads/:id
