@@ -266,6 +266,7 @@ export class SoulseekService {
     if (destination) {
       item.destination = destination;
     }
+    log.info("Initiating slskd download", { username, filename: filename.slice(-60), destination: destination ?? "(none)" });
     await this.request(
       "POST",
       `/transfers/downloads/${encodeURIComponent(username)}`,
