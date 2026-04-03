@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
-import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useBulkRename } from "../api/hooks.js";
+import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useBulkRename, useBulkSync } from "../api/hooks.js";
 import type { Playlist, BulkRenamePreview } from "../api/client.js";
 import { useMultiSelect } from "../hooks/useMultiSelect.js";
 import { BulkToolbar } from "../components/BulkToolbar.js";
@@ -314,6 +314,7 @@ export function Playlists() {
   const selection = useMultiSelect();
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showBulkRename, setShowBulkRename] = useState(false);
+  const bulkSync = useBulkSync();
 
   // Collect all unique tags across playlists for autocomplete/filter
   const allTags = useMemo(() => {
@@ -546,6 +547,16 @@ export function Playlists() {
       )}
 
       <BulkToolbar count={selection.count} onClear={selection.clear}>
+        <button
+          className="primary"
+          onClick={() => {
+            bulkSync.mutate([...selection.selected]);
+            selection.clear();
+          }}
+          disabled={bulkSync.isPending}
+        >
+          {bulkSync.isPending ? "Syncing..." : "Match & Tag Selected"}
+        </button>
         <button onClick={() => setShowBulkRename(true)}>
           Bulk Rename
         </button>

@@ -109,6 +109,11 @@ export const api = {
     request<SyncTrackResult>(`/sync/track/${trackId}`, { method: "POST" }),
   startSync: (playlistId: string) =>
     request<{ syncId: string; jobId?: string }>(`/sync/${playlistId}`, { method: "POST" }),
+  bulkSync: (playlistIds: string[]) =>
+    request<{ ok: boolean; queued: number }>("/sync/bulk", {
+      method: "POST",
+      body: JSON.stringify({ playlistIds }),
+    }),
   dryRunSync: (playlistId: string) =>
     request<DryRunResult>(`/sync/${playlistId}/dry-run`, { method: "POST" }),
   getSyncStatus: (syncId: string) => request<SyncStatus>(`/sync/${syncId}`),

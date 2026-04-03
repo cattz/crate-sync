@@ -301,6 +301,12 @@ export function useStartSync() {
   });
 }
 
+export function useBulkSync() {
+  return useMutation({
+    mutationFn: (playlistIds: string[]) => api.bulkSync(playlistIds),
+  });
+}
+
 export function useDryRunSync() {
   return useMutation({
     mutationFn: (playlistId: string) => api.dryRunSync(playlistId),

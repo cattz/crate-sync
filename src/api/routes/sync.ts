@@ -28,6 +28,36 @@ syncRoutes.post("/track/:trackId", async (c) => {
   }
 });
 
+// POST /api/sync/bulk — start sync for multiple playlists at once
+syncRoutes.post("/bulk", async (c) => {
+  const db = getDb();
+  const config = loadConfig();
+  const svc = PlaylistService.fromDb(db);
+  const body = await c.req.json<{ playlistIds: string[] }>().catch(() => ({ playlistIds: [] }));
+
+  if (!body.playlistIds || body.playlistIds.length === 0) {
+    return c.json({ error: "playlistIds array is required" }, 400);
+  }
+
+  const jobs: Array<{ playlistId: string; playlistName: string; jobId: string }> = [];
+
+  for (const id of body.playlistIds) {
+    const playlist = svc.getPlaylist(id);
+    if (!playlist) continue;
+
+    const job = createJob({
+      type: "lexicon_match",
+      status: "queued",
+      priority: 8,
+      payload: JSON.stringify({ playlistId: playlist.id, playlistName: playlist.name }),
+    });
+
+    jobs.push({ playlistId: playlist.id, playlistName: playlist.name, jobId: job.id });
+  }
+
+  return c.json({ ok: true, queued: jobs.length, jobs });
+});
+
 // POST /api/sync/:playlistId — start sync via job queue, returns { syncId, jobId }
 syncRoutes.post("/:playlistId", async (c) => {
   const db = getDb();
