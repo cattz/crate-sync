@@ -61,6 +61,7 @@ const mockCheckFileStable = vi.fn();
 const mockValidateDownload = vi.fn();
 const mockMoveToPlaylistFolder = vi.fn();
 const mockSearchAndRank = vi.fn();
+const mockCleanupEmptyDirs = vi.fn().mockReturnValue(0);
 vi.mock("../../services/download-service.js", () => {
   function createMockInstance() {
     return {
@@ -69,6 +70,7 @@ vi.mock("../../services/download-service.js", () => {
       validateDownload: mockValidateDownload,
       moveToPlaylistFolder: mockMoveToPlaylistFolder,
       searchAndRank: mockSearchAndRank,
+      cleanupEmptyDirs: mockCleanupEmptyDirs,
     };
   }
   const MockDownloadService = vi.fn().mockImplementation(() => createMockInstance());
@@ -124,11 +126,23 @@ vi.mock("../../sources/registry.js", () => ({
   buildSources: vi.fn().mockReturnValue([]),
 }));
 
+const mockFuzzyMatch = vi.fn().mockReturnValue([]);
+vi.mock("../../matching/fuzzy.js", () => ({
+  FuzzyMatchStrategy: vi.fn().mockImplementation(function () {
+    return { match: mockFuzzyMatch };
+  }),
+}));
+
 import { handleDownloadScan } from "../handlers/download-scan.js";
 import { handleLexiconMatch } from "../handlers/lexicon-match.js";
 import { handleLexiconTag } from "../handlers/lexicon-tag.js";
 import { handleSearch } from "../handlers/search.js";
 import { handleSpotifySync } from "../handlers/spotify-sync.js";
+import { handleOrphanRescue } from "../handlers/orphan-rescue.js";
+import { handleTransferCompleted, handleTransferFailed } from "../handlers/transfer-event.js";
+import { handleValidate } from "../handlers/validate.js";
+import { handleWishlistRun } from "../handlers/wishlist-run.js";
+import { existsSync, readdirSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Test config
@@ -862,6 +876,577 @@ describe("Handler Details", () => {
         .where(eq(schema.jobs.type, "lexicon_match"))
         .all();
       expect(matchJobs.length).toBe(1);
+    });
+  });
+
+  // =========================================================================
+  // orphan-rescue handler
+  // =========================================================================
+  describe("handleOrphanRescue", () => {
+    function mockDirent(name: string, isDir: boolean, isFile: boolean) {
+      return {
+        name,
+        isDirectory: () => isDir,
+        isFile: () => isFile,
+        isBlockDevice: () => false,
+        isCharacterDevice: () => false,
+        isFIFO: () => false,
+        isSocket: () => false,
+        isSymbolicLink: () => false,
+        path: "",
+        parentPath: "",
+      };
+    }
+
+    it("completes with scanned:0 when download dir has no audio files", async () => {
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readdirSync).mockReturnValue([]);
+
+      const job = makeJob({ type: "orphan_rescue" });
+      await handleOrphanRescue(job, TEST_CONFIG);
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+
+      expect(updated!.status).toBe("done");
+      const result = JSON.parse(updated!.result!);
+      expect(result.scanned).toBe(0);
+      expect(result.rescued).toBe(0);
+    });
+
+    it("matches orphan against downloading record by basename", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Song A", artist: "Artist A" },
+      ]);
+
+      // Use forward slashes for basename() compatibility on macOS
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        slskdUsername: "user1",
+        slskdFilename: "@@user1/music/Song A.flac",
+        startedAt: Date.now(),
+      });
+
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readdirSync).mockImplementation(((path: string) => {
+        if (path === "/tmp/slskd") {
+          return [mockDirent("Song A.flac", false, true)];
+        }
+        if (path === "/tmp/test-dl") {
+          return [];
+        }
+        return [];
+      }) as typeof readdirSync);
+
+      mockCheckFileStable.mockResolvedValue(true);
+      mockMoveToPlaylistFolder.mockReturnValue("/tmp/test-dl/TestPL/Song A.flac");
+
+      const job = makeJob({ type: "orphan_rescue" });
+      await handleOrphanRescue(job, TEST_CONFIG);
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+
+      const result = JSON.parse(updated!.result!);
+      expect(result.scanned).toBe(1);
+      expect(result.rescued).toBe(1);
+
+      const dl = testDb.select().from(schema.downloads).all();
+      expect(dl[0].status).toBe("done");
+      expect(dl[0].filePath).toBe("/tmp/test-dl/TestPL/Song A.flac");
+    });
+
+    it("fuzzy matches orphan against wishlisted tracks", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Song B", artist: "Artist B" },
+      ]);
+
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        status: "wishlisted",
+        startedAt: Date.now(),
+      });
+
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readdirSync).mockImplementation(((path: string) => {
+        if (path === "/tmp/slskd") {
+          return [mockDirent("Artist B - Song B.flac", false, true)];
+        }
+        if (path === "/tmp/test-dl") {
+          return [];
+        }
+        return [];
+      }) as typeof readdirSync);
+
+      mockFuzzyMatch.mockReturnValue([
+        {
+          candidate: { title: "Song B", artist: "Artist B", durationMs: 200_000 },
+          score: 0.92,
+          confidence: "high",
+          method: "fuzzy",
+        },
+      ]);
+
+      mockCheckFileStable.mockResolvedValue(true);
+      mockMoveToPlaylistFolder.mockReturnValue("/tmp/test-dl/TestPL/Song B.flac");
+
+      const job = makeJob({ type: "orphan_rescue" });
+      await handleOrphanRescue(job, TEST_CONFIG);
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+
+      const result = JSON.parse(updated!.result!);
+      expect(result.rescued).toBe(1);
+
+      const dl = testDb
+        .select()
+        .from(schema.downloads)
+        .where(eq(schema.downloads.trackId, trackIds[0]))
+        .get();
+      expect(dl!.status).toBe("done");
+    });
+
+    it("skips files already tracked as done", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Done Song", artist: "Artist" },
+      ]);
+
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        status: "done",
+        filePath: "/tmp/slskd/Done Song.flac",
+      });
+
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readdirSync).mockImplementation(((path: string) => {
+        if (path === "/tmp/slskd") {
+          return [mockDirent("Done Song.flac", false, true)];
+        }
+        if (path === "/tmp/test-dl") {
+          return [];
+        }
+        return [];
+      }) as typeof readdirSync);
+
+      const job = makeJob({ type: "orphan_rescue" });
+      await handleOrphanRescue(job, TEST_CONFIG);
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+
+      const result = JSON.parse(updated!.result!);
+      expect(result.scanned).toBe(1);
+      expect(result.rescued).toBe(0);
+      expect(result.skipped).toBe(1);
+    });
+
+    it("cleans up empty directories after rescue", async () => {
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readdirSync).mockImplementation(((path: string) => {
+        if (path === "/tmp/slskd") {
+          return [mockDirent("Orphan.flac", false, true)];
+        }
+        if (path === "/tmp/test-dl") {
+          return [];
+        }
+        return [];
+      }) as typeof readdirSync);
+
+      mockCleanupEmptyDirs.mockReturnValue(3);
+
+      const job = makeJob({ type: "orphan_rescue" });
+      await handleOrphanRescue(job, TEST_CONFIG);
+
+      expect(mockCleanupEmptyDirs).toHaveBeenCalled();
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+
+      const result = JSON.parse(updated!.result!);
+      expect(result.dirsRemoved).toBe(3);
+    });
+
+    it("completes with correct counts", async () => {
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readdirSync).mockReturnValue([]);
+
+      const job = makeJob({ type: "orphan_rescue" });
+      await handleOrphanRescue(job, TEST_CONFIG);
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+
+      expect(updated!.status).toBe("done");
+      const result = JSON.parse(updated!.result!);
+      expect(result).toHaveProperty("scanned");
+      expect(result).toHaveProperty("rescued");
+      expect(result).toHaveProperty("unmatched");
+      expect(result).toHaveProperty("errors");
+    });
+  });
+
+  // =========================================================================
+  // transfer-event handlers
+  // =========================================================================
+  describe("handleTransferCompleted", () => {
+    const baseTransfer = {
+      id: "t1",
+      size: 50_000_000,
+      state: "Completed",
+      bytesTransferred: 50_000_000,
+      bytesRemaining: 0,
+      averageSpeed: 1000,
+      percentComplete: 100,
+      elapsedTime: 5000,
+      remainingTime: 0,
+      startTime: null,
+      endTime: null,
+      exception: null,
+      direction: 0 as number,
+      token: 1234,
+      placeInQueue: null,
+    };
+
+    it("finds matching download, validates, moves, marks done", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Song A", artist: "Artist A" },
+      ]);
+
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        slskdUsername: "user1",
+        slskdFilename: "@@user1\\music\\Song A.flac",
+        startedAt: Date.now(),
+      });
+
+      mockFindDownloadedFile.mockReturnValue("/tmp/slskd/Song A.flac");
+      mockCheckFileStable.mockResolvedValue(true);
+      mockValidateDownload.mockResolvedValue(true);
+      mockMoveToPlaylistFolder.mockReturnValue("/tmp/test-dl/TestPL/Song A.flac");
+
+      await handleTransferCompleted(
+        { ...baseTransfer, username: "user1", filename: "@@user1\\music\\Song A.flac" },
+        TEST_CONFIG,
+      );
+
+      const dl = testDb.select().from(schema.downloads).all();
+      expect(dl[0].status).toBe("done");
+      expect(dl[0].filePath).toBe("/tmp/test-dl/TestPL/Song A.flac");
+    });
+
+    it("ignores non-download transfers (uploads)", async () => {
+      await handleTransferCompleted(
+        { ...baseTransfer, username: "user1", filename: "@@user1\\music\\Song A.flac", direction: 1 },
+        TEST_CONFIG,
+      );
+
+      expect(mockFindDownloadedFile).not.toHaveBeenCalled();
+    });
+
+    it("handles no matching download gracefully", async () => {
+      await handleTransferCompleted(
+        { ...baseTransfer, username: "user1", filename: "@@user1\\music\\Unknown.flac" },
+        TEST_CONFIG,
+      );
+
+      expect(mockFindDownloadedFile).not.toHaveBeenCalled();
+      expect(mockMoveToPlaylistFolder).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("handleTransferFailed", () => {
+    const baseFailedTransfer = {
+      id: "t1",
+      size: 50_000_000,
+      state: "Errored",
+      bytesTransferred: 0,
+      bytesRemaining: 50_000_000,
+      averageSpeed: 0,
+      percentComplete: 0,
+      elapsedTime: null,
+      remainingTime: null,
+      startTime: null,
+      endTime: null,
+      direction: 0 as number,
+      token: 1234,
+      placeInQueue: null,
+    };
+
+    it("marks download as failed", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Song A", artist: "Artist A" },
+      ]);
+
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        slskdUsername: "user1",
+        slskdFilename: "@@user1\\music\\Song A.flac",
+        startedAt: Date.now(),
+      });
+
+      await handleTransferFailed(
+        { ...baseFailedTransfer, username: "user1", filename: "@@user1\\music\\Song A.flac", exception: "Connection reset" },
+        TEST_CONFIG,
+      );
+
+      const dl = testDb.select().from(schema.downloads).all();
+      expect(dl[0].status).toBe("failed");
+      expect(dl[0].error).toContain("Connection reset");
+    });
+
+    it("creates retry search job", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Song A", artist: "Artist A" },
+      ]);
+
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        slskdUsername: "user1",
+        slskdFilename: "@@user1\\music\\Song A.flac",
+        startedAt: Date.now(),
+      });
+
+      await handleTransferFailed(
+        { ...baseFailedTransfer, username: "user1", filename: "@@user1\\music\\Song A.flac", exception: "Timeout" },
+        TEST_CONFIG,
+      );
+
+      const searchJobs = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.type, "search"))
+        .all();
+
+      expect(searchJobs.length).toBe(1);
+      const payload = JSON.parse(searchJobs[0].payload!);
+      expect(payload.trackId).toBe(trackIds[0]);
+      expect(payload.playlistId).toBe(playlistId);
+    });
+  });
+
+  // =========================================================================
+  // validate handler
+  // =========================================================================
+  describe("handleValidate", () => {
+    it("returns success for valid file", async () => {
+      mockValidateDownload.mockResolvedValue(true);
+
+      const job = makeJob({
+        type: "validate",
+        payload: JSON.stringify({
+          trackId: "t1",
+          filePath: "/tmp/slskd/Song.flac",
+          title: "Song",
+          artist: "Artist",
+          durationMs: 200_000,
+        }),
+      });
+
+      await handleValidate(job, TEST_CONFIG);
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+
+      expect(updated!.status).toBe("done");
+      const result = JSON.parse(updated!.result!);
+      expect(result.valid).toBe(true);
+      expect(result.trackId).toBe("t1");
+    });
+
+    it("returns failure for corrupt file (validation fails)", async () => {
+      mockValidateDownload.mockResolvedValue(false);
+
+      const job = makeJob({
+        type: "validate",
+        payload: JSON.stringify({
+          trackId: "t1",
+          filePath: "/tmp/slskd/Corrupt.flac",
+          title: "Song",
+          artist: "Artist",
+          durationMs: 200_000,
+        }),
+      });
+
+      await expect(handleValidate(job, TEST_CONFIG)).rejects.toThrow(
+        "File failed metadata validation",
+      );
+    });
+
+    it("returns failure for wrong track (validation fails)", async () => {
+      mockValidateDownload.mockResolvedValue(false);
+
+      const job = makeJob({
+        type: "validate",
+        payload: JSON.stringify({
+          trackId: "t1",
+          filePath: "/tmp/slskd/WrongTrack.flac",
+          title: "Expected Song",
+          artist: "Expected Artist",
+          durationMs: 200_000,
+        }),
+      });
+
+      await expect(handleValidate(job, TEST_CONFIG)).rejects.toThrow(
+        "File failed metadata validation",
+      );
+    });
+
+    it("passes file info to validateDownload when provided", async () => {
+      mockValidateDownload.mockResolvedValue(true);
+
+      const job = makeJob({
+        type: "validate",
+        payload: JSON.stringify({
+          trackId: "t1",
+          filePath: "/tmp/slskd/Song.flac",
+          title: "Song",
+          artist: "Artist",
+          file: {
+            filename: "@@user1\\music\\Song.flac",
+            username: "user1",
+            size: 50_000_000,
+          },
+        }),
+      });
+
+      await handleValidate(job, TEST_CONFIG);
+
+      expect(mockValidateDownload).toHaveBeenCalledWith(
+        "/tmp/slskd/Song.flac",
+        expect.objectContaining({ title: "Song", artist: "Artist" }),
+        "t1",
+        expect.objectContaining({ filename: "@@user1\\music\\Song.flac", username: "user1" }),
+      );
+    });
+  });
+
+  // =========================================================================
+  // wishlist-run handler
+  // =========================================================================
+  describe("handleWishlistRun", () => {
+    it("skips creating search job if one already exists for that track (dedup)", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Song A", artist: "Artist A" },
+      ]);
+
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        status: "wishlisted",
+        wishlistRetries: 0,
+        nextRetryAt: Date.now() - 10_000,
+      });
+
+      makeJob({
+        type: "search",
+        status: "queued",
+        payload: JSON.stringify({ trackId: trackIds[0] }),
+      });
+
+      const job = makeJob({ type: "wishlist_run" });
+      await handleWishlistRun(job, TEST_CONFIG);
+
+      const searchJobs = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.type, "search"))
+        .all();
+
+      expect(searchJobs.length).toBe(1);
+    });
+
+    it("gives up after max retries", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Song A", artist: "Artist A" },
+      ]);
+
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        status: "wishlisted",
+        wishlistRetries: 5,
+        nextRetryAt: Date.now() - 10_000,
+      });
+
+      const job = makeJob({ type: "wishlist_run" });
+      await handleWishlistRun(job, TEST_CONFIG);
+
+      const dl = testDb.select().from(schema.downloads).all();
+      expect(dl[0].status).toBe("failed");
+      expect(dl[0].error).toContain("Gave up");
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+      const result = JSON.parse(updated!.result!);
+      expect(result.givenUp).toBe(1);
+      expect(result.searchesCreated).toBe(0);
+    });
+
+    it("creates search job for wishlisted download ready for retry", async () => {
+      const { trackIds, playlistId } = seedPlaylist("TestPL", [
+        { title: "Song A", artist: "Artist A" },
+      ]);
+
+      seedDownload({
+        trackId: trackIds[0],
+        playlistId,
+        status: "wishlisted",
+        wishlistRetries: 1,
+        nextRetryAt: Date.now() - 10_000,
+      });
+
+      const job = makeJob({ type: "wishlist_run" });
+      await handleWishlistRun(job, TEST_CONFIG);
+
+      const searchJobs = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.type, "search"))
+        .all();
+
+      expect(searchJobs.length).toBe(1);
+      const payload = JSON.parse(searchJobs[0].payload!);
+      expect(payload.trackId).toBe(trackIds[0]);
+      expect(payload.title).toBe("Song A");
+
+      const updated = testDb
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, job.id))
+        .get();
+      const result = JSON.parse(updated!.result!);
+      expect(result.searchesCreated).toBe(1);
     });
   });
 });
