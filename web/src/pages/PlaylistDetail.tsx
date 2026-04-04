@@ -458,7 +458,15 @@ export function PlaylistDetail() {
             style={{ width: 220 }}
           />
         </div>
-        <table>
+        <table style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: 35 }} />
+            <col style={{ width: "30%" }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: 55 }} />
+            <col style={{ width: 90 }} />
+          </colgroup>
           <thead>
             <tr>
               <ThSort label="#" sortKey="position" active={trackSortKey} dir={trackSortDir} onSort={handleTrackSort} />
@@ -473,12 +481,12 @@ export function PlaylistDetail() {
             {filteredTracks.map((t, i) => (
               <tr key={t.id} onClick={() => navigate(`/tracks/${t.id}`)} style={{ cursor: "pointer" }}>
                 <td className="text-muted">{(t.position ?? i) + 1}</td>
-                <td style={{ display: "flex", alignItems: "center", gap: "0.4rem" }} onClick={(e) => e.stopPropagation()}>
+                <td style={{ display: "flex", alignItems: "center", gap: "0.4rem", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
                   <SpotifyPlayButton type="track" spotifyId={t.spotifyId} size={14} />
-                  <span onClick={() => navigate(`/tracks/${t.id}`)} style={{ cursor: "pointer" }}>{t.title}</span>
+                  <span onClick={() => navigate(`/tracks/${t.id}`)} style={{ cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.title}>{t.title}</span>
                 </td>
-                <td className="text-muted">{t.artist}</td>
-                <td className="text-muted">{t.album ?? ""}</td>
+                <td className="text-muted" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={t.artist}>{t.artist}</td>
+                <td className="text-muted" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={t.album ?? ""}>{t.album ?? ""}</td>
                 <td className="text-muted mono text-sm">{formatDuration(t.durationMs)}</td>
                 <td><StatusBadge status={t.trackStatus} /></td>
               </tr>
