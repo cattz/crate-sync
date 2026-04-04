@@ -60,12 +60,13 @@ statusRoutes.get("/config", (c) => {
     download: config.download,
     jobRunner: config.jobRunner,
     logging: config.logging,
+    sources: config.sources,
   });
 });
 
 // PUT /api/config — update safe config values
 statusRoutes.put("/config", async (c) => {
-  const body = await c.req.json<Partial<Pick<Config, "matching" | "download" | "jobRunner" | "soulseek" | "logging">>>();
+  const body = await c.req.json<Partial<Pick<Config, "matching" | "download" | "jobRunner" | "soulseek" | "logging" | "sources">>>();
   const config = loadConfig();
 
   if (body.matching) {
@@ -123,6 +124,10 @@ statusRoutes.put("/config", async (c) => {
     if (body.logging.file != null) {
       config.logging.file = body.logging.file;
     }
+  }
+
+  if (body.sources) {
+    config.sources = body.sources;
   }
 
   saveConfig(config);

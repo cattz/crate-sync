@@ -20,6 +20,10 @@ export function Settings() {
   const [lexW, setLexW] = useState({ title: 0.3, artist: 0.3, album: 0.15, duration: 0.25 });
   const [slskW, setSlskW] = useState({ title: 0.3, artist: 0.25, album: 0.1, duration: 0.35 });
   const [saved, setSaved] = useState(false);
+  const [sourcePriority, setSourcePriority] = useState("soulseek");
+  const [localSources, setLocalSources] = useState<Array<{
+    name: string; path: string; structure: string; formats: string; fileOp: string;
+  }>>([]);
 
   useEffect(() => {
     if (config) {
@@ -43,6 +47,17 @@ export function Settings() {
       }
       if (config.matching.lexiconWeights) setLexW(config.matching.lexiconWeights);
       if (config.matching.soulseekWeights) setSlskW(config.matching.soulseekWeights);
+      if (config.sources) {
+        setSourcePriority(config.sources.priority?.join(", ") ?? "soulseek");
+        const local = config.sources.local ?? {};
+        setLocalSources(Object.entries(local).map(([name, cfg]: [string, any]) => ({
+          name,
+          path: cfg.path ?? "",
+          structure: cfg.structure ?? "artist-album",
+          formats: (cfg.formats ?? ["flac", "mp3"]).join(", "),
+          fileOp: cfg.fileOp ?? "copy",
+        })));
+      }
     }
   }, [config]);
 
@@ -66,6 +81,15 @@ export function Settings() {
       },
       jobRunner: { concurrency: jobConcurrency, retentionDays: jobRetentionDays },
       logging: { level: logLevel, file: logFile },
+      sources: {
+        priority: sourcePriority.split(",").map((s) => s.trim()).filter(Boolean),
+        local: Object.fromEntries(localSources.map((s) => [s.name, {
+          path: s.path,
+          structure: s.structure,
+          formats: s.formats.split(",").map((f) => f.trim()).filter(Boolean),
+          fileOp: s.fileOp,
+        }])),
+      },
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -243,6 +267,74 @@ export function Settings() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: "0.5rem" }}>Track Sources</h3>
+        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>
+          Priority order (comma-separated). Local sources checked first, Soulseek last.
+        </p>
+        <div style={{ marginBottom: "0.75rem" }}>
+          <label className="text-muted text-sm">Priority</label>
+          <input
+            type="text"
+            value={sourcePriority}
+            onChange={(e) => setSourcePriority(e.target.value)}
+            placeholder="local:lossless, local:swinsian, soulseek"
+            style={{ display: "block", width: "100%", maxWidth: 500, marginTop: "0.25rem" }}
+          />
+          <span className="text-muted" style={{ fontSize: "0.7rem" }}>e.g. local:lossless, local:swinsian, soulseek</span>
+        </div>
+
+        <h4 style={{ marginBottom: "0.25rem", fontSize: "0.9rem" }}>Local Sources</h4>
+        {localSources.map((src, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr 1fr 1fr auto", gap: "0.5rem", marginBottom: "0.5rem", alignItems: "end" }}>
+            <div>
+              <label className="text-muted" style={{ fontSize: "0.7rem" }}>Name</label>
+              <input type="text" value={src.name} onChange={(e) => {
+                const next = [...localSources]; next[i] = { ...src, name: e.target.value }; setLocalSources(next);
+              }} style={{ width: "100%" }} />
+            </div>
+            <div>
+              <label className="text-muted" style={{ fontSize: "0.7rem" }}>Path</label>
+              <input type="text" value={src.path} onChange={(e) => {
+                const next = [...localSources]; next[i] = { ...src, path: e.target.value }; setLocalSources(next);
+              }} style={{ width: "100%" }} />
+            </div>
+            <div>
+              <label className="text-muted" style={{ fontSize: "0.7rem" }}>Structure</label>
+              <select value={src.structure} onChange={(e) => {
+                const next = [...localSources]; next[i] = { ...src, structure: e.target.value }; setLocalSources(next);
+              }} style={{ width: "100%" }}>
+                <option value="artist-album">Artist/Album</option>
+                <option value="letter-artist-album">Letter/Artist/Album</option>
+                <option value="flat">Flat</option>
+                <option value="year-playlist">Year/Playlist</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-muted" style={{ fontSize: "0.7rem" }}>Formats</label>
+              <input type="text" value={src.formats} onChange={(e) => {
+                const next = [...localSources]; next[i] = { ...src, formats: e.target.value }; setLocalSources(next);
+              }} style={{ width: "100%" }} placeholder="flac, mp3" />
+            </div>
+            <div>
+              <label className="text-muted" style={{ fontSize: "0.7rem" }}>File Op</label>
+              <select value={src.fileOp} onChange={(e) => {
+                const next = [...localSources]; next[i] = { ...src, fileOp: e.target.value }; setLocalSources(next);
+              }} style={{ width: "100%" }}>
+                <option value="copy">Copy</option>
+                <option value="move">Move</option>
+              </select>
+            </div>
+            <button className="danger" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }} onClick={() => {
+              setLocalSources(localSources.filter((_, j) => j !== i));
+            }}>×</button>
+          </div>
+        ))}
+        <button onClick={() => setLocalSources([...localSources, { name: "", path: "", structure: "artist-album", formats: "flac, mp3", fileOp: "copy" }])} style={{ fontSize: "0.8rem" }}>
+          + Add Local Source
+        </button>
       </div>
 
       <div className="card">
