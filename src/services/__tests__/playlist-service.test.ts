@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 
 import * as schema from "../../db/schema.js";
 import { PlaylistService } from "../playlist-service.js";
+import type { TrackStatus } from "../playlist-service.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -396,6 +397,194 @@ describe("PlaylistService", () => {
       const updated = svc.getPlaylist(pl.id);
       expect(updated).not.toBeNull();
       expect(updated!.name).toBe("New Name");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // deriveTrackStatus (private, tested via getPlaylistTracks with enriched)
+  // -------------------------------------------------------------------------
+  describe("deriveTrackStatus", () => {
+    function seedMatch(
+      trackId: string,
+      status: "pending" | "confirmed" | "rejected",
+    ): void {
+      const now = Date.now();
+      db.insert(schema.matches)
+        .values({
+          id: crypto.randomUUID(),
+          sourceType: "spotify",
+          sourceId: trackId,
+          targetType: "lexicon",
+          targetId: `lex-${crypto.randomUUID().slice(0, 8)}`,
+          score: 0.95,
+          confidence: "high",
+          method: "fuzzy",
+          status,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+
+    function seedDownload(
+      trackId: string,
+      status: "pending" | "searching" | "downloading" | "validating" | "moving" | "done" | "failed" | "wishlisted",
+    ): void {
+      const now = Date.now();
+      db.insert(schema.downloads)
+        .values({
+          id: crypto.randomUUID(),
+          trackId,
+          status,
+          origin: "not_found",
+          createdAt: now,
+        })
+        .run();
+    }
+
+    function seedJob(
+      trackId: string,
+      status: "queued" | "running" | "done" | "failed",
+    ): void {
+      const now = Date.now();
+      db.insert(schema.jobs)
+        .values({
+          id: crypto.randomUUID(),
+          type: "search",
+          status,
+          priority: 0,
+          payload: JSON.stringify({ trackId }),
+          createdAt: now,
+        })
+        .run();
+    }
+
+    function getTrackStatus(trackId: string): TrackStatus {
+      const pl = svc.upsertPlaylist({ spotifyId: `sp-status-${trackId.slice(0, 8)}`, name: `Status ${trackId.slice(0, 8)}` });
+      svc.setPlaylistTracks(pl.id, [trackId]);
+      const rows = svc.getPlaylistTracks(pl.id, { enriched: true });
+      return rows[0].trackStatus!;
+    }
+
+    it('returns "in_lexicon" for confirmed match', () => {
+      const trackId = insertTrack(db, { title: "Confirmed", artist: "Artist" });
+      seedMatch(trackId, "confirmed");
+      expect(getTrackStatus(trackId)).toBe("in_lexicon");
+    });
+
+    it('returns "pending_review" for pending match', () => {
+      const trackId = insertTrack(db, { title: "Pending", artist: "Artist" });
+      seedMatch(trackId, "pending");
+      expect(getTrackStatus(trackId)).toBe("pending_review");
+    });
+
+    it('returns "downloading" for active download', () => {
+      const trackId = insertTrack(db, { title: "Downloading", artist: "Artist" });
+      seedDownload(trackId, "downloading");
+      expect(getTrackStatus(trackId)).toBe("downloading");
+    });
+
+    it('returns "downloading" for pending download', () => {
+      const trackId = insertTrack(db, { title: "DlPending", artist: "Artist" });
+      seedDownload(trackId, "pending");
+      expect(getTrackStatus(trackId)).toBe("downloading");
+    });
+
+    it('returns "downloading" for searching download', () => {
+      const trackId = insertTrack(db, { title: "Searching", artist: "Artist" });
+      seedDownload(trackId, "searching");
+      expect(getTrackStatus(trackId)).toBe("downloading");
+    });
+
+    it('returns "downloading" for validating download', () => {
+      const trackId = insertTrack(db, { title: "Validating", artist: "Artist" });
+      seedDownload(trackId, "validating");
+      expect(getTrackStatus(trackId)).toBe("downloading");
+    });
+
+    it('returns "downloading" for moving download', () => {
+      const trackId = insertTrack(db, { title: "Moving", artist: "Artist" });
+      seedDownload(trackId, "moving");
+      expect(getTrackStatus(trackId)).toBe("downloading");
+    });
+
+    it('returns "downloaded" for done download', () => {
+      const trackId = insertTrack(db, { title: "Done", artist: "Artist" });
+      seedDownload(trackId, "done");
+      expect(getTrackStatus(trackId)).toBe("downloaded");
+    });
+
+    it('returns "download_failed" for failed download', () => {
+      const trackId = insertTrack(db, { title: "Failed", artist: "Artist" });
+      seedDownload(trackId, "failed");
+      expect(getTrackStatus(trackId)).toBe("download_failed");
+    });
+
+    it('returns "wishlisted" for wishlisted download', () => {
+      const trackId = insertTrack(db, { title: "Wishlisted", artist: "Artist" });
+      seedDownload(trackId, "wishlisted");
+      expect(getTrackStatus(trackId)).toBe("wishlisted");
+    });
+
+    it('returns "search_failed" for failed search job (no download)', () => {
+      const trackId = insertTrack(db, { title: "SearchFail", artist: "Artist" });
+      seedJob(trackId, "failed");
+      expect(getTrackStatus(trackId)).toBe("search_failed");
+    });
+
+    it('returns "not_matched" when no match/download/job exists', () => {
+      const trackId = insertTrack(db, { title: "Nothing", artist: "Artist" });
+      expect(getTrackStatus(trackId)).toBe("not_matched");
+    });
+
+    it("match takes priority over download", () => {
+      const trackId = insertTrack(db, { title: "MatchWins", artist: "Artist" });
+      seedMatch(trackId, "confirmed");
+      seedDownload(trackId, "downloading");
+      expect(getTrackStatus(trackId)).toBe("in_lexicon");
+    });
+
+    it("rejected match falls through to download status", () => {
+      const trackId = insertTrack(db, { title: "Rejected", artist: "Artist" });
+      seedMatch(trackId, "rejected");
+      seedDownload(trackId, "done");
+      expect(getTrackStatus(trackId)).toBe("downloaded");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // bulkRename — regex pattern
+  // -------------------------------------------------------------------------
+  describe("bulkRename (regex)", () => {
+    it("renames with capture groups", () => {
+      svc.upsertPlaylist({ spotifyId: "sp-cap", name: "2024 - Summer Mix" });
+      svc.upsertPlaylist({ spotifyId: "sp-cap2", name: "2023 - Winter Mix" });
+
+      const results = svc.bulkRename(/^(\d{4}) - /, "$1: ");
+      expect(results).toHaveLength(2);
+      const names = results.map((r) => r.newName).sort();
+      expect(names).toEqual(["2023: Winter Mix", "2024: Summer Mix"]);
+    });
+
+    it("scopes rename to specific playlist IDs", () => {
+      const a = svc.upsertPlaylist({ spotifyId: "sp-scope-a", name: "WIP Alpha" });
+      svc.upsertPlaylist({ spotifyId: "sp-scope-b", name: "WIP Beta" });
+
+      const results = svc.bulkRename(/^WIP /, "", { playlistIds: [a.id] });
+      expect(results).toHaveLength(1);
+      expect(results[0].newName).toBe("Alpha");
+      // Beta should be untouched
+      expect(svc.getPlaylist("sp-scope-b")!.name).toBe("WIP Beta");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // composeDescription (additional edge cases)
+  // -------------------------------------------------------------------------
+  describe("composeDescription (extra)", () => {
+    it("returns empty string when no tags or notes", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-empty-desc", name: "Empty" });
+      expect(svc.composeDescription(pl.id)).toBe("");
     });
   });
 
