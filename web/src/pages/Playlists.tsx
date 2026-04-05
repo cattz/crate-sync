@@ -388,8 +388,9 @@ function BulkTagEditor({
         )}
 
         <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
-          <button onClick={onClose}>Done</button>
+          <button onClick={onClose}>Close</button>
         </div>
+        <p className="text-muted" style={{ fontSize: "0.7rem", marginTop: "0.5rem" }}>Changes apply immediately.</p>
       </div>
     </div>
   );
