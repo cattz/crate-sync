@@ -36,6 +36,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(params),
     }),
+  bulkUpdateTags: (params: { playlistIds: string[]; addTags: string[]; removeTags: string[] }) =>
+    request<{ ok: boolean; updated: number }>("/playlists/bulk-tags", {
+      method: "PUT",
+      body: JSON.stringify(params),
+    }),
   syncPlaylists: () =>
     request<SyncResult>("/playlists/sync", { method: "POST" }),
 

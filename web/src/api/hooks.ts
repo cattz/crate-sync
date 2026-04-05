@@ -54,6 +54,18 @@ export function useBulkRename() {
   });
 }
 
+export function useBulkUpdateTags() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { playlistIds: string[]; addTags: string[]; removeTags: string[] }) =>
+      api.bulkUpdateTags(params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["playlist"] });
+    },
+  });
+}
+
 export function useSyncPlaylists() {
   const qc = useQueryClient();
   return useMutation({

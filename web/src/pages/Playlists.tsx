@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
-import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useBulkRename, useBulkSync } from "../api/hooks.js";
+import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useBulkRename, useBulkSync, useBulkUpdateTags } from "../api/hooks.js";
 import type { Playlist, BulkRenamePreview } from "../api/client.js";
 import { useMultiSelect } from "../hooks/useMultiSelect.js";
 import { BulkToolbar } from "../components/BulkToolbar.js";
@@ -284,6 +284,117 @@ function BulkRenameModal({ playlistIds, onClose }: { playlistIds?: string[]; onC
   );
 }
 
+function BulkTagEditor({
+  selectedPlaylists,
+  onClose,
+}: {
+  selectedPlaylists: Playlist[];
+  onClose: () => void;
+}) {
+  const [newTag, setNewTag] = useState("");
+  const bulkTags = useBulkUpdateTags();
+
+  const tagInfo = useMemo(() => {
+    const tagCounts = new Map<string, number>();
+    for (const p of selectedPlaylists) {
+      for (const t of parseTags(p.tags)) {
+        tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+      }
+    }
+    const total = selectedPlaylists.length;
+    return [...tagCounts.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([tag, count]) => ({
+        tag,
+        count,
+        isCommon: count === total,
+      }));
+  }, [selectedPlaylists]);
+
+  const playlistIds = selectedPlaylists.map((p) => p.id);
+
+  const handleTagClick = (tag: string, isCommon: boolean) => {
+    if (isCommon) {
+      bulkTags.mutate({ playlistIds, addTags: [], removeTags: [tag] });
+    } else {
+      bulkTags.mutate({ playlistIds, addTags: [tag], removeTags: [] });
+    }
+  };
+
+  const handleAddTag = (e: React.FormEvent) => {
+    e.preventDefault();
+    const tag = newTag.trim().toLowerCase();
+    if (!tag) return;
+    bulkTags.mutate({ playlistIds, addTags: [tag], removeTags: [] });
+    setNewTag("");
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 400 }}>
+        <h3 style={{ marginBottom: "0.5rem" }}>
+          Editing tags for {selectedPlaylists.length} playlists
+        </h3>
+
+        <div style={{ marginBottom: "0.75rem" }}>
+          {tagInfo.length === 0 && (
+            <p className="text-muted text-sm">No tags on selected playlists.</p>
+          )}
+          <div className="flex gap-1" style={{ flexWrap: "wrap" }}>
+            {tagInfo.map(({ tag, count, isCommon }) => (
+              <span
+                key={tag}
+                className={isCommon ? "badge badge-green" : "badge"}
+                style={{
+                  cursor: "pointer",
+                  ...(isCommon
+                    ? {}
+                    : { opacity: 0.5, border: "1px dashed var(--text-muted)" }),
+                }}
+                title={
+                  isCommon
+                    ? `Present in all ${selectedPlaylists.length} playlists. Click to remove from all.`
+                    : `Present in ${count}/${selectedPlaylists.length} playlists. Click to add to all.`
+                }
+                onClick={() => handleTagClick(tag, isCommon)}
+              >
+                {tag}
+                {!isCommon && (
+                  <span style={{ marginLeft: "0.25rem", fontSize: "0.7rem" }}>
+                    {count}/{selectedPlaylists.length}
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <form onSubmit={handleAddTag} className="flex gap-1" style={{ marginBottom: "0.75rem" }}>
+          <input
+            type="text"
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            placeholder="Add new tag..."
+            style={{ flex: 1 }}
+            autoFocus
+          />
+          <button type="submit" className="primary" disabled={!newTag.trim() || bulkTags.isPending}>
+            Add
+          </button>
+        </form>
+
+        {bulkTags.isError && (
+          <p style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>{bulkTags.error.message}</p>
+        )}
+
+        <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
+          <button onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Playlists() {
   const { data: playlists, isLoading } = usePlaylists();
   const [params, setParams] = useSearchParams();
@@ -314,6 +425,7 @@ export function Playlists() {
   const selection = useMultiSelect();
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showBulkRename, setShowBulkRename] = useState(false);
+  const [showBulkTags, setShowBulkTags] = useState(false);
   const bulkSync = useBulkSync();
 
   // Collect all unique tags across playlists for autocomplete/filter
@@ -553,6 +665,9 @@ export function Playlists() {
         >
           {bulkSync.isPending ? "Syncing..." : `Match & Tag (${selection.count})`}
         </button>
+        <button onClick={() => setShowBulkTags(true)}>
+          Edit Tags
+        </button>
         <button onClick={() => setShowBulkRename(true)}>
           Bulk Rename
         </button>
@@ -563,6 +678,13 @@ export function Playlists() {
           Delete Selected
         </button>
       </BulkToolbar>
+
+      {showBulkTags && (
+        <BulkTagEditor
+          selectedPlaylists={(playlists ?? []).filter((p) => selection.selected.has(p.id))}
+          onClose={() => setShowBulkTags(false)}
+        />
+      )}
 
       {bulkDeleting && (
         <BulkDeleteModal

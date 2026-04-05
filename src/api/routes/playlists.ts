@@ -6,7 +6,7 @@ import { SpotifyService } from "../../services/spotify-service.js";
 import { LexiconService } from "../../services/lexicon-service.js";
 import { pushPlaylist } from "../../services/spotify-push.js";
 import { playlists, playlistTracks, tracks, matches } from "../../db/schema.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 
 export const playlistRoutes = new Hono();
 
@@ -92,6 +92,56 @@ playlistRoutes.post("/:id/pull", async (c) => {
   const apiTracks = await spotify.getPlaylistTracks(playlist.spotifyId);
   const result = svc.syncPlaylistTracksFromApi(playlist.spotifyId, apiTracks);
   return c.json({ ok: true, ...result });
+});
+
+// PUT /api/playlists/bulk-tags
+playlistRoutes.put("/bulk-tags", async (c) => {
+  const body = await c.req.json<{
+    playlistIds: string[];
+    addTags: string[];
+    removeTags: string[];
+  }>();
+
+  const { playlistIds, addTags, removeTags } = body;
+
+  if (!playlistIds?.length) {
+    return c.json({ error: "playlistIds is required" }, 400);
+  }
+  if (!addTags?.length && !removeTags?.length) {
+    return c.json({ error: "addTags or removeTags is required" }, 400);
+  }
+
+  const db = getDb();
+  const rows = db
+    .select({ id: playlists.id, tags: playlists.tags })
+    .from(playlists)
+    .where(inArray(playlists.id, playlistIds))
+    .all();
+
+  let updated = 0;
+  for (const row of rows) {
+    let current: string[] = [];
+    try {
+      current = row.tags ? JSON.parse(row.tags) : [];
+    } catch {
+      current = [];
+    }
+
+    const tagSet = new Set(current);
+    for (const t of addTags ?? []) tagSet.add(t);
+    for (const t of removeTags ?? []) tagSet.delete(t);
+
+    const newTags = JSON.stringify([...tagSet].sort());
+    if (newTags !== (row.tags ?? "[]")) {
+      db.update(playlists)
+        .set({ tags: newTags })
+        .where(eq(playlists.id, row.id))
+        .run();
+      updated++;
+    }
+  }
+
+  return c.json({ ok: true, updated });
 });
 
 // POST /api/playlists/bulk-rename
