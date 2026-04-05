@@ -428,6 +428,7 @@ export function Playlists() {
   const [showBulkRename, setShowBulkRename] = useState(false);
   const [showBulkTags, setShowBulkTags] = useState(false);
   const bulkSync = useBulkSync();
+  const [bulkSyncResult, setBulkSyncResult] = useState<string | null>(null);
 
   // Collect all unique tags across playlists for autocomplete/filter
   const allTags = useMemo(() => {
@@ -561,6 +562,16 @@ export function Playlists() {
           {sync.error.message}
         </div>
       )}
+      {bulkSyncResult && (
+        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
+          {bulkSyncResult}
+        </div>
+      )}
+      {bulkSync.isError && (
+        <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
+          {bulkSync.error.message}
+        </div>
+      )}
 
       <div className="card">
         <table style={{ tableLayout: "fixed" }}>
@@ -568,7 +579,7 @@ export function Playlists() {
             <col style={{ width: 30 }} />
             <col />
             <col style={{ width: 60 }} />
-            <col style={{ width: 100 }} />
+            {ownership !== "own" && <col style={{ width: 100 }} />}
             <col style={{ width: 110 }} />
           </colgroup>
           <thead>
@@ -593,7 +604,6 @@ export function Playlists() {
               <SortHeader label="Tracks" sortKey="trackCount" active={sortKey === "trackCount"} direction={sortDir} onSort={handleSort} />
               {ownership !== "own" && <SortHeader label="Owner" sortKey="ownerName" active={sortKey === "ownerName"} direction={sortDir} onSort={handleSort} />}
               <SortHeader label="Last Synced" sortKey="lastSynced" active={sortKey === "lastSynced"} direction={sortDir} onSort={handleSort} />
-              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -617,7 +627,7 @@ export function Playlists() {
                 </td>
                 <td>{p.trackCount}</td>
                 {ownership !== "own" && (
-                  <td className="text-muted text-sm">
+                  <td className="text-muted text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={p.isOwned === 1 ? "You" : (p.ownerName ?? "")}>
                     {p.isOwned === 1 ? "You" : (p.ownerName ?? "—")}
                   </td>
                 )}
@@ -626,7 +636,7 @@ export function Playlists() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={ownership === "own" ? 6 : 7} className="text-muted">
+                <td colSpan={ownership === "own" ? 4 : 5} className="text-muted">
                   {search || ownership !== "own"
                     ? "No playlists match your filters."
                     : <>No playlists. Run <code>crate-sync db sync</code> to import from Spotify.</>}
@@ -658,7 +668,7 @@ export function Playlists() {
             bulkSync.mutate(ids, {
               onSuccess: (data) => {
                 selection.clear();
-                alert(`Queued ${data.queued} playlist(s) for matching & tagging`);
+                setBulkSyncResult(`Queued ${data.queued} playlist(s) for matching & tagging`);
               },
             });
           }}

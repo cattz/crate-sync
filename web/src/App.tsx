@@ -167,7 +167,7 @@ export function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside className="sidebar" style={{ display: "flex", flexDirection: "column" }}>
         <h1>Crate Sync</h1>
         <nav>
           <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>

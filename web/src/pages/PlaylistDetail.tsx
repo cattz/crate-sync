@@ -35,16 +35,18 @@ const statusConfig: Record<TrackStatus, { label: string; className: string }> = 
 
 const statusSortOrder: Record<TrackStatus, number> = {
   download_failed: 0,
-  pending_review: 1,
-  downloading: 2,
-  downloaded: 3,
-  not_matched: 4,
-  in_lexicon: 5,
+  search_failed: 1,
+  pending_review: 2,
+  downloading: 3,
+  downloaded: 4,
+  wishlisted: 5,
+  not_matched: 6,
+  in_lexicon: 7,
 };
 
 function StatusBadge({ status }: { status?: TrackStatus }) {
   if (!status || status === "not_matched") {
-    return <span className="text-muted">&mdash;</span>;
+    return <span className="text-muted">—</span>;
   }
   const cfg = statusConfig[status];
   return <span className={cfg.className}>{cfg.label}</span>;
@@ -254,7 +256,7 @@ export function PlaylistDetail() {
       <div className="page-header">
         <div>
           <Link to="/playlists" className="text-muted text-sm">
-            &larr; Playlists
+            ← Playlists
           </Link>
           <h2 style={{ marginTop: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             {playlist.name}
@@ -285,7 +287,7 @@ export function PlaylistDetail() {
           )}
           {syncBadge === "done" && (
             <span className="badge badge-green sync-badge" onClick={() => navigate("/logs")} title="View logs">
-              Synced &#10003;
+              Synced ✓
             </span>
           )}
           {syncBadge === "error" && (
@@ -321,6 +323,18 @@ export function PlaylistDetail() {
         </div>
       </div>
 
+      {/* Pull result */}
+      {pull.isSuccess && (
+        <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
+          Pull: {pull.data.added} added, {pull.data.removed} removed, {pull.data.updated} updated
+        </div>
+      )}
+      {pull.isError && (
+        <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
+          Pull failed: {pull.error.message}
+        </div>
+      )}
+
       {/* Push result */}
       {push.isSuccess && (
         <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
@@ -353,7 +367,7 @@ export function PlaylistDetail() {
             <span className="text-muted text-sm" style={{ marginRight: "0.25rem" }}>Tags:</span>
             {currentTags.map((tag) => (
               <span key={tag} className="badge badge-blue" style={{ cursor: "pointer", fontSize: "0.75rem" }} onClick={() => handleRemoveTag(tag)} title="Click to remove">
-                {tag} &times;
+                {tag} ×
               </span>
             ))}
             <div style={{ position: "relative", display: "inline-block" }}>

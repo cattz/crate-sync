@@ -18,7 +18,9 @@ export function Dashboard() {
 
   return (
     <>
-      <h2>Dashboard</h2>
+      <div className="page-header">
+        <h2>Dashboard</h2>
+      </div>
 
       <div className="grid-stats">
         <div className="stat-card">
@@ -46,7 +48,12 @@ export function Dashboard() {
       <div className="card">
         <h3 style={{ marginBottom: "0.4rem" }}>Service Status</h3>
         {status && (
-          <table>
+          <table style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: 100 }} />
+              <col style={{ width: 100 }} />
+              <col />
+            </colgroup>
             <thead>
               <tr>
                 <th>Service</th>
@@ -94,7 +101,7 @@ function ServiceRow({
           {status.ok ? "Connected" : "Error"}
         </span>
       </td>
-      <td className="text-muted text-sm">{detail ?? status.error ?? ""}</td>
+      <td className="text-muted text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={detail ?? status.error ?? ""}>{detail ?? status.error ?? ""}</td>
     </tr>
   );
 }
@@ -301,7 +308,13 @@ function RecentlyAddedCard({ items }: { items: RecentDownload[] }) {
       {display.length === 0 ? (
         <p className="text-muted">No tracks added yet</p>
       ) : (
-        <table>
+        <table style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: 80 }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "35%" }} />
+            <col style={{ width: "25%" }} />
+          </colgroup>
           <thead>
             <tr>
               <th>Time</th>
@@ -316,9 +329,9 @@ function RecentlyAddedCard({ items }: { items: RecentDownload[] }) {
                 <td className="text-muted text-sm" style={{ whiteSpace: "nowrap" }}>
                   {timeAgo(d.completedAt)}
                 </td>
-                <td>{d.trackArtist}</td>
-                <td>{d.trackTitle}</td>
-                <td className="text-muted text-sm">{d.playlistName ?? "—"}</td>
+                <td style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={d.trackArtist}>{d.trackArtist}</td>
+                <td style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={d.trackTitle}>{d.trackTitle}</td>
+                <td className="text-muted text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={d.playlistName ?? ""}>{d.playlistName ?? "—"}</td>
               </tr>
             ))}
           </tbody>
