@@ -67,7 +67,6 @@ function WishlistRow({
       <td>
         <div className="flex gap-1">
           <button
-            className="btn-sm"
             onClick={onRetry}
             disabled={isRetrying}
             title="Force retry search now"
@@ -75,7 +74,7 @@ function WishlistRow({
             Retry
           </button>
           <button
-            className="btn-sm btn-danger"
+            className="danger"
             onClick={onRemove}
             disabled={isRemoving}
             title="Remove from wishlist"

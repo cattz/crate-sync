@@ -24,6 +24,15 @@ Some design notes:
 
 I want to complete the list of features and high level architecture design and choice of stack before starting any implementation.
 
+## Design System
+
+When building or modifying any UI components, always follow the rules in `design-rules/DESIGN.md`. Key rules:
+- Use `table-layout: fixed` with `<colgroup>` on ALL data tables
+- Never use `\u2014` in JSX text — use the actual `—` character
+- Don't change table column widths unless explicitly asked
+- Inline feedback, no toasts/alerts
+- No per-row action buttons — use click-to-navigate + bulk toolbar
+
 ## Workflow
 
 - Use Claude Code native tasks to track work items organically during conversations.

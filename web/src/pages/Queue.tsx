@@ -4,8 +4,8 @@ import type { JobItem } from "../api/client.js";
 import { Link } from "react-router";
 
 const statusBadge: Record<string, string> = {
-  queued: "badge-blue",
-  running: "badge-yellow",
+  queued: "badge-gray",
+  running: "badge-blue",
   done: "badge-green",
   failed: "badge-red",
 };
@@ -57,16 +57,16 @@ function JobRow({ job }: { job: JobItem }) {
           {job.status}
         </span>
       </td>
-      <td className="text-sm">
-        {trackInfo && <span className="inline-track">{trackInfo}</span>}
+      <td className="text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={trackInfo ?? ""}>
+        {trackInfo && <span>{trackInfo}</span>}
         {job.attempt > 0 && (
           <span className="text-muted" style={{ marginLeft: trackInfo ? "0.5rem" : 0 }}>
             {job.attempt}/{job.maxAttempts}
           </span>
         )}
       </td>
-      <td className="text-sm" style={{ color: "var(--danger)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>
-        {job.error ? job.error.slice(0, 60) : ""}
+      <td className="text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: job.error ? "var(--danger)" : undefined }} title={job.error ?? ""}>
+        {job.error ?? ""}
       </td>
       <td className="text-muted text-sm">{formatTime(job.createdAt)}</td>
       <td>
@@ -176,17 +176,26 @@ export function Queue() {
         </div>
       )}
 
-      <div className="card">
-        <table>
+      <div className="card" style={{ overflow: "hidden" }}>
+        <table style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "28%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "12%" }} />
+          </colgroup>
           <thead>
             <tr>
-              <th style={{ width: "1%" }}>ID</th>
-              <th style={{ width: "1%" }}>Type</th>
-              <th style={{ width: "1%" }}>Status</th>
+              <th>ID</th>
+              <th>Type</th>
+              <th>Status</th>
               <th>Details</th>
               <th>Error</th>
-              <th style={{ width: "1%" }}>Created</th>
-              <th style={{ width: "1%" }}>Actions</th>
+              <th>Created</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>

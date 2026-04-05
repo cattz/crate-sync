@@ -99,10 +99,12 @@ export function Settings() {
 
   return (
     <>
-      <h2>Settings</h2>
+      <div className="page-header">
+        <h2>Settings</h2>
+      </div>
 
       <div className="card">
-        <h3 style={{ marginBottom: "0.5rem" }}>Matching Thresholds</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem" }}>Matching Thresholds</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", maxWidth: 600 }}>
           <div>
@@ -146,7 +148,7 @@ export function Settings() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginBottom: "0.5rem" }}>Download Settings</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem" }}>Download Settings</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr 1fr", gap: "1rem", maxWidth: 1200 }}>
           <div>
@@ -230,7 +232,7 @@ export function Settings() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginBottom: "0.5rem" }}>Matching Weights — Lexicon</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem" }}>Matching Weights — Lexicon</h3>
         <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>
           Weights for matching Spotify tracks against your Lexicon library. Must sum to 1.0.
         </p>
@@ -250,7 +252,7 @@ export function Settings() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginBottom: "0.5rem" }}>Matching Weights — Soulseek</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem" }}>Matching Weights — Soulseek</h3>
         <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>
           Weights for ranking Soulseek search results. Must sum to 1.0.
         </p>
@@ -270,7 +272,7 @@ export function Settings() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginBottom: "0.5rem" }}>Track Sources</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem" }}>Track Sources</h3>
         <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>
           Priority order (comma-separated). Local sources checked first, Soulseek last.
         </p>
@@ -338,7 +340,7 @@ export function Settings() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginBottom: "0.5rem" }}>Logging</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem" }}>Logging</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", maxWidth: 400 }}>
           <div>
             <label className="text-muted text-sm">Log Level</label>

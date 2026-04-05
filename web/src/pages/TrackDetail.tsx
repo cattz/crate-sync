@@ -21,8 +21,8 @@ const dlStatusBadge: Record<string, string> = {
 };
 
 const jobStatusBadge: Record<string, string> = {
-  queued: "badge-blue",
-  running: "badge-yellow",
+  queued: "badge-gray",
+  running: "badge-blue",
   done: "badge-green",
   failed: "badge-red",
 };
@@ -87,7 +87,6 @@ export function TrackDetail() {
           {track.title}
         </h2>
         <button
-          className="btn btn-sm"
           onClick={handleSync}
           disabled={syncTrack.isPending}
         >
@@ -123,14 +122,18 @@ export function TrackDetail() {
 
       {/* Track info */}
       <div className="card">
-        <h3 style={{ marginBottom: "0.4rem" }}>Spotify Metadata</h3>
-        <table>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.4rem" }}>Spotify Metadata</h3>
+        <table style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "80%" }} />
+          </colgroup>
           <tbody>
             <tr><td className="text-muted">Artist</td><td>{track.artist}</td></tr>
             <tr><td className="text-muted">Album</td><td>{track.album ?? "—"}</td></tr>
             <tr><td className="text-muted">Duration</td><td>{formatDuration(track.durationMs)}</td></tr>
             <tr><td className="text-muted">ISRC</td><td className="mono">{track.isrc ?? "—"}</td></tr>
-            <tr><td className="text-muted">Spotify URI</td><td className="mono text-sm">{track.spotifyUri ?? "—"}</td></tr>
+            <tr><td className="text-muted">Spotify URI</td><td className="mono text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={track.spotifyUri ?? ""}>{track.spotifyUri ?? "—"}</td></tr>
             <tr><td className="text-muted">Imported</td><td>{formatTime(track.createdAt)}</td></tr>
           </tbody>
         </table>
@@ -138,11 +141,15 @@ export function TrackDetail() {
 
       {/* Playlists */}
       <div className="card">
-        <h3 style={{ marginBottom: "0.4rem" }}>Playlists ({playlists.length})</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.4rem" }}>Playlists ({playlists.length})</h3>
         {playlists.length === 0 ? (
           <p className="text-muted">Not in any playlist.</p>
         ) : (
-          <table>
+          <table style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "80%" }} />
+              <col style={{ width: "20%" }} />
+            </colgroup>
             <thead>
               <tr><th>Playlist</th><th>Position</th></tr>
             </thead>
@@ -160,21 +167,39 @@ export function TrackDetail() {
 
       {/* Matches */}
       <div className="card">
-        <h3 style={{ marginBottom: "0.4rem" }}>Matches ({matches.length})</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.4rem" }}>Matches ({matches.length})</h3>
         {matches.length === 0 ? (
           <p className="text-muted">No matches found.</p>
         ) : (
-          <table>
+          <table style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "35%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "15%" }} />
+            </colgroup>
             <thead>
               <tr><th>Target</th><th>Score</th><th>Method</th><th>Status</th></tr>
             </thead>
             <tbody>
               {matches.map((m) => (
                 <tr key={m.id}>
-                  <td>
+                  <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${m.targetType}: ${m.targetId}`}>
                     <span className="text-muted text-sm">{m.targetType}:</span> {m.targetId.slice(0, 12)}
                   </td>
-                  <td className="mono">{(m.score * 100).toFixed(0)}%</td>
+                  <td>
+                    <span
+                      className={`badge ${
+                        m.score >= 0.8
+                          ? "badge-green"
+                          : m.score >= 0.4
+                            ? "badge-yellow"
+                            : "badge-red"
+                      }`}
+                    >
+                      {(m.score * 100).toFixed(0)}%
+                    </span>
+                  </td>
                   <td><span className="badge badge-gray">{m.method}</span></td>
                   <td>
                     <span className={`badge ${matchStatusBadge[m.status] ?? "badge-gray"}`}>
@@ -190,11 +215,18 @@ export function TrackDetail() {
 
       {/* Downloads */}
       <div className="card">
-        <h3 style={{ marginBottom: "0.4rem" }}>Downloads ({downloads.length})</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.4rem" }}>Downloads ({downloads.length})</h3>
         {downloads.length === 0 ? (
           <p className="text-muted">No downloads.</p>
         ) : (
-          <table>
+          <table style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "35%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "25%" }} />
+              <col style={{ width: "12%" }} />
+            </colgroup>
             <thead>
               <tr><th>Status</th><th>File</th><th>Origin</th><th>Error</th><th>When</th></tr>
             </thead>
@@ -206,13 +238,13 @@ export function TrackDetail() {
                       {d.status}
                     </span>
                   </td>
-                  <td className="mono text-sm" style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <td className="mono text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.filePath ?? d.soulseekPath ?? ""}>
                     {d.filePath ?? d.soulseekPath ?? "—"}
                   </td>
                   <td>
                     <span className="badge badge-gray">{d.origin}</span>
                   </td>
-                  <td className="text-sm" style={{ color: "var(--danger)" }}>
+                  <td className="text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: d.error ? "var(--danger)" : undefined }} title={d.error ?? ""}>
                     {d.error ?? ""}
                   </td>
                   <td className="text-muted text-sm">{formatTime(d.completedAt)}</td>
@@ -225,7 +257,7 @@ export function TrackDetail() {
 
       {/* Rejection History */}
       <div className="card">
-        <h3 style={{ marginBottom: "0.4rem" }}>Rejection History ({(rejections ?? []).length})</h3>
+        <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.4rem" }}>Rejection History ({(rejections ?? []).length})</h3>
         {(!rejections || rejections.length === 0) ? (
           <p className="text-muted">No rejection history for this track.</p>
         ) : (
@@ -234,15 +266,20 @@ export function TrackDetail() {
             {matchRejections.length === 0 ? (
               <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>No match rejections.</p>
             ) : (
-              <table style={{ marginBottom: "0.5rem" }}>
+              <table style={{ tableLayout: "fixed", marginBottom: "0.5rem" }}>
+                <colgroup>
+                  <col style={{ width: "25%" }} />
+                  <col style={{ width: "50%" }} />
+                  <col style={{ width: "25%" }} />
+                </colgroup>
                 <thead>
                   <tr><th>Target Track ID</th><th>Reason</th><th>Date</th></tr>
                 </thead>
                 <tbody>
                   {matchRejections.map((r) => (
                     <tr key={r.id}>
-                      <td className="mono text-sm">{r.targetTrackId?.slice(0, 12) ?? "—"}</td>
-                      <td className="text-sm">{r.reason ?? "—"}</td>
+                      <td className="mono text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.targetTrackId ?? ""}>{r.targetTrackId?.slice(0, 12) ?? "—"}</td>
+                      <td className="text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.reason ?? ""}>{r.reason ?? "—"}</td>
                       <td className="text-muted text-sm">{formatTime(r.createdAt)}</td>
                     </tr>
                   ))}
@@ -254,17 +291,22 @@ export function TrackDetail() {
             {downloadRejections.length === 0 ? (
               <p className="text-muted text-sm">No download rejections.</p>
             ) : (
-              <table>
+              <table style={{ tableLayout: "fixed" }}>
+                <colgroup>
+                  <col style={{ width: "30%" }} />
+                  <col style={{ width: "45%" }} />
+                  <col style={{ width: "25%" }} />
+                </colgroup>
                 <thead>
                   <tr><th>File Key</th><th>Reason</th><th>Date</th></tr>
                 </thead>
                 <tbody>
                   {downloadRejections.map((r) => (
                     <tr key={r.id}>
-                      <td className="mono text-sm" style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <td className="mono text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.fileKey ?? ""}>
                         {r.fileKey ?? "—"}
                       </td>
-                      <td className="text-sm">{r.reason ?? "—"}</td>
+                      <td className="text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.reason ?? ""}>{r.reason ?? "—"}</td>
                       <td className="text-muted text-sm">{formatTime(r.createdAt)}</td>
                     </tr>
                   ))}
@@ -278,8 +320,14 @@ export function TrackDetail() {
       {/* Jobs */}
       {jobs.length > 0 && (
         <div className="card">
-          <h3 style={{ marginBottom: "0.4rem" }}>Jobs ({jobs.length})</h3>
-          <table>
+          <h3 style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.4rem" }}>Jobs ({jobs.length})</h3>
+          <table style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "25%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "25%" }} />
+            </colgroup>
             <thead>
               <tr><th>ID</th><th>Type</th><th>Status</th><th>Created</th></tr>
             </thead>

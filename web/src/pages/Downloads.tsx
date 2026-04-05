@@ -11,6 +11,7 @@ const statusBadge: Record<string, string> = {
   moving: "badge-yellow",
   done: "badge-green",
   failed: "badge-red",
+  wishlisted: "badge-yellow",
 };
 
 interface DownloadProgress {
@@ -167,7 +168,7 @@ function DownloadRow({
       <td>
         {d.status === "failed" && (d.soulseekPath || d.filePath) && (
           <button
-            className="btn-sm btn-danger"
+            className="danger"
             onClick={() => onDeleteFile(d.id)}
             disabled={isDeleting}
             title="Delete file from disk"

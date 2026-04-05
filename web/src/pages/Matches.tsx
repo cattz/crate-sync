@@ -21,8 +21,15 @@ export function Matches() {
         </div>
       </div>
 
-      <div className="card">
-        <table>
+      <div className="card" style={{ overflow: "hidden" }}>
+        <table style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: "40%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "12%" }} />
+          </colgroup>
           <thead>
             <tr>
               <th>Source Track</th>
@@ -35,16 +42,28 @@ export function Matches() {
           <tbody>
             {matches?.map((m) => (
               <tr key={m.id}>
-                <td>
+                <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={m.sourceTrack ? `${m.sourceTrack.title} — ${m.sourceTrack.artist}` : m.sourceId}>
                   {m.sourceTrack ? (
-                    <span className="inline-track">
-                      {m.sourceTrack.title} <span className="artist">— {m.sourceTrack.artist}</span>
-                    </span>
+                    <>
+                      {m.sourceTrack.title} <span className="text-muted">— {m.sourceTrack.artist}</span>
+                    </>
                   ) : (
                     <span className="text-muted">{m.sourceId}</span>
                   )}
                 </td>
-                <td className="mono">{(m.score * 100).toFixed(0)}%</td>
+                <td>
+                  <span
+                    className={`badge ${
+                      m.score >= 0.8
+                        ? "badge-green"
+                        : m.score >= 0.4
+                          ? "badge-yellow"
+                          : "badge-red"
+                    }`}
+                  >
+                    {(m.score * 100).toFixed(0)}%
+                  </span>
+                </td>
                 <td>
                   <span className="badge badge-gray">{m.method}</span>
                 </td>
