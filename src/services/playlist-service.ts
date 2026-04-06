@@ -453,6 +453,7 @@ export class PlaylistService {
 
     let added = 0;
     let updated = 0;
+    const syncedTrackIds = new Set<string>();
 
     for (let position = 0; position < apiTracks.length; position++) {
       const t = apiTracks[position];
@@ -498,15 +499,11 @@ export class PlaylistService {
       }
 
       this.playlistTracks.upsertJunction(playlist.id, trackId, position);
+      syncedTrackIds.add(trackId);
     }
 
-    // Remove tracks no longer in the playlist
-    const validTrackIds = new Set<string>();
-    for (const t of apiTracks) {
-      const row = this.tracks.findBySpotifyId(t.id);
-      if (row) validTrackIds.add(row.id);
-    }
-    this.playlistTracks.removeStale(playlist.id, validTrackIds);
+    // Remove tracks no longer in the playlist (use IDs we actually synced, not re-lookup)
+    this.playlistTracks.removeStale(playlist.id, syncedTrackIds);
 
     // Count broken tracks: local tracks in the data + unavailable tracks (null from API)
     const localCount = apiTracks.filter(t => t.isLocal || t.uri.startsWith("spotify:local:")).length;
