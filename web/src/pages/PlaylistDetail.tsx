@@ -78,7 +78,7 @@ export function PlaylistDetail() {
   const acceptRepairMut = useAcceptRepair();
   const [repairReport, setRepairReport] = useState<RepairReport | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
-  const [keepNotFound, setKeepNotFound] = useState(true);
+  // keepNotFound removed — spotify:local: URIs can't be added to Spotify playlists
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -258,13 +258,13 @@ export function PlaylistDetail() {
   const handleRepair = useCallback(async () => {
     if (!id) return;
     try {
-      const report = await repair.mutateAsync({ id, keepNotFound });
+      const report = await repair.mutateAsync({ id });
       setRepairReport(report);
       setRepairOpen(true);
     } catch {
       // error handled by mutation state
     }
-  }, [id, repair, keepNotFound]);
+  }, [id, repair]);
 
   const handleAcceptRepair = useCallback(async () => {
     if (!id || !repairReport) return;
@@ -360,10 +360,6 @@ export function PlaylistDetail() {
           )}
           {hasBrokenTracks && (
             <>
-              <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                <input type="checkbox" checked={keepNotFound} onChange={(e) => setKeepNotFound(e.target.checked)} />
-                Keep unfound
-              </label>
               <button
                 onClick={handleRepair}
                 disabled={anyBusy}
@@ -679,7 +675,12 @@ export function PlaylistDetail() {
           <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 500, maxWidth: 700 }}>
             <h3 style={{ marginBottom: "0.5rem" }}>Repair Report</h3>
             <p className="text-sm" style={{ marginBottom: "0.5rem", color: "var(--text-muted)" }}>
-              Replaced {repairReport.replaced.length} tracks, {repairReport.notFound.length} not found, {repairReport.kept} kept
+              Replaced {repairReport.replaced.length} tracks, {repairReport.kept} kept
+              {repairReport.notFound.length > 0 && (
+                <span style={{ color: "var(--danger)" }}>
+                  , {repairReport.notFound.length} not found on Spotify (will be removed from playlist)
+                </span>
+              )}
             </p>
 
             {repairReport.replaced.length > 0 && (

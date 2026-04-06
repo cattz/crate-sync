@@ -49,11 +49,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(params),
     }),
-  repairPlaylist: (id: string, options?: { keepNotFound?: boolean }) =>
-    request<RepairReport>(`/playlists/${id}/repair`, {
-      method: "POST",
-      body: JSON.stringify(options ?? {}),
-    }),
+  repairPlaylist: (id: string) =>
+    request<RepairReport>(`/playlists/${id}/repair`, { method: "POST" }),
   acceptRepair: (id: string, repairedSpotifyId: string) =>
     request<{ ok: boolean }>(`/playlists/${id}/repair/accept`, {
       method: "POST",
