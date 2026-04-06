@@ -354,8 +354,8 @@ export class PlaylistService {
     );
     const spotifyUris = new Set(spotifyTracks.map((t) => t.uri));
 
-    // URIs in local but not in Spotify → need to add
-    const toAdd = [...localUris].filter((uri) => !spotifyUris.has(uri));
+    // URIs in local but not in Spotify → need to add (skip local/broken URIs)
+    const toAdd = [...localUris].filter((uri) => !spotifyUris.has(uri) && !uri.startsWith("spotify:local:"));
 
     // URIs in Spotify but not in local → need to remove
     const toRemove = [...spotifyUris].filter((uri) => !localUris.has(uri));
