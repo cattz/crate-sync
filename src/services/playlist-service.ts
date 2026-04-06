@@ -508,8 +508,10 @@ export class PlaylistService {
     }
     this.playlistTracks.removeStale(playlist.id, validTrackIds);
 
-    // Count broken tracks and update playlist
-    const brokenCount = apiTracks.filter(t => t.isLocal || t.uri.startsWith("spotify:local:")).length;
+    // Count broken tracks: local tracks in the data + unavailable tracks (null from API)
+    const localCount = apiTracks.filter(t => t.isLocal || t.uri.startsWith("spotify:local:")).length;
+    const unavailableCount = (apiTracks as SpotifyTrack[] & { unavailableCount?: number }).unavailableCount ?? 0;
+    const brokenCount = localCount + unavailableCount;
     this.playlists.updateFields(playlist.id, { lastSynced: Date.now(), brokenTracks: brokenCount });
 
     return { added, updated };

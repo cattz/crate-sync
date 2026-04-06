@@ -356,8 +356,9 @@ export class SpotifyApiClient {
     return result;
   }
 
-  async getPlaylistTracks(playlistId: string): Promise<SpotifyTrack[]> {
+  async getPlaylistTracks(playlistId: string): Promise<SpotifyTrack[] & { unavailableCount?: number }> {
     const result: SpotifyTrack[] = [];
+    let unavailableCount = 0;
     let url: string | null = `/playlists/${playlistId}/tracks?limit=100`;
 
     while (url) {
@@ -368,16 +369,7 @@ export class SpotifyApiClient {
 
       for (const item of data.items) {
         if (!item.track) {
-          // Null track object — create placeholder with whatever info we have
-          result.push({
-            id: `broken_${Date.now()}_${result.length}`,
-            title: "(Unavailable track)",
-            artist: "(Unknown)",
-            album: "",
-            durationMs: 0,
-            uri: `spotify:local:::broken:${result.length}`,
-            isLocal: true,
-          });
+          unavailableCount++;
           continue;
         }
         result.push(this.mapTrack(item.track, item.is_local));
@@ -386,6 +378,8 @@ export class SpotifyApiClient {
       url = data.next;
     }
 
+    // Attach unavailable count to the array for callers that need it
+    (result as SpotifyTrack[] & { unavailableCount?: number }).unavailableCount = unavailableCount;
     return result;
   }
 
