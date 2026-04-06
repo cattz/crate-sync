@@ -97,8 +97,10 @@ playlistRoutes.post("/:id/pull", async (c) => {
   const authenticated = await spotify.isAuthenticated();
   if (!authenticated) return c.json({ error: "Spotify not authenticated" }, 401);
 
+  emitJobEvent("spotify-pull", "job-started", "running", { playlistName: playlist.name }, "spotify_sync");
   const apiTracks = await spotify.getPlaylistTracks(playlist.spotifyId);
   const result = svc.syncPlaylistTracksFromApi(playlist.spotifyId, apiTracks);
+  emitJobEvent("spotify-pull", "job-done", "done", { playlistName: playlist.name, ...result }, "spotify_sync");
   return c.json({ ok: true, ...result });
 });
 
