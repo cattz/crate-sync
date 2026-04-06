@@ -64,6 +64,14 @@ export async function pushPlaylist(
       await spotifyService.updatePlaylistDescription(spotifyId, composedDescription);
     }
     if (diff.toRemove.length > 0) {
+      // Safety: refuse to remove all tracks — likely a sync/DB mismatch
+      const spotifyTrackCount = spotifyDetails.tracks?.total ?? 0;
+      if (diff.toRemove.length >= spotifyTrackCount && spotifyTrackCount > 0 && diff.toAdd.length === 0) {
+        throw new Error(
+          `Safety: push would remove all ${diff.toRemove.length} tracks from Spotify with nothing to add. ` +
+          `This usually means the local DB is out of sync. Run "Pull from Spotify" first.`
+        );
+      }
       await spotifyService.removeTracksFromPlaylist(spotifyId, diff.toRemove);
     }
     if (diff.toAdd.length > 0) {
