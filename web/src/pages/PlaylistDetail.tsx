@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router";
-import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, usePullPlaylist, useUpdatePlaylistMeta, useCreateLexiconPlaylist } from "../api/hooks.js";
-import { api, type TrackStatus } from "../api/client.js";
+import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, usePullPlaylist, useUpdatePlaylistMeta, useCreateLexiconPlaylist, useRepairPlaylist, useAcceptRepair } from "../api/hooks.js";
+import { api, type TrackStatus, type RepairReport } from "../api/client.js";
 import { SpotifyPlayButton } from "../components/SpotifyPlayButton.js";
 
 function formatDuration(ms: number) {
@@ -73,6 +73,11 @@ export function PlaylistDetail() {
   const [syncPhase, setSyncPhase] = useState<string | null>(null);
   const [syncBadge, setSyncBadge] = useState<SyncBadgeState>("idle");
   const badgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const repair = useRepairPlaylist();
+  const acceptRepairMut = useAcceptRepair();
+  const [repairReport, setRepairReport] = useState<RepairReport | null>(null);
+  const [repairOpen, setRepairOpen] = useState(false);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -214,6 +219,35 @@ export function PlaylistDetail() {
     return [...tagSet].sort();
   }, [allPlaylists]);
 
+  const hasBrokenTracks = useMemo(() => {
+    if (!tracks) return false;
+    return tracks.some(
+      (t) => t.isLocal === 1 || (t.spotifyUri && t.spotifyUri.startsWith("spotify:local:")),
+    );
+  }, [tracks]);
+
+  const handleRepair = useCallback(async () => {
+    if (!id) return;
+    try {
+      const report = await repair.mutateAsync(id);
+      setRepairReport(report);
+      setRepairOpen(true);
+    } catch {
+      // error handled by mutation state
+    }
+  }, [id, repair]);
+
+  const handleAcceptRepair = useCallback(async () => {
+    if (!id || !repairReport) return;
+    try {
+      await acceptRepairMut.mutateAsync({ id, repairedSpotifyId: repairReport.repairedPlaylistSpotifyId });
+      setRepairOpen(false);
+      setRepairReport(null);
+    } catch {
+      // error handled by mutation state
+    }
+  }, [id, repairReport, acceptRepairMut]);
+
   const tagSuggestions = useMemo(() => {
     if (!tagInput) return [];
     const q = tagInput.toLowerCase();
@@ -295,6 +329,15 @@ export function PlaylistDetail() {
               Error
             </span>
           )}
+          {hasBrokenTracks && (
+            <button
+              onClick={handleRepair}
+              disabled={repair.isPending}
+              style={{ borderColor: "var(--warning)", color: "var(--warning)" }}
+            >
+              {repair.isPending ? "Repairing..." : "Repair"}
+            </button>
+          )}
           <button
             onClick={() => push.mutate(playlist.id)}
             disabled={push.isPending || playlist.isOwned === 0 || !playlist.spotifyId}
@@ -356,6 +399,13 @@ export function PlaylistDetail() {
       {createLexicon.isError && (
         <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
           Lexicon playlist failed: {createLexicon.error.message}
+        </div>
+      )}
+
+      {/* Repair error */}
+      {repair.isError && (
+        <div className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>
+          Repair failed: {repair.error.message}
         </div>
       )}
 
@@ -565,6 +615,86 @@ export function PlaylistDetail() {
               </button>
             </div>
             {del.isError && <p style={{ color: "var(--danger)", marginTop: "0.3rem" }}>{del.error.message}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Repair report modal */}
+      {repairOpen && repairReport && (
+        <div className="modal-overlay" onClick={() => { setRepairOpen(false); setRepairReport(null); }}>
+          <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 500, maxWidth: 700 }}>
+            <h3 style={{ marginBottom: "0.5rem" }}>Repair Report</h3>
+            <p className="text-sm" style={{ marginBottom: "0.5rem", color: "var(--text-muted)" }}>
+              Replaced {repairReport.replaced.length} tracks, {repairReport.notFound.length} not found, {repairReport.kept} kept
+            </p>
+
+            {repairReport.replaced.length > 0 && (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <h4 className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.25rem" }}>Replaced</h4>
+                <table style={{ tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col style={{ width: "50%" }} />
+                    <col style={{ width: "50%" }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Original</th>
+                      <th>Replacement</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {repairReport.replaced.map((r, i) => (
+                      <tr key={i}>
+                        <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${r.original.artist} — ${r.original.title}`}>
+                          <span className="text-muted">{r.original.artist}</span> — {r.original.title}
+                        </td>
+                        <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${r.replacement.artist} — ${r.replacement.title}`}>
+                          <span className="text-muted">{r.replacement.artist}</span> — {r.replacement.title}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {repairReport.notFound.length > 0 && (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <h4 className="text-sm" style={{ color: "var(--danger)", marginBottom: "0.25rem" }}>Not Found</h4>
+                <table style={{ tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col style={{ width: "40%" }} />
+                    <col style={{ width: "60%" }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Artist</th>
+                      <th>Title</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {repairReport.notFound.map((t, i) => (
+                      <tr key={i}>
+                        <td className="text-muted" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.artist}>{t.artist}</td>
+                        <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.title}>{t.title}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex gap-1" style={{ justifyContent: "flex-end", marginTop: "0.75rem" }}>
+              <button onClick={() => { setRepairOpen(false); setRepairReport(null); }}>Cancel</button>
+              <button
+                className="primary"
+                disabled={acceptRepairMut.isPending}
+                onClick={handleAcceptRepair}
+              >
+                {acceptRepairMut.isPending ? "Accepting..." : "Accept"}
+              </button>
+            </div>
+            {acceptRepairMut.isError && <p style={{ color: "var(--danger)", marginTop: "0.3rem" }}>{acceptRepairMut.error.message}</p>}
           </div>
         </div>
       )}

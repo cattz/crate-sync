@@ -18,4 +18,5 @@ export interface SpotifyTrack {
   durationMs: number;
   isrc?: string;
   uri: string;
+  isLocal?: boolean;
 }

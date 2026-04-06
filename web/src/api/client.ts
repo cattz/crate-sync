@@ -46,6 +46,13 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(params),
     }),
+  repairPlaylist: (id: string) =>
+    request<RepairReport>(`/playlists/${id}/repair`, { method: "POST" }),
+  acceptRepair: (id: string, repairedSpotifyId: string) =>
+    request<{ ok: boolean }>(`/playlists/${id}/repair/accept`, {
+      method: "POST",
+      body: JSON.stringify({ repairedSpotifyId }),
+    }),
   syncPlaylists: () =>
     request<SyncResult>("/playlists/sync", { method: "POST" }),
 
@@ -209,6 +216,7 @@ export interface Track {
   durationMs: number;
   isrc: string | null;
   spotifyUri: string | null;
+  isLocal: number | null;
   position?: number;
   trackStatus?: TrackStatus;
   createdAt: number;
@@ -450,4 +458,24 @@ export interface WishlistItem {
   nextRetryAt: number | null;
   error: string | null;
   createdAt: number;
+}
+
+export interface RepairReplacedTrack {
+  original: { id: string; title: string; artist: string };
+  replacement: { spotifyUri: string; title: string; artist: string; spotifyId: string };
+}
+
+export interface RepairNotFoundTrack {
+  id: string;
+  title: string;
+  artist: string;
+}
+
+export interface RepairReport {
+  repairedPlaylistId: string;
+  repairedPlaylistSpotifyId: string;
+  replaced: RepairReplacedTrack[];
+  notFound: RepairNotFoundTrack[];
+  kept: number;
+  total: number;
 }

@@ -64,6 +64,13 @@
       "when": 1775296800000,
       "tag": "0008_smooth_ender",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1775485703336,
+      "tag": "0009_outgoing_stellaris",
+      "breakpoints": true
     }
   ]
 }

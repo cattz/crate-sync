@@ -296,7 +296,7 @@ export class SpotifyApiClient {
     };
   }
 
-  private mapTrack(raw: Record<string, unknown>): SpotifyTrack {
+  private mapTrack(raw: Record<string, unknown>, isLocal?: boolean): SpotifyTrack {
     const artists = raw.artists as Array<Record<string, unknown>>;
     const album = raw.album as Record<string, unknown>;
     const externalIds = (raw.external_ids as Record<string, unknown>) ?? {};
@@ -306,10 +306,11 @@ export class SpotifyApiClient {
       title: String(raw.name),
       artist: artists.map((a) => String(a.name)).join(", "),
       artists: artists.map((a) => String(a.name)),
-      album: String(album.name),
+      album: album ? String(album.name) : "",
       durationMs: Number(raw.duration_ms),
       isrc: externalIds.isrc ? String(externalIds.isrc) : undefined,
       uri: String(raw.uri),
+      isLocal: isLocal ?? (raw.is_local === true),
     };
   }
 
@@ -352,13 +353,13 @@ export class SpotifyApiClient {
 
     while (url) {
       const data = (await this.fetchApi(url)) as {
-        items: Array<{ track: Record<string, unknown> | null; added_at?: string }>;
+        items: Array<{ track: Record<string, unknown> | null; is_local?: boolean; added_at?: string }>;
         next: string | null;
       };
 
       for (const item of data.items) {
         if (!item.track) continue;
-        result.push(this.mapTrack(item.track));
+        result.push(this.mapTrack(item.track, item.is_local));
       }
 
       url = data.next;
@@ -466,6 +467,24 @@ export class SpotifyApiClient {
     })) as Record<string, unknown>;
 
     return this.mapPlaylist(raw);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Search
+  // ---------------------------------------------------------------------------
+
+  async searchTracks(query: string, limit: number = 5): Promise<SpotifyTrack[]> {
+    const params = new URLSearchParams({
+      q: query,
+      type: "track",
+      limit: String(limit),
+    });
+
+    const data = (await this.fetchApi(`/search?${params.toString()}`)) as {
+      tracks: { items: Record<string, unknown>[] };
+    };
+
+    return data.tracks.items.map((item) => this.mapTrack(item));
   }
 
   // ---------------------------------------------------------------------------

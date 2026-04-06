@@ -53,6 +53,7 @@ export const tracks = sqliteTable("tracks", {
   durationMs: integer("duration_ms").notNull(),
   isrc: text("isrc"),
   spotifyUri: text("spotify_uri"),
+  isLocal: integer("is_local").default(0),
   createdAt,
   updatedAt,
 });

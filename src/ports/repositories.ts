@@ -51,6 +51,7 @@ export interface UpsertTrackData {
   durationMs: number;
   isrc?: string | null;
   spotifyUri?: string | null;
+  isLocal?: number | null;
 }
 
 export interface ITrackRepository {

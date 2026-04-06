@@ -7,6 +7,7 @@ import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SpotifyService } from "../services/spotify-service.js";
 import { pushPlaylist } from "../services/spotify-push.js";
+import { repairPlaylist, acceptRepair } from "../services/repair-service.js";
 import { loadConfig } from "../config.js";
 
 export function registerPlaylistCommands(program: Command): void {
@@ -335,6 +336,87 @@ export function registerPlaylistCommands(program: Command): void {
 
           await spotify.deletePlaylist(playlist.spotifyId);
           console.log(chalk.green(`Unfollowed on Spotify.`));
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // playlists repair <id>
+  // ---------------------------------------------------------------------------
+
+  playlists
+    .command("repair <id>")
+    .description("Repair broken/local tracks by searching Spotify")
+    .option("--yes", "Auto-accept the repair without prompting")
+    .action(async (id: string, opts: { yes?: boolean }) => {
+      try {
+        const config = loadConfig();
+        const db = getDb();
+        const service = PlaylistService.fromDb(db);
+
+        const playlist = service.getPlaylist(id);
+        if (!playlist) {
+          console.log(chalk.red(`Playlist not found: ${id}`));
+          console.log(chalk.dim("Use `crate-sync playlists list` to see available playlists."));
+          return;
+        }
+
+        if (!playlist.spotifyId) {
+          console.log(chalk.red(`Playlist "${playlist.name}" has no Spotify ID.`));
+          return;
+        }
+
+        const spotify = new SpotifyService(config.spotify);
+        if (!(await spotify.isAuthenticated())) {
+          console.log(chalk.red("Not authenticated with Spotify. Run `crate-sync auth login` first."));
+          return;
+        }
+
+        console.log(chalk.bold(`Repairing "${playlist.name}"...`));
+        console.log();
+
+        const report = await repairPlaylist(playlist.id, service, spotify);
+
+        // Print report
+        if (report.replaced.length > 0) {
+          console.log(chalk.green(`Replaced ${report.replaced.length} track(s):`));
+          for (const r of report.replaced) {
+            console.log(`  ${chalk.dim(r.original.artist)} \u2014 ${r.original.title}`);
+            console.log(`    \u2192 ${chalk.cyan(r.replacement.artist)} \u2014 ${chalk.cyan(r.replacement.title)}`);
+          }
+          console.log();
+        }
+
+        if (report.notFound.length > 0) {
+          console.log(chalk.red(`Not found (${report.notFound.length}):`));
+          for (const t of report.notFound) {
+            console.log(`  ${chalk.dim(t.artist)} \u2014 ${t.title}`);
+          }
+          console.log();
+        }
+
+        console.log(chalk.dim(`Kept: ${report.kept}, Total: ${report.total}`));
+        console.log();
+
+        // Prompt for acceptance
+        let accept = opts.yes;
+        if (!accept) {
+          const rl = readline.createInterface({ input, output });
+          const answer = await rl.question(
+            chalk.yellow("Accept repair? This will delete the original playlist and rename the repaired one. [y/N] "),
+          );
+          rl.close();
+          accept = answer.toLowerCase() === "y";
+        }
+
+        if (accept) {
+          await acceptRepair(playlist.id, report.repairedPlaylistSpotifyId, service, spotify);
+          console.log(chalk.green("Repair accepted. Original playlist replaced."));
+        } else {
+          console.log(chalk.dim("Repair cancelled. The repaired playlist remains on Spotify as a separate playlist."));
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

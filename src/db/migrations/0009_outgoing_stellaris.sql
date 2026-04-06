@@ -1,0 +1,1 @@
+ALTER TABLE `tracks` ADD `is_local` integer DEFAULT 0;

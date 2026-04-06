@@ -5,6 +5,7 @@ import { PlaylistService } from "../../services/playlist-service.js";
 import { SpotifyService } from "../../services/spotify-service.js";
 import { LexiconService } from "../../services/lexicon-service.js";
 import { pushPlaylist } from "../../services/spotify-push.js";
+import { repairPlaylist, acceptRepair } from "../../services/repair-service.js";
 import { playlists, playlistTracks, tracks, matches } from "../../db/schema.js";
 import { eq, and, sql, inArray } from "drizzle-orm";
 
@@ -222,6 +223,56 @@ playlistRoutes.post("/bulk-rename", async (c) => {
 });
 
 // ---- :id/subpath routes (before bare :id) ----
+
+// POST /api/playlists/:id/repair — repair broken/local tracks
+playlistRoutes.post("/:id/repair", async (c) => {
+  const config = loadConfig();
+  const svc = getService();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) return c.json({ error: "Playlist not found" }, 404);
+  if (!playlist.spotifyId) return c.json({ error: "Playlist has no Spotify ID" }, 400);
+
+  const spotify = new SpotifyService(config.spotify);
+  if (!(await spotify.isAuthenticated())) {
+    return c.json({ error: "Spotify not authenticated" }, 401);
+  }
+
+  try {
+    const report = await repairPlaylist(playlist.id, svc, spotify);
+    return c.json(report);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: message }, 500);
+  }
+});
+
+// POST /api/playlists/:id/repair/accept — accept a repair
+playlistRoutes.post("/:id/repair/accept", async (c) => {
+  const config = loadConfig();
+  const svc = getService();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) return c.json({ error: "Playlist not found" }, 404);
+
+  const body = await c.req.json<{ repairedSpotifyId: string }>();
+  if (!body.repairedSpotifyId) {
+    return c.json({ error: "repairedSpotifyId is required" }, 400);
+  }
+
+  const spotify = new SpotifyService(config.spotify);
+  if (!(await spotify.isAuthenticated())) {
+    return c.json({ error: "Spotify not authenticated" }, 401);
+  }
+
+  try {
+    await acceptRepair(playlist.id, body.repairedSpotifyId, svc, spotify);
+    return c.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: message }, 500);
+  }
+});
 
 // PUT /api/playlists/:id/rename
 playlistRoutes.put("/:id/rename", async (c) => {

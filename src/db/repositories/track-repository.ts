@@ -43,6 +43,7 @@ export class DrizzleTrackRepository implements ITrackRepository {
         durationMs: data.durationMs,
         isrc: data.isrc,
         spotifyUri: data.spotifyUri,
+        isLocal: data.isLocal ?? 0,
       })
       .onConflictDoUpdate({
         target: tracks.spotifyId,
@@ -53,6 +54,7 @@ export class DrizzleTrackRepository implements ITrackRepository {
           durationMs: data.durationMs,
           isrc: data.isrc,
           spotifyUri: data.spotifyUri,
+          isLocal: data.isLocal ?? 0,
           updatedAt: Date.now(),
         },
       })

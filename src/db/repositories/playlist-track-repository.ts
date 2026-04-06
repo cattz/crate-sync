@@ -22,6 +22,7 @@ export class DrizzlePlaylistTrackRepository implements IPlaylistTrackRepository 
         durationMs: tracks.durationMs,
         isrc: tracks.isrc,
         spotifyUri: tracks.spotifyUri,
+        isLocal: tracks.isLocal,
         createdAt: tracks.createdAt,
         updatedAt: tracks.updatedAt,
         position: playlistTracks.position,

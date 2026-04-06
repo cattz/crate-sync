@@ -457,6 +457,8 @@ export class PlaylistService {
       const existingTrack = this.tracks.findBySpotifyId(t.id);
       let trackId: string;
 
+      const isLocal = t.isLocal || t.uri.startsWith("spotify:local:") ? 1 : 0;
+
       if (!existingTrack) {
         const inserted = this.tracks.upsert({
           spotifyId: t.id,
@@ -466,6 +468,7 @@ export class PlaylistService {
           durationMs: t.durationMs,
           isrc: t.isrc ?? null,
           spotifyUri: t.uri,
+          isLocal,
         });
         trackId = inserted.id;
         added++;
@@ -473,7 +476,8 @@ export class PlaylistService {
         if (
           existingTrack.title !== t.title ||
           existingTrack.artist !== t.artist ||
-          existingTrack.album !== t.album
+          existingTrack.album !== t.album ||
+          existingTrack.isLocal !== isLocal
         ) {
           this.tracks.upsert({
             spotifyId: t.id,
@@ -483,6 +487,7 @@ export class PlaylistService {
             durationMs: t.durationMs,
             isrc: t.isrc ?? null,
             spotifyUri: t.uri,
+            isLocal,
           });
           updated++;
         }

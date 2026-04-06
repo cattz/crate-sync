@@ -100,6 +100,30 @@ export function useCreateLexiconPlaylist() {
   });
 }
 
+export function useRepairPlaylist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.repairPlaylist(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["playlist"] });
+    },
+  });
+}
+
+export function useAcceptRepair() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, repairedSpotifyId }: { id: string; repairedSpotifyId: string }) =>
+      api.acceptRepair(id, repairedSpotifyId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["playlist"] });
+      qc.invalidateQueries({ queryKey: ["playlist-tracks"] });
+    },
+  });
+}
+
 export function usePullPlaylist() {
   const qc = useQueryClient();
   return useMutation({
