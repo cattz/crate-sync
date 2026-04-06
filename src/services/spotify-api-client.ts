@@ -230,7 +230,10 @@ export class SpotifyApiClient {
   private async fetchApi(
     path: string,
     options: RequestInit = {},
+    _retries = 0,
   ): Promise<unknown> {
+    const MAX_RETRIES = 5;
+
     return withRetry(async () => {
       const token = await this.ensureToken();
       const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
@@ -245,14 +248,20 @@ export class SpotifyApiClient {
       });
 
       if (response.status === 429) {
+        if (_retries >= MAX_RETRIES) {
+          throw new Error(`Spotify rate limit: gave up after ${MAX_RETRIES} retries`);
+        }
         const retryAfter = Number(response.headers.get("Retry-After") ?? "1");
         await new Promise((r) => setTimeout(r, retryAfter * 1000));
-        return this.fetchApi(path, options);
+        return this.fetchApi(path, options, _retries + 1);
       }
 
       if (response.status === 401) {
+        if (_retries >= MAX_RETRIES) {
+          throw new Error(`Spotify auth: gave up after ${MAX_RETRIES} token refresh attempts`);
+        }
         await this.refreshAccessToken();
-        return this.fetchApi(path, options);
+        return this.fetchApi(path, options, _retries + 1);
       }
 
       if (!response.ok) {
