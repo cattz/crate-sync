@@ -156,8 +156,10 @@ export async function repairPlaylist(
     `Repaired version of ${playlist.name}`,
   );
 
-  if (repairedUris.length > 0) {
-    await spotify.addTracksToPlaylist(repairedPlaylist.id, repairedUris);
+  // Filter out spotify:local: URIs — Spotify API rejects them ("Invalid base62 id")
+  const validUris = repairedUris.filter(uri => !uri.startsWith("spotify:local:"));
+  if (validUris.length > 0) {
+    await spotify.addTracksToPlaylist(repairedPlaylist.id, validUris);
   }
 
   return {
