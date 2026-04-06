@@ -190,13 +190,15 @@ export async function acceptRepair(
   await spotify.renamePlaylist(repairedSpotifyId, playlist.name);
 
   // Update local DB: point the existing playlist record to the repaired Spotify playlist
-  playlistService.updateMetadata(playlist.id, {});
-  // Use the raw DB update via the playlists repository
   const db = (playlistService as unknown as { db: ReturnType<typeof import("../db/client.js").getDb> }).db;
   const { playlists } = await import("../db/schema.js");
   const { eq } = await import("drizzle-orm");
   db.update(playlists)
-    .set({ spotifyId: repairedSpotifyId, lastSynced: Date.now() })
+    .set({ spotifyId: repairedSpotifyId, lastSynced: Date.now(), brokenTracks: 0 })
     .where(eq(playlists.id, playlist.id))
     .run();
+
+  // Re-sync tracks from the repaired Spotify playlist into local DB
+  const apiTracks = await spotify.getPlaylistTracks(repairedSpotifyId);
+  playlistService.syncPlaylistTracksFromApi(repairedSpotifyId, apiTracks);
 }
