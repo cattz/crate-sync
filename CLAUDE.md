@@ -33,6 +33,16 @@ When building or modifying any UI components, always follow the rules in `design
 - Inline feedback, no toasts/alerts
 - No per-row action buttons — use click-to-navigate + bulk toolbar
 
+## Testing — CRITICAL
+
+**Always write tests for destructive operations before shipping.** Any code that deletes, removes, or modifies data on Spotify, Lexicon, or the local DB MUST have tests covering:
+- Happy path
+- Edge cases (empty data, all-local tracks, null fields)
+- Safety checks (confirmation prompts, refusal to empty playlists)
+- The exact scenario that would cause data loss
+
+Push to Spotify has already destroyed playlists. Never again. Run `npx vitest run` before committing.
+
 ## Workflow
 
 - Use Claude Code native tasks to track work items organically during conversations.
