@@ -346,19 +346,22 @@ export class PlaylistService {
 
     const localTracks = this.getPlaylistTracks(playlistId);
 
-    // Build sets of Spotify URIs
+    // Build sets of Spotify URIs — exclude local/broken URIs entirely
     const localUris = new Set(
       localTracks
         .map((t) => t.spotifyUri)
-        .filter((uri): uri is string => uri != null),
+        .filter((uri): uri is string => uri != null && !uri.startsWith("spotify:local:")),
     );
     const spotifyUris = new Set(spotifyTracks.map((t) => t.uri));
 
-    // URIs in local but not in Spotify → need to add (skip local/broken URIs)
-    const toAdd = [...localUris].filter((uri) => !spotifyUris.has(uri) && !uri.startsWith("spotify:local:"));
+    // URIs in local but not in Spotify → need to add
+    const toAdd = [...localUris].filter((uri) => !spotifyUris.has(uri));
 
     // URIs in Spotify but not in local → need to remove
-    const toRemove = [...spotifyUris].filter((uri) => !localUris.has(uri));
+    // Only remove if we have real local tracks to compare against
+    const toRemove = localUris.size > 0
+      ? [...spotifyUris].filter((uri) => !localUris.has(uri))
+      : []; // Don't remove anything if local only has broken tracks
 
     const renamed = false;
 

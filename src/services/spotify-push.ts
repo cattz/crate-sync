@@ -31,6 +31,18 @@ export async function pushPlaylist(
   const includeDescription = options?.includeDescription ?? true;
 
   const playlist = playlistService.getPlaylist(playlistId);
+
+  // Safety: never push a playlist that has only local/broken tracks
+  if (playlist) {
+    const tracks = playlistService.getPlaylistTracks(playlistId);
+    const hasRealTracks = tracks.some(t => t.spotifyUri && !t.spotifyUri.startsWith("spotify:local:"));
+    if (!hasRealTracks && tracks.length > 0) {
+      throw new Error(
+        `Safety: playlist "${playlist.name}" contains only local/broken tracks. ` +
+        `Repair the playlist first, then push.`
+      );
+    }
+  }
   if (!playlist) {
     throw new Error(`Playlist not found: ${playlistId}`);
   }
