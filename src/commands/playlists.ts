@@ -244,6 +244,49 @@ export function registerPlaylistCommands(program: Command): void {
       }
     });
 
+  // ---------------------------------------------------------------------------
+  // playlists merge <target> <source...>
+  // ---------------------------------------------------------------------------
+
+  playlists
+    .command("merge <target> <source...>")
+    .description("Merge tracks from source playlists into a target playlist")
+    .option("--delete-sources", "Delete source playlists after merge")
+    .action((target: string, sources: string[], opts: { deleteSources?: boolean }) => {
+      try {
+        const db = getDb();
+        const service = PlaylistService.fromDb(db);
+
+        const targetPlaylist = service.getPlaylist(target);
+        if (!targetPlaylist) {
+          console.log(chalk.red(`Target playlist not found: ${target}`));
+          return;
+        }
+
+        const sourceIds: string[] = [];
+        for (const s of sources) {
+          const pl = service.getPlaylist(s);
+          if (!pl) {
+            console.log(chalk.red(`Source playlist not found: ${s}`));
+            return;
+          }
+          sourceIds.push(pl.id);
+        }
+
+        const result = service.mergePlaylists(targetPlaylist.id, sourceIds, opts.deleteSources);
+
+        console.log(chalk.green(`Merged into "${targetPlaylist.name}"`));
+        console.log(`  Added: ${chalk.cyan(String(result.added))} tracks`);
+        console.log(`  Duplicates skipped: ${chalk.dim(String(result.duplicates))}`);
+        if (opts.deleteSources) {
+          console.log(`  Source playlists deleted: ${chalk.yellow(String(result.sourcesDeleted))}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
+    });
+
   playlists
     .command("delete <id>")
     .description("Delete a playlist")

@@ -3,6 +3,7 @@ import {
   matches,
   downloads,
   jobs,
+  playlists as playlistsTable,
   type Playlist,
   type Track,
 } from "../db/schema.js";
@@ -266,6 +267,64 @@ export class PlaylistService {
   removePlaylist(playlistId: string): void {
     this.playlistTracks.removeByPlaylistId(playlistId);
     this.playlists.remove(playlistId);
+  }
+
+  /**
+   * Merge tracks from source playlists into a target playlist (union — no duplicates).
+   * Preserves target's existing track order and appends new tracks at the end.
+   */
+  mergePlaylists(
+    targetId: string,
+    sourceIds: string[],
+    deleteSourcesAfter?: boolean,
+  ): { added: number; duplicates: number; sourcesDeleted: number } {
+    // Get target playlist's existing track IDs (ordered)
+    const targetTracks = this.playlistTracks.findTrackIdsByPlaylistId(targetId);
+    const existingTrackIds = new Set(targetTracks.map((t) => t.trackId));
+    const mergedTrackIds = targetTracks.map((t) => t.trackId);
+
+    let added = 0;
+    let duplicates = 0;
+
+    // For each source playlist, get its tracks in order
+    for (const sourceId of sourceIds) {
+      const sourceTracks = this.playlistTracks.findTrackIdsByPlaylistId(sourceId);
+      for (const st of sourceTracks) {
+        if (existingTrackIds.has(st.trackId)) {
+          duplicates++;
+        } else {
+          existingTrackIds.add(st.trackId);
+          mergedTrackIds.push(st.trackId);
+          added++;
+        }
+      }
+    }
+
+    // Update target's playlist_tracks with the merged list
+    this.playlistTracks.setTracks(targetId, mergedTrackIds);
+
+    // If deleteSourcesAfter, remove source playlists
+    let sourcesDeleted = 0;
+    if (deleteSourcesAfter) {
+      for (const sourceId of sourceIds) {
+        // Don't delete the target if it's also in sources
+        if (sourceId === targetId) continue;
+        this.playlistTracks.removeByPlaylistId(sourceId);
+        this.playlists.remove(sourceId);
+        sourcesDeleted++;
+      }
+    }
+
+    return { added, duplicates, sourcesDeleted };
+  }
+
+  /** Create a new local-only playlist (no Spotify ID). */
+  createLocalPlaylist(name: string): Playlist {
+    return this.db
+      .insert(playlistsTable)
+      .values({ name })
+      .returning()
+      .get();
   }
 
   /**

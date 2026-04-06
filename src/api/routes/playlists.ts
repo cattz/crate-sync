@@ -144,6 +144,60 @@ playlistRoutes.put("/bulk-tags", async (c) => {
   return c.json({ ok: true, updated });
 });
 
+// POST /api/playlists/merge
+playlistRoutes.post("/merge", async (c) => {
+  const svc = getService();
+  const body = await c.req.json<{
+    targetId: string;
+    targetName?: string;
+    sourceIds: string[];
+    deleteSources?: boolean;
+  }>();
+
+  const { targetId, targetName, sourceIds, deleteSources } = body;
+
+  if (!targetId) {
+    return c.json({ error: "targetId is required" }, 400);
+  }
+  if (!sourceIds?.length) {
+    return c.json({ error: "sourceIds is required and must not be empty" }, 400);
+  }
+
+  // Resolve or create the target playlist
+  let resolvedTargetId: string;
+  if (targetId === "new") {
+    if (!targetName?.trim()) {
+      return c.json({ error: "targetName is required when creating a new playlist" }, 400);
+    }
+    const newPlaylist = svc.createLocalPlaylist(targetName.trim());
+    resolvedTargetId = newPlaylist.id;
+  } else {
+    const target = svc.getPlaylist(targetId);
+    if (!target) {
+      return c.json({ error: "Target playlist not found" }, 404);
+    }
+    resolvedTargetId = target.id;
+  }
+
+  // Validate source playlists
+  for (const sid of sourceIds) {
+    const source = svc.getPlaylist(sid);
+    if (!source) {
+      return c.json({ error: `Source playlist not found: ${sid}` }, 404);
+    }
+  }
+
+  const result = svc.mergePlaylists(resolvedTargetId, sourceIds, deleteSources);
+
+  return c.json({
+    ok: true,
+    targetId: resolvedTargetId,
+    added: result.added,
+    duplicates: result.duplicates,
+    sourcesDeleted: result.sourcesDeleted,
+  });
+});
+
 // POST /api/playlists/bulk-rename
 playlistRoutes.post("/bulk-rename", async (c) => {
   const svc = getService();

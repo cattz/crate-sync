@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type BulkRenameParams, type PlaylistMeta } from "./client.js";
+import { api, type BulkRenameParams, type MergePlaylistsParams, type PlaylistMeta } from "./client.js";
 
 export function usePlaylists() {
   return useQuery({ queryKey: ["playlists"], queryFn: api.getPlaylists });
@@ -59,6 +59,17 @@ export function useBulkUpdateTags() {
   return useMutation({
     mutationFn: (params: { playlistIds: string[]; addTags: string[]; removeTags: string[] }) =>
       api.bulkUpdateTags(params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["playlist"] });
+    },
+  });
+}
+
+export function useMergePlaylists() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: MergePlaylistsParams) => api.mergePlaylists(params),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["playlists"] });
       qc.invalidateQueries({ queryKey: ["playlist"] });

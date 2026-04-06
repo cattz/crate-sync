@@ -31,6 +31,11 @@ export const api = {
     request<LexiconPlaylistResult>(`/playlists/${id}/lexicon`, { method: "POST" }),
   updatePlaylistMeta: (id: string, meta: PlaylistMeta) =>
     request<{ ok: boolean }>(`/playlists/${id}`, { method: "PATCH", body: JSON.stringify(meta) }),
+  mergePlaylists: (params: MergePlaylistsParams) =>
+    request<MergePlaylistsResult>("/playlists/merge", {
+      method: "POST",
+      body: JSON.stringify(params),
+    }),
   bulkRename: (params: BulkRenameParams) =>
     request<BulkRenameResult>("/playlists/bulk-rename", {
       method: "POST",
@@ -419,6 +424,21 @@ export interface RecentDownload {
   playlistName: string | null;
   filePath: string | null;
   completedAt: number | null;
+}
+
+export interface MergePlaylistsParams {
+  targetId: string;
+  targetName?: string;
+  sourceIds: string[];
+  deleteSources?: boolean;
+}
+
+export interface MergePlaylistsResult {
+  ok: boolean;
+  targetId: string;
+  added: number;
+  duplicates: number;
+  sourcesDeleted: number;
 }
 
 export interface WishlistItem {

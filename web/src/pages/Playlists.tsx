@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
-import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useBulkRename, useBulkSync, useBulkUpdateTags } from "../api/hooks.js";
+import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useBulkRename, useBulkSync, useBulkUpdateTags, useMergePlaylists } from "../api/hooks.js";
 import type { Playlist, BulkRenamePreview } from "../api/client.js";
 import { useMultiSelect } from "../hooks/useMultiSelect.js";
 import { BulkToolbar } from "../components/BulkToolbar.js";
@@ -396,6 +396,116 @@ function BulkTagEditor({
   );
 }
 
+function MergeModal({
+  selectedPlaylists,
+  allPlaylists,
+  onClose,
+}: {
+  selectedPlaylists: Playlist[];
+  allPlaylists: Playlist[];
+  onClose: () => void;
+}) {
+  const [targetId, setTargetId] = useState<string>("new");
+  const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [deleteSources, setDeleteSources] = useState(false);
+  const merge = useMergePlaylists();
+  const [result, setResult] = useState<{ added: number; duplicates: number } | null>(null);
+
+  const selectedIds = new Set(selectedPlaylists.map((p) => p.id));
+
+  // Target options: all playlists NOT in the selection, plus "new"
+  const targetOptions = allPlaylists.filter((p) => !selectedIds.has(p.id));
+
+  const canMerge = targetId === "new" ? newPlaylistName.trim().length > 0 : true;
+
+  const handleMerge = async () => {
+    const sourceIds = selectedPlaylists.map((p) => p.id);
+    const data = await merge.mutateAsync({
+      targetId,
+      targetName: targetId === "new" ? newPlaylistName.trim() : undefined,
+      sourceIds,
+      deleteSources,
+    });
+    setResult({ added: data.added, duplicates: data.duplicates });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 400 }}>
+        <h3 style={{ marginBottom: "0.75rem" }}>Merge {selectedPlaylists.length} playlists</h3>
+
+        <div style={{ marginBottom: "0.75rem" }}>
+          <label className="text-sm text-muted" style={{ display: "block", marginBottom: "0.25rem" }}>Target playlist</label>
+          <select
+            value={targetId}
+            onChange={(e) => setTargetId(e.target.value)}
+            style={{ width: "100%", marginBottom: "0.5rem" }}
+          >
+            <option value="new">Create new playlist</option>
+            {targetOptions.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+
+          {targetId === "new" && (
+            <input
+              type="text"
+              value={newPlaylistName}
+              onChange={(e) => setNewPlaylistName(e.target.value)}
+              placeholder="New playlist name..."
+              style={{ width: "100%", marginBottom: "0.5rem" }}
+              autoFocus
+            />
+          )}
+        </div>
+
+        <div style={{ marginBottom: "0.75rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={deleteSources}
+              onChange={(e) => setDeleteSources(e.target.checked)}
+            />
+            <span className="text-sm">Delete source playlists after merge</span>
+          </label>
+        </div>
+
+        <div style={{ marginBottom: "0.75rem" }}>
+          <label className="text-sm text-muted" style={{ display: "block", marginBottom: "0.25rem" }}>Source playlists</label>
+          <ul style={{ paddingLeft: "1.25rem", maxHeight: 150, overflow: "auto", margin: 0 }}>
+            {selectedPlaylists.map((p) => (
+              <li key={p.id} className="text-sm">{p.name} ({p.trackCount} tracks)</li>
+            ))}
+          </ul>
+        </div>
+
+        {result && (
+          <p className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
+            Added {result.added} tracks, {result.duplicates} duplicates skipped
+          </p>
+        )}
+
+        {merge.isError && (
+          <p style={{ color: "var(--danger)", marginBottom: "0.5rem" }}>{merge.error.message}</p>
+        )}
+
+        <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
+          <button onClick={onClose}>Cancel</button>
+          {!result && (
+            <button
+              className="primary"
+              onClick={handleMerge}
+              disabled={!canMerge || merge.isPending}
+            >
+              {merge.isPending ? "Merging..." : "Merge"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Playlists() {
   const { data: playlists, isLoading } = usePlaylists();
   const [params, setParams] = useSearchParams();
@@ -427,6 +537,7 @@ export function Playlists() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showBulkRename, setShowBulkRename] = useState(false);
   const [showBulkTags, setShowBulkTags] = useState(false);
+  const [showMerge, setShowMerge] = useState(false);
   const bulkSync = useBulkSync();
   const [bulkSyncResult, setBulkSyncResult] = useState<string | null>(null);
 
@@ -679,6 +790,9 @@ export function Playlists() {
         <button onClick={() => setShowBulkTags(true)}>
           Edit Tags
         </button>
+        <button onClick={() => setShowMerge(true)}>
+          Merge
+        </button>
         <button onClick={() => setShowBulkRename(true)}>
           Bulk Rename
         </button>
@@ -702,6 +816,17 @@ export function Playlists() {
           playlists={(playlists ?? []).filter((p) => selection.selected.has(p.id))}
           onClose={() => {
             setBulkDeleting(false);
+            selection.clear();
+          }}
+        />
+      )}
+
+      {showMerge && (
+        <MergeModal
+          selectedPlaylists={(playlists ?? []).filter((p) => selection.selected.has(p.id))}
+          allPlaylists={playlists ?? []}
+          onClose={() => {
+            setShowMerge(false);
             selection.clear();
           }}
         />
