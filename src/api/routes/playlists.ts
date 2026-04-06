@@ -246,7 +246,8 @@ playlistRoutes.post("/:id/repair", async (c) => {
   }
 
   try {
-    const report = await repairPlaylist(playlist.id, svc, spotify);
+    const body = await c.req.json<{ keepNotFound?: boolean }>().catch(() => ({}));
+    const report = await repairPlaylist(playlist.id, svc, spotify, { keepNotFound: body.keepNotFound });
     return c.json(report);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

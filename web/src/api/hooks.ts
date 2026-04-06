@@ -103,7 +103,8 @@ export function useCreateLexiconPlaylist() {
 export function useRepairPlaylist() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.repairPlaylist(id),
+    mutationFn: (params: { id: string; keepNotFound?: boolean }) =>
+      api.repairPlaylist(params.id, { keepNotFound: params.keepNotFound }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["playlists"] });
       qc.invalidateQueries({ queryKey: ["playlist"] });

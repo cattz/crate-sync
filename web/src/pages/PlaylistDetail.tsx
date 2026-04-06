@@ -78,6 +78,7 @@ export function PlaylistDetail() {
   const acceptRepairMut = useAcceptRepair();
   const [repairReport, setRepairReport] = useState<RepairReport | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
+  const [keepNotFound, setKeepNotFound] = useState(true);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -233,13 +234,13 @@ export function PlaylistDetail() {
   const handleRepair = useCallback(async () => {
     if (!id) return;
     try {
-      const report = await repair.mutateAsync(id);
+      const report = await repair.mutateAsync({ id, keepNotFound });
       setRepairReport(report);
       setRepairOpen(true);
     } catch {
       // error handled by mutation state
     }
-  }, [id, repair]);
+  }, [id, repair, keepNotFound]);
 
   const handleAcceptRepair = useCallback(async () => {
     if (!id || !repairReport) return;
@@ -334,13 +335,19 @@ export function PlaylistDetail() {
             </span>
           )}
           {hasBrokenTracks && (
-            <button
-              onClick={handleRepair}
-              disabled={repair.isPending}
-              style={{ borderColor: "var(--warning)", color: "var(--warning)" }}
-            >
-              {repair.isPending ? "Repairing..." : "Repair"}
-            </button>
+            <>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                <input type="checkbox" checked={keepNotFound} onChange={(e) => setKeepNotFound(e.target.checked)} />
+                Keep unfound
+              </label>
+              <button
+                onClick={handleRepair}
+                disabled={repair.isPending}
+                style={{ borderColor: "var(--warning)", color: "var(--warning)" }}
+              >
+                {repair.isPending ? "Repairing..." : "Repair"}
+              </button>
+            </>
           )}
           <button
             onClick={() => push.mutate(playlist.id)}

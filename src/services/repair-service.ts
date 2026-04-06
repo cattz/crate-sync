@@ -95,6 +95,7 @@ export async function repairPlaylist(
   playlistId: string,
   playlistService: PlaylistService,
   spotify: SpotifyApiClient,
+  options?: { keepNotFound?: boolean },
 ): Promise<RepairReport> {
   const playlist = playlistService.getPlaylist(playlistId);
   if (!playlist) throw new Error(`Playlist not found: ${playlistId}`);
@@ -136,10 +137,15 @@ export async function repairPlaylist(
         repairedUris.push(match.uri);
       } else {
         notFound.push({ id: track.id, title: track.title, artist: track.artist });
-        // Skip — don't add not-found tracks to the repaired playlist
+        if (options?.keepNotFound && track.spotifyUri) {
+          repairedUris.push(track.spotifyUri);
+        }
       }
     } catch {
       notFound.push({ id: track.id, title: track.title, artist: track.artist });
+      if (options?.keepNotFound && track.spotifyUri) {
+        repairedUris.push(track.spotifyUri);
+      }
     }
   }
 
