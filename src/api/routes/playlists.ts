@@ -97,11 +97,17 @@ playlistRoutes.post("/:id/pull", async (c) => {
   const authenticated = await spotify.isAuthenticated();
   if (!authenticated) return c.json({ error: "Spotify not authenticated" }, 401);
 
-  emitJobEvent("spotify-pull", "job-started", "running", { playlistName: playlist.name }, "spotify_sync");
-  const apiTracks = await spotify.getPlaylistTracks(playlist.spotifyId);
-  const result = svc.syncPlaylistTracksFromApi(playlist.spotifyId, apiTracks);
-  emitJobEvent("spotify-pull", "job-done", "done", { playlistName: playlist.name, ...result }, "spotify_sync");
-  return c.json({ ok: true, ...result });
+  try {
+    emitJobEvent("spotify-pull", "job-started", "running", { playlistName: playlist.name }, "spotify_sync");
+    const apiTracks = await spotify.getPlaylistTracks(playlist.spotifyId);
+    const result = svc.syncPlaylistTracksFromApi(playlist.spotifyId, apiTracks);
+    emitJobEvent("spotify-pull", "job-done", "done", { playlistName: playlist.name, ...result }, "spotify_sync");
+    return c.json({ ok: true, added: result.added, updated: result.updated, removed: 0 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    emitJobEvent("spotify-pull", "job-failed", "failed", { playlistName: playlist.name, error: message }, "spotify_sync");
+    return c.json({ error: message }, 500);
+  }
 });
 
 // PUT /api/playlists/bulk-tags
