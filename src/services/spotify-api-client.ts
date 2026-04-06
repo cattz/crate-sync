@@ -297,19 +297,19 @@ export class SpotifyApiClient {
   }
 
   private mapTrack(raw: Record<string, unknown>, isLocal?: boolean): SpotifyTrack {
-    const artists = raw.artists as Array<Record<string, unknown>>;
-    const album = raw.album as Record<string, unknown>;
+    const artists = (raw.artists as Array<Record<string, unknown>> | null) ?? [];
+    const album = raw.album as Record<string, unknown> | null;
     const externalIds = (raw.external_ids as Record<string, unknown>) ?? {};
 
     return {
-      id: String(raw.id),
-      title: String(raw.name),
-      artist: artists.map((a) => String(a.name)).join(", "),
-      artists: artists.map((a) => String(a.name)),
-      album: album ? String(album.name) : "",
-      durationMs: Number(raw.duration_ms),
+      id: String(raw.id ?? `local_${Date.now()}`),
+      title: String(raw.name ?? ""),
+      artist: artists.map((a) => String(a.name ?? "")).filter(Boolean).join(", ") || "(Unknown)",
+      artists: artists.map((a) => String(a.name ?? "")).filter(Boolean),
+      album: album ? String(album.name ?? "") : "",
+      durationMs: Number(raw.duration_ms ?? 0),
       isrc: externalIds.isrc ? String(externalIds.isrc) : undefined,
-      uri: String(raw.uri),
+      uri: String(raw.uri ?? ""),
       isLocal: isLocal ?? (raw.is_local === true),
     };
   }
@@ -358,7 +358,19 @@ export class SpotifyApiClient {
       };
 
       for (const item of data.items) {
-        if (!item.track) continue;
+        if (!item.track) {
+          // Null track object — create placeholder with whatever info we have
+          result.push({
+            id: `broken_${Date.now()}_${result.length}`,
+            title: "(Unavailable track)",
+            artist: "(Unknown)",
+            album: "",
+            durationMs: 0,
+            uri: `spotify:local:::broken:${result.length}`,
+            isLocal: true,
+          });
+          continue;
+        }
         result.push(this.mapTrack(item.track, item.is_local));
       }
 

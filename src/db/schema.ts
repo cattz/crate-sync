@@ -36,6 +36,7 @@ export const playlists = sqliteTable("playlists", {
   tags: text("tags"),             // JSON string, e.g. '["techno","house"]'
   notes: text("notes"),
   pinned: integer("pinned").default(0),
+  brokenTracks: integer("broken_tracks").default(0),
   lastSynced: integer("last_synced"),
   createdAt,
   updatedAt,

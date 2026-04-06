@@ -1,0 +1,1 @@
+ALTER TABLE `playlists` ADD `broken_tracks` integer DEFAULT 0;
