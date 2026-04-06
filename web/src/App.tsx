@@ -107,9 +107,6 @@ function StatusBar() {
     return () => es.close();
   }, [addLine]);
 
-  const hasContent = lines.length > 0 || dlSummary.activeCount > 0;
-  if (!hasContent) return null;
-
   return (
     <div className="status-bar">
       {dlSummary.activeCount > 0 && (
@@ -125,6 +122,11 @@ function StatusBar() {
                 : `${(dlSummary.totalSpeed / 1_000).toFixed(0)} KB/s`}
             </span>
           )}
+        </div>
+      )}
+      {lines.length === 0 && dlSummary.activeCount === 0 && (
+        <div className="status-line">
+          <span className="text-muted">Idle</span>
         </div>
       )}
       {lines.map((line, i) => (

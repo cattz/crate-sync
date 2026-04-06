@@ -8,6 +8,7 @@ import { pushPlaylist } from "../../services/spotify-push.js";
 import { repairPlaylist, acceptRepair } from "../../services/repair-service.js";
 import { playlists, playlistTracks, tracks, matches } from "../../db/schema.js";
 import { eq, and, sql, inArray } from "drizzle-orm";
+import { emitJobEvent } from "../../jobs/runner.js";
 
 export const playlistRoutes = new Hono();
 
@@ -64,8 +65,12 @@ playlistRoutes.post("/sync", async (c) => {
   const syncable = allPlaylists.filter((pl) => pl.spotifyId);
 
   let tracksSynced = 0;
-  for (const pl of syncable) {
+  emitJobEvent("spotify-sync", "job-started", "running", { playlistName: `Syncing ${syncable.length} playlists` }, "spotify_sync");
+
+  for (let i = 0; i < syncable.length; i++) {
+    const pl = syncable[i];
     try {
+      emitJobEvent("spotify-sync", "job-started", "running", { playlistName: pl.name, progress: `${i + 1}/${syncable.length}` }, "spotify_sync");
       const apiTracks = await spotify.getPlaylistTracks(pl.spotifyId!);
       const trackResult = playlistService.syncPlaylistTracksFromApi(pl.spotifyId!, apiTracks);
       tracksSynced += trackResult.added + trackResult.updated;
@@ -73,6 +78,8 @@ playlistRoutes.post("/sync", async (c) => {
       // continue with other playlists
     }
   }
+
+  emitJobEvent("spotify-sync", "job-done", "done", { playlistName: `${syncable.length} playlists, ${tracksSynced} tracks synced` }, "spotify_sync");
 
   return c.json({ ok: true, ...result, tracksSynced });
 });
