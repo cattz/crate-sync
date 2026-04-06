@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useParams, Link, useNavigate } from "react-router";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router";
 import { usePlaylist, usePlaylistTracks, usePlaylists, useStartSync, useRenamePlaylist, useDeletePlaylist, usePushPlaylist, usePullPlaylist, useUpdatePlaylistMeta, useCreateLexiconPlaylist, useRepairPlaylist, useAcceptRepair } from "../api/hooks.js";
 import { api, type TrackStatus, type RepairReport } from "../api/client.js";
 import { SpotifyPlayButton } from "../components/SpotifyPlayButton.js";
@@ -83,10 +83,26 @@ export function PlaylistDetail() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [newName, setNewName] = useState("");
-  const [trackSearch, setTrackSearch] = useState("");
-  const [trackSortKey, setTrackSortKey] = useState<TrackSortKey>("position");
-  const [trackSortDir, setTrackSortDir] = useState<SortDir>("asc");
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  // Persist search/sort/filter in URL params so state survives navigation
+  const [params, setParams] = useSearchParams();
+  const trackSearch = params.get("q") ?? "";
+  const trackSortKey = (params.get("sort") ?? "position") as TrackSortKey;
+  const trackSortDir = (params.get("dir") ?? "asc") as SortDir;
+  const statusFilter = params.get("status") ?? "";
+
+  const setParam = useCallback((key: string, value: string, fallback: string) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value === fallback) next.delete(key);
+      else next.set(key, value);
+      return next;
+    }, { replace: true });
+  }, [setParams]);
+
+  const setTrackSearch = useCallback((v: string) => setParam("q", v, ""), [setParam]);
+  const setTrackSortKey = useCallback((v: TrackSortKey) => setParam("sort", v, "position"), [setParam]);
+  const setTrackSortDir = useCallback((v: SortDir) => setParam("dir", v, "asc"), [setParam]);
+  const setStatusFilter = useCallback((v: string) => setParam("status", v, ""), [setParam]);
   const [notesValue, setNotesValue] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState("");
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
@@ -143,12 +159,17 @@ export function PlaylistDetail() {
   }, [id, startSync]);
 
   function handleTrackSort(key: TrackSortKey) {
-    if (key === trackSortKey) {
-      setTrackSortDir(trackSortDir === "asc" ? "desc" : "asc");
-    } else {
-      setTrackSortKey(key);
-      setTrackSortDir("asc");
-    }
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (key === trackSortKey) {
+        const newDir = trackSortDir === "asc" ? "desc" : "asc";
+        if (newDir === "asc") next.delete("dir"); else next.set("dir", newDir);
+      } else {
+        if (key === "position") next.delete("sort"); else next.set("sort", key);
+        next.delete("dir");
+      }
+      return next;
+    }, { replace: true });
   }
 
   const STATUS_ORDER: Record<string, number> = {
