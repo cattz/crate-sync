@@ -311,7 +311,7 @@ export class SpotifyApiClient {
     const externalIds = (raw.external_ids as Record<string, unknown>) ?? {};
 
     return {
-      id: String(raw.id ?? `local_${Date.now()}`),
+      id: String(raw.id ?? raw.uri ?? `local_${Date.now()}`),
       title: String(raw.name ?? ""),
       artist: artists.map((a) => String(a.name ?? "")).filter(Boolean).join(", ") || "(Unknown)",
       artists: artists.map((a) => String(a.name ?? "")).filter(Boolean),
