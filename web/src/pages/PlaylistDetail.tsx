@@ -173,7 +173,11 @@ export function PlaylistDetail() {
     }
 
     if (statusFilter) {
-      list = list.filter((t) => t.trackStatus === statusFilter);
+      if (statusFilter === "local") {
+        list = list.filter((t) => t.isLocal === 1 || t.spotifyUri?.startsWith("spotify:local:"));
+      } else {
+        list = list.filter((t) => t.trackStatus === statusFilter);
+      }
     }
 
     return [...list].sort((a, b) => {
@@ -513,6 +517,7 @@ export function PlaylistDetail() {
             <option value="search_failed">Not Found</option>
             <option value="wishlisted">Wishlisted</option>
             <option value="not_matched">Not Matched</option>
+            <option value="local">Local/Broken</option>
           </select>
           <input
             type="text"
@@ -542,8 +547,10 @@ export function PlaylistDetail() {
             </tr>
           </thead>
           <tbody>
-            {filteredTracks.map((t, i) => (
-              <tr key={t.id} onClick={() => navigate(`/tracks/${t.id}`)} style={{ cursor: "pointer" }}>
+            {filteredTracks.map((t, i) => {
+              const isBroken = t.isLocal === 1 || (t.spotifyUri?.startsWith("spotify:local:") ?? false);
+              return (
+              <tr key={t.id} onClick={() => navigate(`/tracks/${t.id}`)} style={{ cursor: "pointer", opacity: isBroken ? 0.5 : 1, background: isBroken ? "rgba(231,76,60,0.05)" : undefined }}>
                 <td className="text-muted">{(t.position ?? i) + 1}</td>
                 <td style={{ display: "flex", alignItems: "center", gap: "0.4rem", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
                   <SpotifyPlayButton type="track" spotifyId={t.spotifyId} size={14} />
@@ -552,9 +559,15 @@ export function PlaylistDetail() {
                 <td className="text-muted" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={t.artist}>{t.artist}</td>
                 <td className="text-muted" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={t.album ?? ""}>{t.album ?? ""}</td>
                 <td className="text-muted mono text-sm">{formatDuration(t.durationMs)}</td>
-                <td><StatusBadge status={t.trackStatus} /></td>
+                <td>
+                  {isBroken
+                    ? <span className="badge badge-red">Local</span>
+                    : <StatusBadge status={t.trackStatus} />
+                  }
+                </td>
               </tr>
-            ))}
+              );
+            })}
             {filteredTracks.length === 0 && tracks && tracks.length > 0 && (
               <tr>
                 <td colSpan={6} className="text-muted">No tracks match your filter.</td>
