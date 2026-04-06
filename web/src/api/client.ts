@@ -185,6 +185,7 @@ export interface Playlist {
   tags: string | null;
   notes: string | null;
   pinned: number | null;
+  brokenTracks: number | null;
   lastSynced: number | null;
   trackCount: number;
   createdAt: number;

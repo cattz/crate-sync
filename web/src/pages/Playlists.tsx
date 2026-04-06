@@ -736,7 +736,14 @@ export function Playlists() {
                     ))}
                   </div>
                 </td>
-                <td>{p.trackCount}</td>
+                <td>
+                  {p.trackCount}
+                  {(p.brokenTracks ?? 0) > 0 && (
+                    <span className="badge badge-red" style={{ marginLeft: "0.3rem", fontSize: "0.65rem" }} title={`${p.brokenTracks} broken/local tracks`}>
+                      {p.brokenTracks}
+                    </span>
+                  )}
+                </td>
                 {ownership !== "own" && (
                   <td className="text-muted text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={p.isOwned === 1 ? "You" : (p.ownerName ?? "")}>
                     {p.isOwned === 1 ? "You" : (p.ownerName ?? "—")}
