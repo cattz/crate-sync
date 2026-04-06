@@ -321,9 +321,10 @@ playlistRoutes.post("/:id/push", async (c) => {
     return c.json({ error: "Spotify not authenticated" }, 401);
   }
 
-  const body = await c.req.json<{ dryRun?: boolean }>().catch(() => ({ dryRun: undefined }));
+  const body = await c.req.json<{ dryRun?: boolean; confirmed?: boolean }>().catch(() => ({}));
   const summary = await pushPlaylist(playlist.id, spotify, svc, {
     dryRun: body.dryRun,
+    confirmed: body.confirmed,
   });
 
   return c.json(summary);

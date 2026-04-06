@@ -90,7 +90,8 @@ export function useSyncPlaylists() {
 
 export function usePushPlaylist() {
   return useMutation({
-    mutationFn: (id: string) => api.pushPlaylist(id),
+    mutationFn: (params: { id: string; confirmed?: boolean }) =>
+      api.pushPlaylist(params.id, { confirmed: params.confirmed }),
   });
 }
 

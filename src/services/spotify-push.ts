@@ -4,6 +4,8 @@ import type { PlaylistService } from "./playlist-service.js";
 export interface PushOptions {
   dryRun?: boolean;
   includeDescription?: boolean;
+  /** Skip confirmation for large removals. */
+  confirmed?: boolean;
 }
 
 export interface PushSummary {
@@ -14,6 +16,9 @@ export interface PushSummary {
   tracksAdded: number;
   tracksRemoved: number;
   dryRun: boolean;
+  /** Set when push requires confirmation before proceeding. */
+  requiresConfirmation?: boolean;
+  confirmationMessage?: string;
 }
 
 export async function pushPlaylist(
@@ -72,6 +77,22 @@ export async function pushPlaylist(
           `This usually means the local DB is out of sync. Run "Pull from Spotify" first.`
         );
       }
+
+      // Safety: require confirmation when removing more than 3 tracks
+      if (diff.toRemove.length > 3 && !options?.confirmed) {
+        return {
+          playlistId: playlist.id,
+          playlistName: playlist.name,
+          renamed: nameChanged ? { from: spotifyDetails.name, to: playlist.name } : null,
+          descriptionUpdated: false,
+          tracksAdded: diff.toAdd.length,
+          tracksRemoved: diff.toRemove.length,
+          dryRun: false,
+          requiresConfirmation: true,
+          confirmationMessage: `This push will remove ${diff.toRemove.length} tracks from "${playlist.name}" on Spotify. Confirm?`,
+        };
+      }
+
       await spotifyService.removeTracksFromPlaylist(spotifyId, diff.toRemove);
     }
     if (diff.toAdd.length > 0) {

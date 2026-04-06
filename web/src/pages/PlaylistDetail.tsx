@@ -371,7 +371,17 @@ export function PlaylistDetail() {
             </>
           )}
           <button
-            onClick={() => push.mutate(playlist.id)}
+            onClick={() => {
+              push.mutate({ id: playlist.id }, {
+                onSuccess: (data) => {
+                  if (data.requiresConfirmation) {
+                    if (confirm(data.confirmationMessage ?? `Remove ${data.tracksRemoved} tracks?`)) {
+                      push.mutate({ id: playlist.id, confirmed: true });
+                    }
+                  }
+                },
+              });
+            }}
             disabled={push.isPending || playlist.isOwned === 0 || !playlist.spotifyId}
           >
             {push.isPending ? "Pushing..." : "Push to Spotify"}
@@ -411,7 +421,7 @@ export function PlaylistDetail() {
       )}
 
       {/* Push result */}
-      {push.isSuccess && (
+      {push.isSuccess && !push.data.requiresConfirmation && (
         <div className="text-sm" style={{ color: "var(--accent)", marginBottom: "0.5rem" }}>
           Push: {push.data.tracksAdded} added, {push.data.tracksRemoved} removed{push.data.renamed ? ", renamed" : ""}{push.data.descriptionUpdated ? ", description updated" : ""}
         </div>

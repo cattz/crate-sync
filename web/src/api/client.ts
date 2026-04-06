@@ -23,8 +23,11 @@ export const api = {
     request<{ ok: boolean }>(`/playlists/${id}/rename`, { method: "PUT", body: JSON.stringify({ name }) }),
   deletePlaylist: (id: string) =>
     request<{ ok: boolean }>(`/playlists/${id}`, { method: "DELETE" }),
-  pushPlaylist: (id: string) =>
-    request<PushResult>(`/playlists/${id}/push`, { method: "POST" }),
+  pushPlaylist: (id: string, options?: { confirmed?: boolean }) =>
+    request<PushResult>(`/playlists/${id}/push`, {
+      method: "POST",
+      body: JSON.stringify(options ?? {}),
+    }),
   pullPlaylist: (id: string) =>
     request<{ ok: boolean; added: number; updated: number; removed: number }>(`/playlists/${id}/pull`, { method: "POST" }),
   createLexiconPlaylist: (id: string) =>
@@ -409,9 +412,11 @@ export interface PushResult {
   ok: boolean;
   renamed: boolean;
   descriptionUpdated: boolean;
-  added: number;
-  removed: number;
+  tracksAdded: number;
+  tracksRemoved: number;
   message?: string;
+  requiresConfirmation?: boolean;
+  confirmationMessage?: string;
 }
 
 export interface BulkRenameParams {
