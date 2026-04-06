@@ -252,6 +252,9 @@ export function PlaylistDetail() {
     );
   }, [tracks]);
 
+  // Disable all action buttons when any operation is in progress
+  const anyBusy = pull.isPending || push.isPending || repair.isPending || startSync.isPending || createLexicon.isPending;
+
   const handleRepair = useCallback(async () => {
     if (!id) return;
     try {
@@ -333,11 +336,11 @@ export function PlaylistDetail() {
           </button>
           <button
             onClick={() => pull.mutate(playlist.id)}
-            disabled={pull.isPending || !playlist.spotifyId}
+            disabled={anyBusy || !playlist.spotifyId}
           >
             {pull.isPending ? "Pulling..." : "Pull from Spotify"}
           </button>
-          <button className="primary" onClick={handleStartSync} disabled={startSync.isPending || (!!syncPhase && syncPhase !== "done")}>
+          <button className="primary" onClick={handleStartSync} disabled={anyBusy || (!!syncPhase && syncPhase !== "done")}>
             Match & Tag in Lexicon
           </button>
           {syncBadge === "syncing" && (
@@ -363,7 +366,7 @@ export function PlaylistDetail() {
               </label>
               <button
                 onClick={handleRepair}
-                disabled={repair.isPending}
+                disabled={anyBusy}
                 style={{ borderColor: "var(--warning)", color: "var(--warning)" }}
               >
                 {repair.isPending ? "Repairing..." : "Repair"}
@@ -382,26 +385,26 @@ export function PlaylistDetail() {
                 },
               });
             }}
-            disabled={push.isPending || playlist.isOwned === 0 || !playlist.spotifyId}
+            disabled={anyBusy || playlist.isOwned === 0 || !playlist.spotifyId}
           >
             {push.isPending ? "Pushing..." : "Push to Spotify"}
           </button>
           <button
             onClick={() => createLexicon.mutate(playlist.id)}
-            disabled={createLexicon.isPending}
+            disabled={anyBusy}
           >
             {createLexicon.isPending ? "Creating..." : "Create Lexicon Playlist"}
           </button>
           <button
             onClick={() => { setNewName(playlist.name); setRenameOpen(true); }}
-            disabled={playlist.isOwned === 0}
+            disabled={anyBusy || playlist.isOwned === 0}
           >
             Rename
           </button>
           <button
             className="danger"
             onClick={() => setDeleteOpen(true)}
-            disabled={playlist.isOwned === 0}
+            disabled={anyBusy || playlist.isOwned === 0}
           >
             Delete
           </button>
