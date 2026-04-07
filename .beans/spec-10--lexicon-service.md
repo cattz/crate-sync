@@ -1,7 +1,7 @@
 ---
 # spec-10
 title: "Lexicon service"
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E2

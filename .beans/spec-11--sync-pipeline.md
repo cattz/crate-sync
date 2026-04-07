@@ -1,7 +1,7 @@
 ---
 # spec-11
 title: "Sync pipeline"
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E2

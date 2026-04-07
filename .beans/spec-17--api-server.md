@@ -1,7 +1,7 @@
 ---
 # spec-17
 title: API server
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E4

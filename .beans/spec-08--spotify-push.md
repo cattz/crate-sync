@@ -1,7 +1,7 @@
 ---
 # spec-08
 title: Spotify push (local to Spotify sync)
-status: todo
+status: completed
 type: task
 priority: high
 parent: spec-E1

@@ -1,7 +1,7 @@
 ---
 # spec-19
 title: "CLI: commands and entry point"
-status: todo
+status: completed
 type: task
 priority: high
 parent: spec-E4

@@ -1,7 +1,7 @@
 ---
 # spec-05
 title: Utility modules
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E0

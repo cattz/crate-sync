@@ -1,7 +1,7 @@
 ---
 # spec-03
 title: Configuration module
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E0

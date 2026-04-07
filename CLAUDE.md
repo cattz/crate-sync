@@ -47,3 +47,6 @@ Push to Spotify has already destroyed playlists. Never again. Run `npx vitest ru
 
 - Use Claude Code native tasks to track work items organically during conversations.
 - Commit changes for each bean (work package) separately before moving on to the next one.
+- **Before every commit:**
+  - Update CHANGELOG and any relevant docs (README, etc.)
+  - Update the bean status (`.beans/` frontmatter) if the work completes or advances a bean

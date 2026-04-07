@@ -1,7 +1,7 @@
 ---
 # spec-14
 title: "Soulseek service (slskd client)"
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E3

@@ -1,7 +1,7 @@
 ---
 # spec-06
 title: Spotify service
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E1

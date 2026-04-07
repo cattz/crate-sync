@@ -1,7 +1,7 @@
 ---
 # spec-04
 title: Database schema and client
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E0

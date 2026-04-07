@@ -1,7 +1,7 @@
 ---
 # spec-18
 title: API routes
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E4

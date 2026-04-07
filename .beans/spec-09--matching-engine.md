@@ -1,7 +1,7 @@
 ---
 # spec-09
 title: "Matching engine"
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E2

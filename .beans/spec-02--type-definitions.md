@@ -1,7 +1,7 @@
 ---
 # spec-02
 title: Type definitions
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E0

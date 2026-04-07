@@ -1,7 +1,7 @@
 ---
 # spec-07
 title: Playlist service (DB-only operations)
-status: todo
+status: completed
 type: task
 priority: high
 parent: spec-E1

@@ -1,7 +1,7 @@
 ---
 # spec-12
 title: "Review service"
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E2

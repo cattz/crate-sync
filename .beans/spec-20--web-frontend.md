@@ -1,7 +1,7 @@
 ---
 # spec-20
 title: "Web frontend"
-status: todo
+status: completed
 type: task
 priority: high
 parent: spec-E5

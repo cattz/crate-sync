@@ -1,7 +1,7 @@
 ---
 # spec-15
 title: "Download pipeline"
-status: todo
+status: completed
 type: task
 priority: high
 parent: spec-E3

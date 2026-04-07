@@ -1,7 +1,7 @@
 ---
 # spec-E4
 title: "Orchestration: job queue, API, CLI"
-status: todo
+status: completed
 type: epic
 priority: high
 created_at: 2026-03-29T00:00:00Z

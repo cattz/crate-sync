@@ -1,7 +1,7 @@
 ---
 # spec-13
 title: "Search query builder"
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E3

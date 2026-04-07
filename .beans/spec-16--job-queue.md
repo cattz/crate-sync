@@ -1,7 +1,7 @@
 ---
 # spec-16
 title: "Job queue: runner and handlers"
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E4

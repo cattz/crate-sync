@@ -1,7 +1,7 @@
 ---
 # spec-E1
 title: "Spotify sync and playlist management"
-status: todo
+status: completed
 type: epic
 priority: critical
 created_at: 2026-03-29T00:00:00Z

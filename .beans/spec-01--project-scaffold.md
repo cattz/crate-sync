@@ -1,7 +1,7 @@
 ---
 # spec-01
 title: Project scaffold and build tooling
-status: todo
+status: completed
 type: task
 priority: critical
 parent: spec-E0
