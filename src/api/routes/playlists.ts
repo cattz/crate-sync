@@ -168,9 +168,10 @@ playlistRoutes.post("/merge", async (c) => {
     targetName?: string;
     sourceIds: string[];
     deleteSources?: boolean;
+    dryRun?: boolean;
   }>();
 
-  const { targetId, targetName, sourceIds, deleteSources } = body;
+  const { targetId, targetName, sourceIds, deleteSources, dryRun } = body;
 
   if (!targetId) {
     return c.json({ error: "targetId is required" }, 400);
@@ -182,6 +183,9 @@ playlistRoutes.post("/merge", async (c) => {
   // Resolve or create the target playlist
   let resolvedTargetId: string;
   if (targetId === "new") {
+    if (dryRun) {
+      return c.json({ error: "Cannot create a new playlist in dry-run mode" }, 400);
+    }
     if (!targetName?.trim()) {
       return c.json({ error: "targetName is required when creating a new playlist" }, 400);
     }
@@ -197,21 +201,30 @@ playlistRoutes.post("/merge", async (c) => {
 
   // Validate source playlists
   for (const sid of sourceIds) {
+    if (sid === resolvedTargetId) {
+      return c.json({ error: "Cannot merge a playlist into itself" }, 400);
+    }
     const source = svc.getPlaylist(sid);
     if (!source) {
       return c.json({ error: `Source playlist not found: ${sid}` }, 404);
     }
   }
 
-  const result = svc.mergePlaylists(resolvedTargetId, sourceIds, deleteSources);
+  try {
+    const result = svc.mergePlaylists(resolvedTargetId, sourceIds, { deleteSources, dryRun });
 
-  return c.json({
-    ok: true,
-    targetId: resolvedTargetId,
-    added: result.added,
-    duplicates: result.duplicates,
-    sourcesDeleted: result.sourcesDeleted,
-  });
+    return c.json({
+      ok: true,
+      targetId: resolvedTargetId,
+      added: result.added,
+      duplicates: result.duplicates,
+      sourcesDeleted: result.sourcesDeleted,
+      dryRun: !!dryRun,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: message }, 400);
+  }
 });
 
 // POST /api/playlists/bulk-rename
@@ -238,6 +251,55 @@ playlistRoutes.post("/bulk-rename", async (c) => {
 });
 
 // ---- :id/subpath routes (before bare :id) ----
+
+// POST /api/playlists/:id/merge — merge sources into the playlist identified by :id
+playlistRoutes.post("/:id/merge", async (c) => {
+  const svc = getService();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) {
+    return c.json({ error: "Playlist not found" }, 404);
+  }
+
+  const body = await c.req.json<{
+    sourceIds: string[];
+    deleteSources?: boolean;
+    dryRun?: boolean;
+  }>();
+
+  const { sourceIds, deleteSources, dryRun } = body;
+
+  if (!sourceIds?.length) {
+    return c.json({ error: "sourceIds is required and must not be empty" }, 400);
+  }
+
+  // Validate source playlists
+  for (const sid of sourceIds) {
+    if (sid === playlist.id) {
+      return c.json({ error: "Cannot merge a playlist into itself" }, 400);
+    }
+    const source = svc.getPlaylist(sid);
+    if (!source) {
+      return c.json({ error: `Source playlist not found: ${sid}` }, 404);
+    }
+  }
+
+  try {
+    const result = svc.mergePlaylists(playlist.id, sourceIds, { deleteSources, dryRun });
+
+    return c.json({
+      ok: true,
+      targetId: playlist.id,
+      added: result.added,
+      duplicates: result.duplicates,
+      sourcesDeleted: result.sourcesDeleted,
+      dryRun: !!dryRun,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: message }, 400);
+  }
+});
 
 // POST /api/playlists/:id/repair — repair broken/local tracks
 playlistRoutes.post("/:id/repair", async (c) => {

@@ -588,4 +588,231 @@ describe("PlaylistService", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // mergePlaylists
+  // -------------------------------------------------------------------------
+  describe("mergePlaylists", () => {
+    it("adds missing tracks from source to target", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-merge-t", name: "Target" });
+      const source = svc.upsertPlaylist({ spotifyId: "sp-merge-s", name: "Source" });
+
+      const t1 = insertTrack(db, { title: "Target Track", artist: "A" });
+      const t2 = insertTrack(db, { title: "Source Track", artist: "B" });
+
+      svc.setPlaylistTracks(target.id, [t1]);
+      svc.setPlaylistTracks(source.id, [t2]);
+
+      const result = svc.mergePlaylists(target.id, [source.id]);
+
+      expect(result.added).toBe(1);
+      expect(result.duplicates).toBe(0);
+      expect(result.sourcesDeleted).toBe(0);
+
+      const tracks = svc.getPlaylistTracks(target.id);
+      expect(tracks).toHaveLength(2);
+      expect(tracks[0].title).toBe("Target Track");
+      expect(tracks[1].title).toBe("Source Track");
+    });
+
+    it("deduplicates tracks already in target", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-dedup-t", name: "Target" });
+      const source = svc.upsertPlaylist({ spotifyId: "sp-dedup-s", name: "Source" });
+
+      const t1 = insertTrack(db, { title: "Shared Track", artist: "A" });
+      const t2 = insertTrack(db, { title: "Unique Track", artist: "B" });
+
+      svc.setPlaylistTracks(target.id, [t1]);
+      svc.setPlaylistTracks(source.id, [t1, t2]);
+
+      const result = svc.mergePlaylists(target.id, [source.id]);
+
+      expect(result.added).toBe(1);
+      expect(result.duplicates).toBe(1);
+
+      const tracks = svc.getPlaylistTracks(target.id);
+      expect(tracks).toHaveLength(2);
+      expect(tracks[0].title).toBe("Shared Track");
+      expect(tracks[1].title).toBe("Unique Track");
+    });
+
+    it("deduplicates across multiple sources", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-multi-t", name: "Target" });
+      const source1 = svc.upsertPlaylist({ spotifyId: "sp-multi-s1", name: "Source 1" });
+      const source2 = svc.upsertPlaylist({ spotifyId: "sp-multi-s2", name: "Source 2" });
+
+      const t1 = insertTrack(db, { title: "Track A", artist: "X" });
+      const t2 = insertTrack(db, { title: "Track B", artist: "Y" });
+      const t3 = insertTrack(db, { title: "Track C", artist: "Z" });
+
+      svc.setPlaylistTracks(target.id, [t1]);
+      svc.setPlaylistTracks(source1.id, [t2, t3]);
+      svc.setPlaylistTracks(source2.id, [t1, t2]); // t1 in target, t2 in source1
+
+      const result = svc.mergePlaylists(target.id, [source1.id, source2.id]);
+
+      expect(result.added).toBe(2); // t2 and t3
+      expect(result.duplicates).toBe(2); // t1 from source2, t2 from source2
+
+      const tracks = svc.getPlaylistTracks(target.id);
+      expect(tracks).toHaveLength(3);
+    });
+
+    it("dry run does not modify anything", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-dry-t", name: "Target" });
+      const source = svc.upsertPlaylist({ spotifyId: "sp-dry-s", name: "Source" });
+
+      const t1 = insertTrack(db, { title: "Existing", artist: "A" });
+      const t2 = insertTrack(db, { title: "New", artist: "B" });
+
+      svc.setPlaylistTracks(target.id, [t1]);
+      svc.setPlaylistTracks(source.id, [t2]);
+
+      const result = svc.mergePlaylists(target.id, [source.id], { dryRun: true });
+
+      expect(result.added).toBe(1);
+      expect(result.duplicates).toBe(0);
+
+      // Target should be unchanged
+      const tracks = svc.getPlaylistTracks(target.id);
+      expect(tracks).toHaveLength(1);
+      expect(tracks[0].title).toBe("Existing");
+    });
+
+    it("dry run with deleteSources reports count but does not delete", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-drydel-t", name: "Target" });
+      const source = svc.upsertPlaylist({ spotifyId: "sp-drydel-s", name: "Source" });
+
+      const t1 = insertTrack(db, { title: "A", artist: "X" });
+      svc.setPlaylistTracks(source.id, [t1]);
+
+      const result = svc.mergePlaylists(target.id, [source.id], {
+        dryRun: true,
+        deleteSources: true,
+      });
+
+      expect(result.sourcesDeleted).toBe(1);
+
+      // Source playlist should still exist
+      expect(svc.getPlaylist(source.id)).not.toBeNull();
+    });
+
+    it("throws when merging a playlist into itself", () => {
+      const pl = svc.upsertPlaylist({ spotifyId: "sp-self", name: "Self" });
+      const t1 = insertTrack(db, { title: "A", artist: "X" });
+      svc.setPlaylistTracks(pl.id, [t1]);
+
+      expect(() => svc.mergePlaylists(pl.id, [pl.id])).toThrow(
+        "Cannot merge a playlist into itself",
+      );
+    });
+
+    it("handles empty source playlist", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-empty-src-t", name: "Target" });
+      const source = svc.upsertPlaylist({ spotifyId: "sp-empty-src-s", name: "Empty Source" });
+
+      const t1 = insertTrack(db, { title: "Existing", artist: "A" });
+      svc.setPlaylistTracks(target.id, [t1]);
+      // source has no tracks
+
+      const result = svc.mergePlaylists(target.id, [source.id]);
+
+      expect(result.added).toBe(0);
+      expect(result.duplicates).toBe(0);
+
+      const tracks = svc.getPlaylistTracks(target.id);
+      expect(tracks).toHaveLength(1);
+    });
+
+    it("handles empty target playlist", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-empty-tgt-t", name: "Empty Target" });
+      const source = svc.upsertPlaylist({ spotifyId: "sp-empty-tgt-s", name: "Source" });
+
+      const t1 = insertTrack(db, { title: "Track 1", artist: "A" });
+      const t2 = insertTrack(db, { title: "Track 2", artist: "B" });
+      // target has no tracks
+      svc.setPlaylistTracks(source.id, [t1, t2]);
+
+      const result = svc.mergePlaylists(target.id, [source.id]);
+
+      expect(result.added).toBe(2);
+      expect(result.duplicates).toBe(0);
+
+      const tracks = svc.getPlaylistTracks(target.id);
+      expect(tracks).toHaveLength(2);
+      expect(tracks[0].title).toBe("Track 1");
+      expect(tracks[1].title).toBe("Track 2");
+    });
+
+    it("deletes source playlists when deleteSources is set", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-delsrc-t", name: "Target" });
+      const source1 = svc.upsertPlaylist({ spotifyId: "sp-delsrc-s1", name: "Source 1" });
+      const source2 = svc.upsertPlaylist({ spotifyId: "sp-delsrc-s2", name: "Source 2" });
+
+      const t1 = insertTrack(db, { title: "T1", artist: "A" });
+      const t2 = insertTrack(db, { title: "T2", artist: "B" });
+      const t3 = insertTrack(db, { title: "T3", artist: "C" });
+
+      svc.setPlaylistTracks(target.id, [t1]);
+      svc.setPlaylistTracks(source1.id, [t2]);
+      svc.setPlaylistTracks(source2.id, [t3]);
+
+      const result = svc.mergePlaylists(target.id, [source1.id, source2.id], {
+        deleteSources: true,
+      });
+
+      expect(result.sourcesDeleted).toBe(2);
+
+      // Source playlists should be gone
+      expect(svc.getPlaylist(source1.id)).toBeNull();
+      expect(svc.getPlaylist(source2.id)).toBeNull();
+
+      // Source playlist tracks should be gone
+      expect(svc.getPlaylistTracks(source1.id)).toHaveLength(0);
+      expect(svc.getPlaylistTracks(source2.id)).toHaveLength(0);
+
+      // Target should have all tracks
+      expect(svc.getPlaylistTracks(target.id)).toHaveLength(3);
+    });
+
+    it("preserves correct position ordering for new tracks", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-pos-t", name: "Target" });
+      const source = svc.upsertPlaylist({ spotifyId: "sp-pos-s", name: "Source" });
+
+      const t1 = insertTrack(db, { title: "First", artist: "A" });
+      const t2 = insertTrack(db, { title: "Second", artist: "B" });
+      const t3 = insertTrack(db, { title: "Third", artist: "C" });
+      const t4 = insertTrack(db, { title: "Fourth", artist: "D" });
+
+      svc.setPlaylistTracks(target.id, [t1, t2]);
+      svc.setPlaylistTracks(source.id, [t3, t4]);
+
+      svc.mergePlaylists(target.id, [source.id]);
+
+      const tracks = svc.getPlaylistTracks(target.id);
+      expect(tracks).toHaveLength(4);
+      expect(tracks[0].position).toBe(0);
+      expect(tracks[0].title).toBe("First");
+      expect(tracks[1].position).toBe(1);
+      expect(tracks[1].title).toBe("Second");
+      expect(tracks[2].position).toBe(2);
+      expect(tracks[2].title).toBe("Third");
+      expect(tracks[3].position).toBe(3);
+      expect(tracks[3].title).toBe("Fourth");
+    });
+
+    it("does not delete sources when deleteSources is not set", () => {
+      const target = svc.upsertPlaylist({ spotifyId: "sp-nodelete-t", name: "Target" });
+      const source = svc.upsertPlaylist({ spotifyId: "sp-nodelete-s", name: "Source" });
+
+      const t1 = insertTrack(db, { title: "T1", artist: "A" });
+      svc.setPlaylistTracks(source.id, [t1]);
+
+      const result = svc.mergePlaylists(target.id, [source.id]);
+
+      expect(result.sourcesDeleted).toBe(0);
+      expect(svc.getPlaylist(source.id)).not.toBeNull();
+      expect(svc.getPlaylistTracks(source.id)).toHaveLength(1);
+    });
+  });
+
 });

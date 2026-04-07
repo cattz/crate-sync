@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- **Merge dry-run** — `--dry-run` flag on CLI and `dryRun` option on API to preview merge without modifying data.
+- **Merge push** — `--push` flag on CLI to push merged playlist to Spotify after merge.
+- **Per-playlist merge endpoint** — `POST /api/playlists/:id/merge` as alternative to bulk `/merge`.
+- **Self-merge guard** — reject merging a playlist into itself (API 400, CLI error, service throws).
+
 ### Fixed
 - **Candidate fallback on download failure** — when a Soulseek download fails (timeout, peer rejection), the next-ranked candidate is tried automatically instead of giving up. Download failures are now recorded as rejections so the same user is skipped on retry. All candidates are tried before marking a track as failed.
 

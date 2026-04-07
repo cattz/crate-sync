@@ -252,8 +252,10 @@ export function registerPlaylistCommands(program: Command): void {
   playlists
     .command("merge <target> <source...>")
     .description("Merge tracks from source playlists into a target playlist")
+    .option("--dry-run", "Preview what would happen without modifying anything")
     .option("--delete-sources", "Delete source playlists after merge")
-    .action((target: string, sources: string[], opts: { deleteSources?: boolean }) => {
+    .option("--push", "Push merged target to Spotify after merge")
+    .action(async (target: string, sources: string[], opts: { dryRun?: boolean; deleteSources?: boolean; push?: boolean }) => {
       try {
         const db = getDb();
         const service = PlaylistService.fromDb(db);
@@ -271,16 +273,49 @@ export function registerPlaylistCommands(program: Command): void {
             console.log(chalk.red(`Source playlist not found: ${s}`));
             return;
           }
+          if (pl.id === targetPlaylist.id) {
+            console.log(chalk.red(`Cannot merge a playlist into itself: ${s}`));
+            return;
+          }
           sourceIds.push(pl.id);
         }
 
-        const result = service.mergePlaylists(targetPlaylist.id, sourceIds, opts.deleteSources);
+        const result = service.mergePlaylists(targetPlaylist.id, sourceIds, {
+          deleteSources: opts.deleteSources,
+          dryRun: opts.dryRun,
+        });
 
-        console.log(chalk.green(`Merged into "${targetPlaylist.name}"`));
+        if (opts.dryRun) {
+          console.log(chalk.bold("Merge preview (dry run):"));
+        } else {
+          console.log(chalk.green(`Merged into "${targetPlaylist.name}"`));
+        }
         console.log(`  Added: ${chalk.cyan(String(result.added))} tracks`);
         console.log(`  Duplicates skipped: ${chalk.dim(String(result.duplicates))}`);
         if (opts.deleteSources) {
           console.log(`  Source playlists deleted: ${chalk.yellow(String(result.sourcesDeleted))}`);
+        }
+        if (opts.dryRun) {
+          console.log(chalk.dim("(dry run — no changes applied)"));
+          return;
+        }
+
+        if (opts.push) {
+          if (!targetPlaylist.spotifyId) {
+            console.log(chalk.yellow("No Spotify ID for target playlist — skipping push."));
+            return;
+          }
+
+          const config = loadConfig();
+          const spotify = new SpotifyService(config.spotify);
+
+          if (!(await spotify.isAuthenticated())) {
+            console.log(chalk.red("Not authenticated with Spotify. Run `crate-sync auth login` first."));
+            return;
+          }
+
+          const summary = await pushPlaylist(targetPlaylist.id, spotify, service);
+          console.log(chalk.green(`Pushed to Spotify: +${summary.tracksAdded} -${summary.tracksRemoved}`));
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

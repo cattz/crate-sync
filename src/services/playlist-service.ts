@@ -272,12 +272,21 @@ export class PlaylistService {
   /**
    * Merge tracks from source playlists into a target playlist (union — no duplicates).
    * Preserves target's existing track order and appends new tracks at the end.
+   *
+   * @throws Error if a source ID is the same as the target ID
    */
   mergePlaylists(
     targetId: string,
     sourceIds: string[],
-    deleteSourcesAfter?: boolean,
+    opts?: { deleteSources?: boolean; dryRun?: boolean },
   ): { added: number; duplicates: number; sourcesDeleted: number } {
+    // Validate: source cannot be the same as target
+    for (const sourceId of sourceIds) {
+      if (sourceId === targetId) {
+        throw new Error("Cannot merge a playlist into itself");
+      }
+    }
+
     // Get target playlist's existing track IDs (ordered)
     const targetTracks = this.playlistTracks.findTrackIdsByPlaylistId(targetId);
     const existingTrackIds = new Set(targetTracks.map((t) => t.trackId));
@@ -300,15 +309,18 @@ export class PlaylistService {
       }
     }
 
+    // In dry-run mode, return counts without modifying anything
+    if (opts?.dryRun) {
+      return { added, duplicates, sourcesDeleted: opts.deleteSources ? sourceIds.length : 0 };
+    }
+
     // Update target's playlist_tracks with the merged list
     this.playlistTracks.setTracks(targetId, mergedTrackIds);
 
-    // If deleteSourcesAfter, remove source playlists
+    // If deleteSources, remove source playlists
     let sourcesDeleted = 0;
-    if (deleteSourcesAfter) {
+    if (opts?.deleteSources) {
       for (const sourceId of sourceIds) {
-        // Don't delete the target if it's also in sources
-        if (sourceId === targetId) continue;
         this.playlistTracks.removeByPlaylistId(sourceId);
         this.playlists.remove(sourceId);
         sourcesDeleted++;
