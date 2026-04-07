@@ -1,7 +1,9 @@
 ---
 services:
   slskd:
-    image: slskd/slskd
+    build:
+      context: ../../slskd
+      dockerfile: Dockerfile
     container_name: slskd
     ports:
       - "5030:5030"
