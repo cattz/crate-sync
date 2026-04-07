@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { TrackInfo } from "../../types/common.js";
 import type { SlskdFile } from "../../types/soulseek.js";
 import type {
@@ -770,6 +770,241 @@ describe("DownloadService", () => {
       expect(results.get("t1")!.strategy).toBe("full");
       expect(results.get("t2")!.ranked.length).toBe(0);
       expect(mock.rateLimitedSearch).toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Candidate fallback (slskd-vqmi)
+  // -----------------------------------------------------------------------
+  describe("candidate fallback on download failure", () => {
+    beforeEach(() => {
+      // Reset mocks that other tests may have set with mockImplementation/mockReturnValue
+      vi.mocked(existsSync).mockReset().mockReturnValue(false);
+      vi.mocked(readdirSync).mockReset().mockReturnValue([]);
+      vi.mocked(parseFile).mockReset();
+      vi.mocked(isShutdownRequested).mockReturnValue(false);
+      mockSoulseekInstance.download.mockReset().mockResolvedValue(undefined);
+      mockSoulseekInstance.startSearchBatch.mockReset();
+      mockSoulseekInstance.waitForSearchBatch.mockReset();
+    });
+
+    afterEach(() => {
+      // Restore default mocks so later tests aren't affected
+      mockSoulseekInstance.waitForDownload.mockReset().mockResolvedValue({
+        id: "t1", username: "user1", filename: "file.flac",
+        state: "Completed", bytesTransferred: 1000, size: 1000, percentComplete: 100,
+      });
+      mockSoulseekInstance.download.mockReset().mockResolvedValue(undefined);
+      vi.mocked(existsSync).mockReset().mockReturnValue(false);
+      vi.mocked(readdirSync).mockReset().mockReturnValue([]);
+      vi.mocked(statSync).mockReset().mockReturnValue({ mtimeMs: 0 } as any);
+      vi.mocked(parseFile).mockReset().mockResolvedValue({
+        common: { title: "", artist: "", album: "" },
+        format: { duration: undefined },
+      } as any);
+    });
+
+    it("records rejection on download timeout so candidate is skipped on retry", async () => {
+      const db = mockDb();
+      const service = makeService(db);
+      const mock = getSoulseekMock();
+
+      vi.mocked(mock.download).mockResolvedValue(undefined);
+      vi.mocked(mock.waitForDownload).mockRejectedValueOnce(
+        new Error("Operation timed out"),
+      );
+      vi.mocked(existsSync).mockReturnValue(false);
+
+      const file = makeFile({
+        username: "acidzwan",
+        filename: "@@acidzwan\\music\\Artist\\01 - Song.flac",
+      });
+
+      const result = await service.acquireAndMove(
+        file, { title: "Song", artist: "Artist" }, "Playlist", "track-1",
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Operation timed out");
+      expect(db._insertValues.some((v: any) =>
+        v.fileKey === "acidzwan:@@acidzwan\\music\\Artist\\01 - Song.flac" &&
+        v.reason?.includes("Download failed"),
+      )).toBe(true);
+    });
+
+    it("records rejection on peer rejection (Too many files)", async () => {
+      const db = mockDb();
+      const service = makeService(db);
+      const mock = getSoulseekMock();
+
+      vi.mocked(mock.download).mockResolvedValue(undefined);
+      vi.mocked(mock.waitForDownload).mockRejectedValueOnce(
+        new Error("Transfer rejected: Too many files"),
+      );
+      vi.mocked(existsSync).mockReturnValue(false);
+
+      const file = makeFile({
+        username: "busyuser",
+        filename: "@@busyuser\\music\\song.flac",
+      });
+
+      const result = await service.acquireAndMove(
+        file, { title: "Song", artist: "Artist" }, "Playlist", "track-1",
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Too many files");
+      expect(db._insertValues.some((v: any) =>
+        v.fileKey === "busyuser:@@busyuser\\music\\song.flac" &&
+        v.reason?.includes("Download failed"),
+      )).toBe(true);
+    });
+
+    it("rejected candidates are filtered out on subsequent rankResults calls", () => {
+      // Simulates the retry path: after a download failure records a rejection,
+      // the next rankResults call should filter that candidate out.
+      const file1 = makeFile({
+        username: "acidzwan",
+        filename: "@@acidzwan\\music\\Artist\\01 - Song.flac",
+      });
+      const file2 = makeFile({
+        username: "isitme",
+        filename: "@@isitme\\music\\Artist\\01 - Song.flac",
+      });
+
+      // Simulate acidzwan already rejected
+      const db = mockDb(["acidzwan:@@acidzwan\\music\\Artist\\01 - Song.flac"]);
+      const service = makeService(db);
+
+      const { ranked } = service.rankResults(
+        [file1, file2],
+        { title: "Song", artist: "Artist" },
+        "track-1",
+      );
+
+      // Only isitme should remain
+      expect(ranked.length).toBe(1);
+      expect(ranked[0].file.username).toBe("isitme");
+    });
+
+    it("loops through viable candidates in downloadFromSearchResults", async () => {
+      // Test the full loop via downloadBatch: first candidate fails, second succeeds
+      const db = mockDb();
+      const service = makeService(db);
+      const mock = getSoulseekMock();
+
+      const file1 = makeFile({
+        username: "user1",
+        filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Song.flac",
+      });
+      const file2 = makeFile({
+        username: "user2",
+        filename: "@@user2\\music\\Test Artist\\Album\\01 - Test Song.flac",
+      });
+
+      vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(
+        new Map([["Test Artist Test Song", { searchId: "s1", startedAt: Date.now() }]]),
+      );
+      vi.mocked(mock.waitForSearchBatch).mockResolvedValueOnce(
+        new Map([["Test Artist Test Song", [file1, file2]]]),
+      );
+
+      // user1 times out, user2 succeeds
+      vi.mocked(mock.download).mockResolvedValue(undefined);
+      vi.mocked(mock.waitForDownload)
+        .mockRejectedValueOnce(new Error("Operation timed out"))
+        .mockResolvedValueOnce({
+          id: "t1", username: "user2", filename: "01 - Test Song.flac",
+          state: "Completed", bytesTransferred: 1000, size: 1000, percentComplete: 100,
+        });
+
+      // findDownloadedFile: user2 file appears after download, user1 never found
+      const foundFiles = new Set<string>();
+      vi.mocked(existsSync).mockImplementation((p) => {
+        const s = String(p);
+        return foundFiles.has(s) || s.includes("test-downloads");
+      });
+      // After user2 download succeeds, mark the file as present
+      vi.mocked(mock.waitForDownload).mockImplementation(async (username: string) => {
+        if (username === "user1") throw new Error("Operation timed out");
+        // user2 succeeds — simulate file appearing in slskd downloads
+        foundFiles.add("/tmp/slskd-downloads/Album/01 - Test Song.flac");
+        return {
+          id: "t1", username: "user2", filename: "01 - Test Song.flac",
+          state: "Completed", bytesTransferred: 1000, size: 1000, percentComplete: 100,
+        };
+      });
+      vi.mocked(readdirSync).mockReturnValue([]);  // no recursive fallback needed
+
+      vi.mocked(parseFile).mockResolvedValue({
+        common: { title: "Test Song", artist: "Test Artist" },
+        format: { duration: 240, codec: "FLAC" },
+      } as any);
+
+      const items: DownloadItem[] = [
+        {
+          track: { title: "Test Song", artist: "Test Artist", durationMs: 240_000 },
+          playlistName: "Playlist",
+          dbTrackId: "t1",
+        },
+      ];
+
+      const results = await service.downloadBatch(items);
+
+      expect(results.length).toBe(1);
+      // user1's failure was recorded as rejection
+      expect(db._insertValues.some((v: any) =>
+        v.fileKey?.includes("user1") && v.reason?.includes("Download failed"),
+      )).toBe(true);
+      // Both candidates were attempted
+      expect(mock.download).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns aggregated error when all candidates fail", async () => {
+      const db = mockDb();
+      const service = makeService(db);
+      const mock = getSoulseekMock();
+
+      const file1 = makeFile({
+        username: "user1",
+        filename: "@@user1\\music\\Test Artist\\Album\\01 - Test Song.flac",
+      });
+      const file2 = makeFile({
+        username: "user2",
+        filename: "@@user2\\music\\Test Artist\\Album\\01 - Test Song.flac",
+      });
+
+      vi.mocked(mock.startSearchBatch).mockResolvedValueOnce(
+        new Map([["Test Artist Test Song", { searchId: "s1", startedAt: Date.now() }]]),
+      );
+      vi.mocked(mock.waitForSearchBatch).mockResolvedValueOnce(
+        new Map([["Test Artist Test Song", [file1, file2]]]),
+      );
+
+      vi.mocked(mock.download).mockResolvedValue(undefined);
+      vi.mocked(mock.waitForDownload).mockImplementation(async (username: string) => {
+        if (username === "user1") throw new Error("Operation timed out");
+        throw new Error("Transfer rejected: Too many files");
+      });
+      vi.mocked(existsSync).mockReturnValue(false);
+      vi.mocked(readdirSync).mockReturnValue([]);
+
+      const items: DownloadItem[] = [
+        {
+          track: { title: "Test Song", artist: "Test Artist" },
+          playlistName: "P",
+          dbTrackId: "t1",
+        },
+      ];
+
+      const results = await service.downloadBatch(items);
+
+      expect(results.length).toBe(1);
+      expect(results[0].success).toBe(false);
+      expect(results[0].error).toContain("All 2 candidate(s) failed");
+      expect(db._insertValues.filter((v: any) =>
+        v.reason?.includes("Download failed"),
+      ).length).toBe(2);
     });
   });
 

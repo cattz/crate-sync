@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- **Candidate fallback on download failure** — when a Soulseek download fails (timeout, peer rejection), the next-ranked candidate is tried automatically instead of giving up. Download failures are now recorded as rejections so the same user is skipped on retry. All candidates are tried before marking a track as failed.
+
 ### Tests
 - **API route tests** — added test suites for downloads, review, and status API routes covering request/response shape, filtering, error cases, and config updates.
 - **Webhook API tests** — POST with valid download match, missing fields, no matching download, and non-downloading state.

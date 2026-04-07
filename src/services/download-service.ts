@@ -481,9 +481,11 @@ export class DownloadService {
         };
       }
 
-      const best = ranked[0];
+      // Filter to candidates above the minimum score threshold
+      const viable = ranked.filter((r) => r.score >= 0.3);
 
-      if (best.score < 0.3) {
+      if (viable.length === 0) {
+        const best = ranked[0];
         return {
           trackId: item.dbTrackId,
           success: false,
@@ -493,8 +495,36 @@ export class DownloadService {
         };
       }
 
-      const result = await this.acquireAndMove(best.file, item.track, item.playlistName, item.dbTrackId);
-      return { ...result, strategy, strategyLog };
+      // Try candidates in ranked order, falling back on failure
+      const errors: string[] = [];
+      for (const candidate of viable) {
+        const result = await this.acquireAndMove(candidate.file, item.track, item.playlistName, item.dbTrackId);
+        if (result.success) {
+          if (errors.length > 0) {
+            log.info(`Candidate fallback succeeded after ${errors.length} failed attempt(s)`, {
+              track: `${item.track.artist} - ${item.track.title}`,
+              candidateIndex: errors.length,
+              username: candidate.file.username,
+            });
+          }
+          return { ...result, strategy, strategyLog };
+        }
+        errors.push(`${candidate.file.username}: ${result.error}`);
+        log.debug(`Candidate failed, trying next`, {
+          track: `${item.track.artist} - ${item.track.title}`,
+          username: candidate.file.username,
+          error: result.error,
+          remaining: viable.length - errors.length,
+        });
+      }
+
+      return {
+        trackId: item.dbTrackId,
+        success: false,
+        error: `All ${viable.length} candidate(s) failed: ${errors.join("; ")}`,
+        strategy,
+        strategyLog,
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -679,6 +709,9 @@ export class DownloadService {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Record rejection so this candidate is skipped on fallback/retry
+      const fileKey = buildFileKey(file.username, file.filename);
+      await this.recordRejection(dbTrackId, fileKey, `Download failed: ${message}`);
       return {
         trackId: dbTrackId,
         success: false,
