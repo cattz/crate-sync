@@ -16,6 +16,7 @@ import type {
 import { extractPlaylistId } from "../utils/spotify-url.js";
 import { composeDescription, parseDescription } from "../utils/description.js";
 import { isShutdownRequested } from "../utils/shutdown.js";
+import { normalizeBase, normalizeArtist } from "../matching/normalize.js";
 import { getDb } from "../db/client.js";
 import {
   DrizzlePlaylistRepository,
@@ -308,6 +309,117 @@ export class PlaylistService {
 
     this.setPlaylistTracks(playlist.id, trackIds);
     return { playlistId: playlist.id, added: trackIds.length, duplicates };
+  }
+
+  /**
+   * Find duplicate tracks within a playlist.
+   * A track is a duplicate if it matches an earlier track by:
+   * 1. Same spotifyUri (exact duplicate)
+   * 2. Same ISRC (same recording, different releases)
+   * 3. Same normalized title + artist
+   *
+   * Returns groups of duplicates. The first track in each group is the one to keep.
+   */
+  findDuplicates(
+    playlistId: string,
+  ): Array<{ kept: Track & { position: number }; duplicates: Array<Track & { position: number }>; reason: string }> {
+    const tracks = this.getPlaylistTracks(playlistId);
+    const groups: Array<{ kept: Track & { position: number }; duplicates: Array<Track & { position: number }>; reason: string }> = [];
+
+    // Track which canonical entry each track maps to, keyed by match criterion
+    const seenUri = new Map<string, number>(); // spotifyUri → index in tracks
+    const seenIsrc = new Map<string, number>(); // isrc → index
+    const seenNorm = new Map<string, number>(); // normalizedKey → index
+
+    // Map from "kept" track index → group entry
+    const groupMap = new Map<number, (typeof groups)[number]>();
+
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      let matchIdx: number | undefined;
+      let reason = "";
+
+      // 1. Exact URI match
+      if (t.spotifyUri) {
+        const prev = seenUri.get(t.spotifyUri);
+        if (prev !== undefined) {
+          matchIdx = prev;
+          reason = "same URI";
+        } else {
+          seenUri.set(t.spotifyUri, i);
+        }
+      }
+
+      // 2. ISRC match
+      if (matchIdx === undefined && t.isrc) {
+        const prev = seenIsrc.get(t.isrc);
+        if (prev !== undefined) {
+          matchIdx = prev;
+          reason = "same ISRC";
+        } else {
+          seenIsrc.set(t.isrc, i);
+        }
+      }
+
+      // 3. Normalized title + artist
+      if (matchIdx === undefined) {
+        const key = `${normalizeArtist(t.artist)}::${normalizeBase(t.title)}`;
+        const prev = seenNorm.get(key);
+        if (prev !== undefined) {
+          matchIdx = prev;
+          reason = "same title + artist";
+        } else {
+          seenNorm.set(key, i);
+        }
+      }
+
+      if (matchIdx !== undefined) {
+        const existing = groupMap.get(matchIdx);
+        if (existing) {
+          existing.duplicates.push(t);
+        } else {
+          const group = { kept: tracks[matchIdx], duplicates: [t], reason };
+          groups.push(group);
+          groupMap.set(matchIdx, group);
+        }
+      }
+    }
+
+    return groups;
+  }
+
+  /**
+   * Remove duplicate tracks from a playlist.
+   * Keeps the first occurrence, removes subsequent duplicates.
+   */
+  removeDuplicates(
+    playlistId: string,
+    opts?: { dryRun?: boolean },
+  ): { groups: ReturnType<PlaylistService["findDuplicates"]>; removed: number } {
+    const groups = this.findDuplicates(playlistId);
+    const removed = groups.reduce((sum, g) => sum + g.duplicates.length, 0);
+
+    if (opts?.dryRun || removed === 0) {
+      return { groups, removed };
+    }
+
+    // Build set of track IDs to remove (by position, since same track could appear multiple times)
+    const removePositions = new Set<number>();
+    for (const g of groups) {
+      for (const dup of g.duplicates) {
+        removePositions.add(dup.position);
+      }
+    }
+
+    // Rebuild playlist without duplicate positions
+    const tracks = this.getPlaylistTracks(playlistId);
+    const keepTrackIds = tracks
+      .filter((t) => !removePositions.has(t.position))
+      .map((t) => t.id);
+
+    this.setPlaylistTracks(playlistId, keepTrackIds);
+
+    return { groups, removed };
   }
 
   /**

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **Remove duplicate tracks** — `playlists dedup <id> [--all] [--apply]` CLI command and `POST /api/playlists/:id/dedup` endpoint. Detects duplicates by same URI, same ISRC, or normalized title+artist. Dry-run by default, keeps first occurrence. 9 tests covering URI/ISRC/fuzzy dupes, no false positives, and dry-run safety.
 - **Import playlists from files** — `playlists import <path>` CLI command and `POST /api/playlists/import` endpoint. Supports M3U/M3U8 (EXTINF), CSV (flexible column mapping), and TXT (Artist - Title) formats. Can import a single file or all supported files in a directory. `--dry-run` flag for preview.
 - **Merge dry-run** — `--dry-run` flag on CLI and `dryRun` option on API to preview merge without modifying data.
 - **Merge push** — `--push` flag on CLI to push merged playlist to Spotify after merge.

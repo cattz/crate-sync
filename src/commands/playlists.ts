@@ -614,4 +614,69 @@ export function registerPlaylistCommands(program: Command): void {
         console.log(chalk.red(`Error: ${message}`));
       }
     });
+
+  // ---------------------------------------------------------------------------
+  // playlists dedup <id>
+  // ---------------------------------------------------------------------------
+
+  playlists
+    .command("dedup [id]")
+    .description("Find and remove duplicate tracks from playlists")
+    .option("--all", "Dedup all playlists")
+    .option("--apply", "Actually remove duplicates (dry-run by default)")
+    .action((id: string | undefined, opts: { all?: boolean; apply?: boolean }) => {
+      try {
+        if (!id && !opts.all) {
+          console.log(chalk.red("Provide a playlist ID or use --all."));
+          return;
+        }
+
+        const db = getDb();
+        const service = PlaylistService.fromDb(db);
+        const dryRun = !opts.apply;
+
+        const playlistIds: string[] = [];
+        if (opts.all) {
+          playlistIds.push(...service.getPlaylists().map((p) => p.id));
+        } else {
+          const pl = service.getPlaylist(id!);
+          if (!pl) {
+            console.log(chalk.red(`Playlist not found: ${id}`));
+            return;
+          }
+          playlistIds.push(pl.id);
+        }
+
+        let totalRemoved = 0;
+        for (const pid of playlistIds) {
+          const result = service.removeDuplicates(pid, { dryRun });
+          if (result.removed === 0) continue;
+
+          const pl = service.getPlaylist(pid);
+          console.log(chalk.cyan(`${pl?.name ?? pid}`) + ` — ${chalk.yellow(String(result.removed))} duplicate(s)`);
+
+          for (const g of result.groups) {
+            console.log(
+              chalk.dim(`  keep: `) + `${g.kept.artist} - ${g.kept.title}` +
+              chalk.dim(` (${g.reason}, ${g.duplicates.length} dupe(s))`),
+            );
+          }
+
+          totalRemoved += result.removed;
+        }
+
+        if (totalRemoved === 0) {
+          console.log(chalk.green("No duplicates found."));
+        } else if (dryRun) {
+          console.log();
+          console.log(chalk.dim(`${totalRemoved} duplicate(s) found. Use --apply to remove.`));
+        } else {
+          console.log();
+          console.log(chalk.green(`Removed ${totalRemoved} duplicate(s).`));
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
+    });
 }

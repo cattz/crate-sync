@@ -345,6 +345,31 @@ playlistRoutes.post("/:id/merge", async (c) => {
   }
 });
 
+// POST /api/playlists/:id/dedup — find and remove duplicate tracks
+playlistRoutes.post("/:id/dedup", async (c) => {
+  const svc = getService();
+  const playlist = svc.getPlaylist(c.req.param("id"));
+
+  if (!playlist) {
+    return c.json({ error: "Playlist not found" }, 404);
+  }
+
+  const body = await c.req.json<{ dryRun?: boolean }>().catch(() => ({}));
+  const result = svc.removeDuplicates(playlist.id, { dryRun: body.dryRun });
+
+  return c.json({
+    ok: true,
+    playlistId: playlist.id,
+    dryRun: !!body.dryRun,
+    removed: result.removed,
+    groups: result.groups.map((g) => ({
+      kept: { id: g.kept.id, title: g.kept.title, artist: g.kept.artist, position: g.kept.position },
+      duplicates: g.duplicates.map((d) => ({ id: d.id, title: d.title, artist: d.artist, position: d.position })),
+      reason: g.reason,
+    })),
+  });
+});
+
 // POST /api/playlists/:id/repair — repair broken/local tracks
 playlistRoutes.post("/:id/repair", async (c) => {
   const config = loadConfig();

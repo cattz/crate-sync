@@ -35,6 +35,7 @@ function insertTrack(
     album?: string;
     durationMs?: number;
     spotifyUri?: string;
+    isrc?: string;
   },
 ): string {
   const id = crypto.randomUUID();
@@ -48,6 +49,7 @@ function insertTrack(
       album: data.album ?? null,
       durationMs: data.durationMs ?? 200_000,
       spotifyUri: data.spotifyUri ?? null,
+      isrc: data.isrc ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -881,6 +883,146 @@ describe("PlaylistService", () => {
       const result = svc.importTracks("Empty", []);
       expect(result.added).toBe(0);
       expect(result.duplicates).toBe(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // findDuplicates / removeDuplicates
+  // -------------------------------------------------------------------------
+  describe("findDuplicates", () => {
+    it("detects duplicates by same spotifyUri", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Test");
+      const t1 = insertTrack(db, { title: "Song", artist: "Art", spotifyUri: "spotify:track:abc" });
+      const t2 = insertTrack(db, { title: "Song Copy", artist: "Art Copy", spotifyUri: "spotify:track:abc" });
+      svc.setPlaylistTracks(pl.id, [t1, t2]);
+
+      const groups = svc.findDuplicates(pl.id);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].kept.id).toBe(t1);
+      expect(groups[0].duplicates).toHaveLength(1);
+      expect(groups[0].duplicates[0].id).toBe(t2);
+      expect(groups[0].reason).toBe("same URI");
+    });
+
+    it("detects duplicates by same ISRC", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Test");
+      const t1 = insertTrack(db, { title: "Song", artist: "Art", isrc: "USRC17607839" });
+      const t2 = insertTrack(db, { title: "Song Remaster", artist: "Art", isrc: "USRC17607839" });
+      svc.setPlaylistTracks(pl.id, [t1, t2]);
+
+      const groups = svc.findDuplicates(pl.id);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].reason).toBe("same ISRC");
+    });
+
+    it("detects duplicates by normalized title+artist", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Test");
+      const t1 = insertTrack(db, { title: "My Song", artist: "The Artist" });
+      const t2 = insertTrack(db, { title: "My Song", artist: "THE ARTIST" }); // case diff
+      svc.setPlaylistTracks(pl.id, [t1, t2]);
+
+      const groups = svc.findDuplicates(pl.id);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].reason).toBe("same title + artist");
+    });
+
+    it("does not flag different tracks as duplicates", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Test");
+      const t1 = insertTrack(db, { title: "Song A", artist: "Artist A" });
+      const t2 = insertTrack(db, { title: "Song B", artist: "Artist B" });
+      const t3 = insertTrack(db, { title: "Song C", artist: "Artist C" });
+      svc.setPlaylistTracks(pl.id, [t1, t2, t3]);
+
+      const groups = svc.findDuplicates(pl.id);
+      expect(groups).toHaveLength(0);
+    });
+
+    it("groups multiple duplicates of the same track", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Test");
+      const t1 = insertTrack(db, { title: "Song", artist: "Art", spotifyUri: "spotify:track:x" });
+      const t2 = insertTrack(db, { title: "Song", artist: "Art", spotifyUri: "spotify:track:x" });
+      const t3 = insertTrack(db, { title: "Song", artist: "Art", spotifyUri: "spotify:track:x" });
+      svc.setPlaylistTracks(pl.id, [t1, t2, t3]);
+
+      const groups = svc.findDuplicates(pl.id);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].duplicates).toHaveLength(2);
+    });
+
+    it("returns empty for empty playlist", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Empty");
+      const groups = svc.findDuplicates(pl.id);
+      expect(groups).toHaveLength(0);
+    });
+  });
+
+  describe("removeDuplicates", () => {
+    it("removes duplicates and keeps first occurrence", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Test");
+      const t1 = insertTrack(db, { title: "Song", artist: "Art", spotifyUri: "spotify:track:abc" });
+      const t2 = insertTrack(db, { title: "Other", artist: "Other" });
+      const t3 = insertTrack(db, { title: "Song Copy", artist: "Art Copy", spotifyUri: "spotify:track:abc" });
+      svc.setPlaylistTracks(pl.id, [t1, t2, t3]);
+
+      const result = svc.removeDuplicates(pl.id);
+
+      expect(result.removed).toBe(1);
+      const tracks = svc.getPlaylistTracks(pl.id);
+      expect(tracks).toHaveLength(2);
+      expect(tracks[0].id).toBe(t1);
+      expect(tracks[1].id).toBe(t2);
+    });
+
+    it("dry-run does not modify playlist", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Test");
+      const t1 = insertTrack(db, { title: "Song", artist: "Art", spotifyUri: "spotify:track:abc" });
+      const t2 = insertTrack(db, { title: "Song Copy", artist: "Art Copy", spotifyUri: "spotify:track:abc" });
+      svc.setPlaylistTracks(pl.id, [t1, t2]);
+
+      const result = svc.removeDuplicates(pl.id, { dryRun: true });
+
+      expect(result.removed).toBe(1);
+      // Playlist should still have both tracks
+      const tracks = svc.getPlaylistTracks(pl.id);
+      expect(tracks).toHaveLength(2);
+    });
+
+    it("returns zero removed when no duplicates", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const pl = svc.createLocalPlaylist("Test");
+      const t1 = insertTrack(db, { title: "Song A", artist: "Art A" });
+      const t2 = insertTrack(db, { title: "Song B", artist: "Art B" });
+      svc.setPlaylistTracks(pl.id, [t1, t2]);
+
+      const result = svc.removeDuplicates(pl.id);
+      expect(result.removed).toBe(0);
+      expect(result.groups).toHaveLength(0);
     });
   });
 
