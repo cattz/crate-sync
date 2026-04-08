@@ -270,6 +270,47 @@ export class PlaylistService {
   }
 
   /**
+   * Import tracks into a new playlist. Deduplicates by title+artist.
+   * If a matching track already exists in the DB, reuses it.
+   */
+  importTracks(
+    playlistName: string,
+    tracks: Array<{ title: string; artist: string; album?: string; durationMs?: number; isrc?: string }>,
+  ): { playlistId: string; added: number; duplicates: number } {
+    const playlist = this.createLocalPlaylist(playlistName);
+    const trackIds: string[] = [];
+    const seen = new Set<string>();
+    let duplicates = 0;
+
+    for (const t of tracks) {
+      const key = `${t.artist.toLowerCase()}::${t.title.toLowerCase()}`;
+      if (seen.has(key)) {
+        duplicates++;
+        continue;
+      }
+      seen.add(key);
+
+      // Reuse existing track if it matches by title+artist
+      const existing = this.tracks.findByTitleArtist(t.title, t.artist);
+      if (existing) {
+        trackIds.push(existing.id);
+      } else {
+        const inserted = this.tracks.insert({
+          title: t.title,
+          artist: t.artist,
+          album: t.album,
+          durationMs: t.durationMs,
+          isrc: t.isrc,
+        });
+        trackIds.push(inserted.id);
+      }
+    }
+
+    this.setPlaylistTracks(playlist.id, trackIds);
+    return { playlistId: playlist.id, added: trackIds.length, duplicates };
+  }
+
+  /**
    * Merge tracks from source playlists into a target playlist (union — no duplicates).
    * Preserves target's existing track order and appends new tracks at the end.
    *

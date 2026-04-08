@@ -6,6 +6,7 @@ import { SpotifyService } from "../../services/spotify-service.js";
 import { LexiconService } from "../../services/lexicon-service.js";
 import { pushPlaylist } from "../../services/spotify-push.js";
 import { repairPlaylist, acceptRepair } from "../../services/repair-service.js";
+import { parseM3U, parseCSV, parseTXT, type ImportFormat } from "../../services/playlist-import.js";
 import { playlists, playlistTracks, tracks, matches } from "../../db/schema.js";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { emitJobEvent } from "../../jobs/runner.js";
@@ -248,6 +249,49 @@ playlistRoutes.post("/bulk-rename", async (c) => {
   const results = svc.bulkRename(regexPattern, replacement ?? "", { dryRun, playlistIds });
 
   return c.json(results);
+});
+
+// POST /api/playlists/import — import a playlist from file content
+playlistRoutes.post("/import", async (c) => {
+  const svc = getService();
+
+  const body = await c.req.json<{
+    name: string;
+    content: string;
+    format: ImportFormat;
+  }>();
+
+  const { name, content, format } = body;
+
+  if (!name?.trim()) {
+    return c.json({ error: "name is required" }, 400);
+  }
+  if (!content) {
+    return c.json({ error: "content is required" }, 400);
+  }
+  if (!format || !["m3u", "csv", "txt"].includes(format)) {
+    return c.json({ error: "format must be one of: m3u, csv, txt" }, 400);
+  }
+
+  const parsers: Record<ImportFormat, (c: string) => Array<{ title: string; artist: string; album?: string; durationMs?: number; isrc?: string }>> = {
+    m3u: parseM3U,
+    csv: parseCSV,
+    txt: parseTXT,
+  };
+
+  const tracks = parsers[format](content);
+  if (tracks.length === 0) {
+    return c.json({ error: "No tracks could be parsed from the provided content" }, 400);
+  }
+
+  const result = svc.importTracks(name.trim(), tracks);
+
+  return c.json({
+    ok: true,
+    playlistId: result.playlistId,
+    added: result.added,
+    duplicates: result.duplicates,
+  });
 });
 
 // ---- :id/subpath routes (before bare :id) ----

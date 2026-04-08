@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **Import playlists from files** — `playlists import <path>` CLI command and `POST /api/playlists/import` endpoint. Supports M3U/M3U8 (EXTINF), CSV (flexible column mapping), and TXT (Artist - Title) formats. Can import a single file or all supported files in a directory. `--dry-run` flag for preview.
 - **Merge dry-run** — `--dry-run` flag on CLI and `dryRun` option on API to preview merge without modifying data.
 - **Merge push** — `--push` flag on CLI to push merged playlist to Spotify after merge.
 - **Per-playlist merge endpoint** — `POST /api/playlists/:id/merge` as alternative to bulk `/merge`.

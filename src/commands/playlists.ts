@@ -2,12 +2,14 @@ import { Command } from "commander";
 import chalk from "chalk";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { statSync } from "node:fs";
 import { getDb } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import { PlaylistService } from "../services/playlist-service.js";
 import { SpotifyService } from "../services/spotify-service.js";
 import { pushPlaylist } from "../services/spotify-push.js";
 import { repairPlaylist, acceptRepair } from "../services/repair-service.js";
+import { parsePlaylistFile, parsePlaylistDir, isSupportedFile } from "../services/playlist-import.js";
 import { loadConfig } from "../config.js";
 
 export function registerPlaylistCommands(program: Command): void {
@@ -555,6 +557,58 @@ export function registerPlaylistCommands(program: Command): void {
 
         console.log();
         console.log(chalk.green("Done."));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(chalk.red(`Error: ${message}`));
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // playlists import <path>
+  // ---------------------------------------------------------------------------
+
+  playlists
+    .command("import <path>")
+    .description("Import playlists from file(s) — supports M3U, CSV, TXT")
+    .option("--dry-run", "Preview what would be imported without modifying the database")
+    .action((filePath: string, opts: { dryRun?: boolean }) => {
+      try {
+        const stat = statSync(filePath);
+        const parsed = stat.isDirectory()
+          ? parsePlaylistDir(filePath)
+          : [parsePlaylistFile(filePath)];
+
+        if (parsed.length === 0) {
+          console.log(chalk.yellow("No supported files found."));
+          return;
+        }
+
+        const db = getDb();
+        const service = PlaylistService.fromDb(db);
+
+        for (const pl of parsed) {
+          if (pl.tracks.length === 0) {
+            console.log(chalk.dim(`  ${pl.name} (${pl.format}) — 0 tracks, skipping`));
+            continue;
+          }
+
+          if (opts.dryRun) {
+            console.log(chalk.bold(`  ${pl.name} (${pl.format}) — ${pl.tracks.length} track(s) [dry run]`));
+            continue;
+          }
+
+          const result = service.importTracks(pl.name, pl.tracks);
+          console.log(
+            chalk.green(`  ${pl.name}`) +
+            chalk.dim(` (${pl.format})`) +
+            ` — ${chalk.cyan(String(result.added))} added` +
+            (result.duplicates > 0 ? `, ${chalk.dim(String(result.duplicates))} duplicates skipped` : ""),
+          );
+        }
+
+        if (opts.dryRun) {
+          console.log(chalk.dim("(dry run — no changes applied)"));
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.log(chalk.red(`Error: ${message}`));

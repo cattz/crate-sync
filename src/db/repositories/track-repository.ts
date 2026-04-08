@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { tracks, type Track } from "../schema.js";
-import type { ITrackRepository, UpsertTrackData } from "../../ports/repositories.js";
+import type { ITrackRepository, UpsertTrackData, InsertTrackData } from "../../ports/repositories.js";
 import type { getDb } from "../client.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -24,6 +24,16 @@ export class DrizzleTrackRepository implements ITrackRepository {
         .select()
         .from(tracks)
         .where(eq(tracks.spotifyId, spotifyId))
+        .get() ?? null
+    );
+  }
+
+  findByTitleArtist(title: string, artist: string): Track | null {
+    return (
+      this.db
+        .select()
+        .from(tracks)
+        .where(and(eq(tracks.title, title), eq(tracks.artist, artist)))
         .get() ?? null
     );
   }
@@ -57,6 +67,21 @@ export class DrizzleTrackRepository implements ITrackRepository {
           isLocal: data.isLocal ?? 0,
           updatedAt: Date.now(),
         },
+      })
+      .returning()
+      .get();
+  }
+
+  insert(data: InsertTrackData): Track {
+    return this.db
+      .insert(tracks)
+      .values({
+        title: data.title,
+        artist: data.artist,
+        album: data.album,
+        durationMs: data.durationMs ?? 0,
+        isrc: data.isrc,
+        isLocal: 1,
       })
       .returning()
       .get();

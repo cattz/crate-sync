@@ -54,11 +54,21 @@ export interface UpsertTrackData {
   isLocal?: number | null;
 }
 
+export interface InsertTrackData {
+  title: string;
+  artist: string;
+  album?: string | null;
+  durationMs?: number;
+  isrc?: string | null;
+}
+
 export interface ITrackRepository {
   findById(id: string): Track | null;
   findBySpotifyId(spotifyId: string): Track | null;
+  findByTitleArtist(title: string, artist: string): Track | null;
   findAll(): Track[];
   upsert(data: UpsertTrackData): Track;
+  insert(data: InsertTrackData): Track;
   updateFields(id: string, fields: Partial<Track>): void;
 }
 

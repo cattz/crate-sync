@@ -815,4 +815,73 @@ describe("PlaylistService", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // importTracks
+  // -------------------------------------------------------------------------
+  describe("importTracks", () => {
+    it("creates a playlist and imports tracks", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const result = svc.importTracks("My Import", [
+        { title: "Song A", artist: "Artist A" },
+        { title: "Song B", artist: "Artist B", album: "Album B" },
+      ]);
+
+      expect(result.added).toBe(2);
+      expect(result.duplicates).toBe(0);
+
+      const tracks = svc.getPlaylistTracks(result.playlistId);
+      expect(tracks).toHaveLength(2);
+      expect(tracks[0].title).toBe("Song A");
+      expect(tracks[1].title).toBe("Song B");
+    });
+
+    it("deduplicates tracks by title+artist within the import", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const result = svc.importTracks("Dupes", [
+        { title: "Same Song", artist: "Same Artist" },
+        { title: "Same Song", artist: "Same Artist" },
+        { title: "Different", artist: "Other" },
+      ]);
+
+      expect(result.added).toBe(2);
+      expect(result.duplicates).toBe(1);
+    });
+
+    it("reuses existing tracks from the database", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      // Pre-insert a track via Spotify upsert
+      svc.upsertTrack({
+        spotifyId: "sp-123",
+        title: "Existing",
+        artist: "Artist",
+        durationMs: 200_000,
+      });
+
+      const result = svc.importTracks("Reuse", [
+        { title: "Existing", artist: "Artist" },
+        { title: "New One", artist: "New Artist" },
+      ]);
+
+      expect(result.added).toBe(2);
+      // Both should be in the playlist
+      const tracks = svc.getPlaylistTracks(result.playlistId);
+      expect(tracks).toHaveLength(2);
+    });
+
+    it("handles empty track list", () => {
+      const { db } = createTestDb();
+      const svc = PlaylistService.fromDb(db as any);
+
+      const result = svc.importTracks("Empty", []);
+      expect(result.added).toBe(0);
+      expect(result.duplicates).toBe(0);
+    });
+  });
+
 });
