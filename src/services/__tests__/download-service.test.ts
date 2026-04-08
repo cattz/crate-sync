@@ -1253,7 +1253,7 @@ describe("DownloadService", () => {
       );
 
       expect(result.success).toBe(true);
-      expect(mock.download).toHaveBeenCalledWith("user1", file.filename, file.size);
+      expect(mock.download).toHaveBeenCalledWith("user1", file.filename, file.size, "/app/downloads/My Playlist");
       expect(mock.waitForDownload).toHaveBeenCalledWith("user1", file.filename);
     });
 

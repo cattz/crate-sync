@@ -674,7 +674,10 @@ export class DownloadService {
       if (tempPath) {
         log.debug(`File already in downloads, skipping download`, { filename, tempPath });
       } else {
-        await this.soulseek.download(username, filename, size);
+        // Pass destination so slskd organizes files by playlist folder
+        const sanitized = playlistName.replace(/[/:*?"<>|\\]/g, " ").replace(/\s+/g, " ").trim();
+        const destination = `/app/downloads/${sanitized}`;
+        await this.soulseek.download(username, filename, size, destination);
         await this.soulseek.waitForDownload(username, filename);
 
         tempPath = this.findDownloadedFile(username, filename);

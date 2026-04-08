@@ -11,6 +11,7 @@
 
 ### Fixed
 - **Candidate fallback on download failure** — when a Soulseek download fails (timeout, peer rejection), the next-ranked candidate is tried automatically instead of giving up. Download failures are now recorded as rejections so the same user is skipped on retry. All candidates are tried before marking a track as failed.
+- **slskd destination not used in batch downloads** — `acquireAndMove()` now passes the playlist name as the slskd `destination` parameter, so batch downloads land in `downloads/{playlist}/` instead of the default remote-path location.
 
 ### Tests
 - **API route tests** — added test suites for downloads, review, and status API routes covering request/response shape, filtering, error cases, and config updates.
