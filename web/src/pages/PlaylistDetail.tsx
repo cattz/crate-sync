@@ -196,7 +196,7 @@ export function PlaylistDetail() {
 
     if (statusFilter) {
       if (statusFilter === "local") {
-        list = list.filter((t) => t.isLocal === 1 || t.spotifyUri?.startsWith("spotify:local:"));
+        list = list.filter((t) => t.spotifyUri?.startsWith("spotify:local:"));
       } else {
         list = list.filter((t) => t.trackStatus === statusFilter);
       }
@@ -248,7 +248,7 @@ export function PlaylistDetail() {
   const hasBrokenTracks = useMemo(() => {
     if (!tracks) return false;
     return tracks.some(
-      (t) => t.isLocal === 1 || (t.spotifyUri && t.spotifyUri.startsWith("spotify:local:")),
+      (t) => t.spotifyUri?.startsWith("spotify:local:"),
     );
   }, [tracks]);
 
@@ -585,7 +585,7 @@ export function PlaylistDetail() {
           </thead>
           <tbody>
             {filteredTracks.map((t, i) => {
-              const isBroken = t.isLocal === 1 || (t.spotifyUri?.startsWith("spotify:local:") ?? false);
+              const isBroken = t.spotifyUri?.startsWith("spotify:local:") ?? false;
               return (
               <tr key={t.id} onClick={() => navigate(`/tracks/${t.id}`)} style={{ cursor: "pointer", opacity: isBroken ? 0.5 : 1, background: isBroken ? "rgba(231,76,60,0.05)" : undefined }}>
                 <td className="text-muted">{(t.position ?? i) + 1}</td>

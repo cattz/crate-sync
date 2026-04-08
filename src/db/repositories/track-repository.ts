@@ -81,7 +81,7 @@ export class DrizzleTrackRepository implements ITrackRepository {
         album: data.album,
         durationMs: data.durationMs ?? 0,
         isrc: data.isrc,
-        isLocal: 1,
+        isLocal: 0,
       })
       .returning()
       .get();
