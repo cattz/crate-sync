@@ -661,7 +661,7 @@ export function Playlists() {
     let list = playlists;
 
     if (ownership === "own") {
-      list = list.filter((p) => p.isOwned === 1);
+      list = list.filter((p) => p.isOwned !== 0);
     } else if (ownership === "followed") {
       list = list.filter((p) => p.isOwned === 0);
     }
