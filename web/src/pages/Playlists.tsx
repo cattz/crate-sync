@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
-import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useBulkRename, useBulkSync, useBulkUpdateTags, useMergePlaylists } from "../api/hooks.js";
+import { usePlaylists, useRenamePlaylist, useDeletePlaylist, useSyncPlaylists, useBulkRename, useBulkSync, useBulkUpdateTags, useMergePlaylists, useImportPlaylist } from "../api/hooks.js";
 import type { Playlist, BulkRenamePreview } from "../api/client.js";
 import { useMultiSelect } from "../hooks/useMultiSelect.js";
 import { BulkToolbar } from "../components/BulkToolbar.js";
@@ -13,6 +13,7 @@ function parseTags(tags: string | null): string[] {
 type SortKey = "name" | "trackCount" | "ownerName" | "lastSynced";
 type SortDir = "asc" | "desc";
 type OwnershipFilter = "all" | "own" | "followed";
+type SourceFilter = "all" | "spotify" | "file" | "local";
 
 function formatDate(ms: number | null) {
   if (!ms) return "—";
@@ -123,6 +124,93 @@ function DeleteModal({
           </button>
         </div>
         {del.isError && <p style={{ color: "var(--danger)", marginTop: "0.3rem" }}>{del.error.message}</p>}
+      </div>
+    </div>
+  );
+}
+
+function ImportModal({ onClose }: { onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [content, setContent] = useState("");
+  const [format, setFormat] = useState<"m3u" | "csv" | "txt">("txt");
+  const importMut = useImportPlaylist();
+  const [result, setResult] = useState<{ added: number; duplicates: number } | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !content.trim()) return;
+    const res = await importMut.mutateAsync({ name: name.trim(), content, format });
+    setResult({ added: res.added, duplicates: res.duplicates });
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!name.trim()) {
+      setName(file.name.replace(/\.[^.]+$/, ""));
+    }
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (ext === "m3u" || ext === "m3u8") setFormat("m3u");
+    else if (ext === "csv") setFormat("csv");
+    else setFormat("txt");
+    file.text().then(setContent);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="card modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 500 }}>
+        <h3 style={{ marginBottom: "0.5rem" }}>Import Playlist</h3>
+        {result ? (
+          <>
+            <p style={{ marginBottom: "0.5rem", color: "var(--accent)" }}>
+              Imported {result.added} track(s){result.duplicates > 0 ? `, ${result.duplicates} duplicate(s) skipped` : ""}.
+            </p>
+            <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
+              <button className="primary" onClick={onClose}>Done</button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <label className="text-sm text-muted" style={{ display: "block", marginBottom: "0.25rem" }}>Playlist name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My Playlist"
+              style={{ width: "100%", marginBottom: "0.5rem" }}
+              autoFocus
+            />
+            <label className="text-sm text-muted" style={{ display: "block", marginBottom: "0.25rem" }}>Format</label>
+            <div className="flex gap-1" style={{ marginBottom: "0.5rem" }}>
+              {(["txt", "csv", "m3u"] as const).map((f) => (
+                <button key={f} type="button" className={format === f ? "primary" : ""} onClick={() => setFormat(f)} style={{ textTransform: "uppercase", fontSize: "0.8rem" }}>
+                  {f}
+                </button>
+              ))}
+            </div>
+            <label className="text-sm text-muted" style={{ display: "block", marginBottom: "0.25rem" }}>
+              {format === "txt" ? "One track per line: Artist - Title" : format === "csv" ? "CSV with artist, title columns" : "M3U/M3U8 content"}
+            </label>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={8}
+              placeholder={format === "txt" ? "Artist One - Song One\nArtist Two - Song Two" : format === "csv" ? "artist,title,album\nArtist,Song,Album" : "#EXTM3U\n#EXTINF:240,Artist - Song\nfile.mp3"}
+              style={{ width: "100%", marginBottom: "0.5rem", fontFamily: "monospace", fontSize: "0.8rem" }}
+            />
+            <div className="flex items-center gap-1" style={{ marginBottom: "0.5rem" }}>
+              <label className="text-sm text-muted">Or load from file:</label>
+              <input type="file" accept=".txt,.csv,.m3u,.m3u8" onChange={handleFile} style={{ fontSize: "0.8rem" }} />
+            </div>
+            <div className="flex gap-1" style={{ justifyContent: "flex-end" }}>
+              <button type="button" onClick={onClose}>Cancel</button>
+              <button type="submit" className="primary" disabled={importMut.isPending || !name.trim() || !content.trim()}>
+                {importMut.isPending ? "Importing..." : "Import"}
+              </button>
+            </div>
+            {importMut.isError && <p style={{ color: "var(--danger)", marginTop: "0.3rem" }}>{importMut.error.message}</p>}
+          </form>
+        )}
       </div>
     </div>
   );
@@ -515,6 +603,7 @@ export function Playlists() {
   const sortKey = (params.get("sort") ?? "name") as SortKey;
   const sortDir = (params.get("dir") ?? "asc") as SortDir;
   const ownership = (params.get("owner") ?? "own") as OwnershipFilter;
+  const sourceFilter = (params.get("source") ?? "all") as SourceFilter;
   const tagFilter = params.get("tag") ?? "";
 
   const setParam = useCallback((key: string, value: string, fallback: string) => {
@@ -528,6 +617,7 @@ export function Playlists() {
 
   const setSearch = useCallback((v: string) => setParam("q", v, ""), [setParam]);
   const setOwnership = useCallback((v: OwnershipFilter) => setParam("owner", v, "own"), [setParam]);
+  const setSourceFilter = useCallback((v: SourceFilter) => setParam("source", v, "all"), [setParam]);
   const setTagFilter = useCallback((v: string) => setParam("tag", v, ""), [setParam]);
 
   const [renaming, setRenaming] = useState<Playlist | null>(null);
@@ -538,6 +628,7 @@ export function Playlists() {
   const [showBulkRename, setShowBulkRename] = useState(false);
   const [showBulkTags, setShowBulkTags] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const bulkSync = useBulkSync();
   const [bulkSyncResult, setBulkSyncResult] = useState<string | null>(null);
 
@@ -573,6 +664,10 @@ export function Playlists() {
       list = list.filter((p) => p.isOwned === 1);
     } else if (ownership === "followed") {
       list = list.filter((p) => p.isOwned === 0);
+    }
+
+    if (sourceFilter !== "all") {
+      list = list.filter((p) => (p.source ?? "spotify") === sourceFilter);
     }
 
     if (search) {
@@ -616,7 +711,7 @@ export function Playlists() {
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [playlists, search, sortKey, sortDir, ownership, tagFilter]);
+  }, [playlists, search, sortKey, sortDir, ownership, sourceFilter, tagFilter]);
 
   if (isLoading) return <p className="text-muted">Loading playlists...</p>;
 
@@ -632,6 +727,7 @@ export function Playlists() {
           >
             {sync.isPending ? "Syncing..." : "Sync from Spotify"}
           </button>
+          <button onClick={() => setShowImport(true)}>Import</button>
           {(["all", "own", "followed"] as const).map((value) => (
             <button
               key={value}
@@ -640,6 +736,17 @@ export function Playlists() {
               style={{ textTransform: "capitalize" }}
             >
               {value === "own" ? "Own" : value === "followed" ? "Followed" : "All"}
+            </button>
+          ))}
+          <span style={{ borderLeft: "1px solid var(--border)", height: 20, margin: "0 0.15rem" }} />
+          {(["all", "spotify", "file", "local"] as const).map((value) => (
+            <button
+              key={value}
+              className={sourceFilter === value ? "primary" : ""}
+              onClick={() => setSourceFilter(value)}
+              style={{ textTransform: "capitalize", fontSize: "0.8rem" }}
+            >
+              {value === "all" ? "All Sources" : value === "spotify" ? "Spotify" : value === "file" ? "File" : "Local"}
             </button>
           ))}
           {allTags.length > 0 && (
@@ -690,6 +797,7 @@ export function Playlists() {
             <col style={{ width: 30 }} />
             <col />
             <col style={{ width: 60 }} />
+            <col style={{ width: 60 }} />
             {ownership !== "own" && <col style={{ width: 100 }} />}
             <col style={{ width: 110 }} />
           </colgroup>
@@ -713,6 +821,7 @@ export function Playlists() {
               </th>
               <SortHeader label="Name" sortKey="name" active={sortKey === "name"} direction={sortDir} onSort={handleSort} />
               <SortHeader label="Tracks" sortKey="trackCount" active={sortKey === "trackCount"} direction={sortDir} onSort={handleSort} />
+              <th className="text-muted text-sm">Source</th>
               {ownership !== "own" && <SortHeader label="Owner" sortKey="ownerName" active={sortKey === "ownerName"} direction={sortDir} onSort={handleSort} />}
               <SortHeader label="Last Synced" sortKey="lastSynced" active={sortKey === "lastSynced"} direction={sortDir} onSort={handleSort} />
             </tr>
@@ -744,6 +853,7 @@ export function Playlists() {
                     </span>
                   )}
                 </td>
+                <td className="text-muted text-sm">{p.source ?? "spotify"}</td>
                 {ownership !== "own" && (
                   <td className="text-muted text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis" }} title={p.isOwned === 1 ? "You" : (p.ownerName ?? "")}>
                     {p.isOwned === 1 ? "You" : (p.ownerName ?? "—")}
@@ -754,7 +864,7 @@ export function Playlists() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={ownership === "own" ? 4 : 5} className="text-muted">
+                <td colSpan={ownership === "own" ? 5 : 6} className="text-muted">
                   {search || ownership !== "own"
                     ? "No playlists match your filters."
                     : <>No playlists. Run <code>crate-sync db sync</code> to import from Spotify.</>}
@@ -767,6 +877,7 @@ export function Playlists() {
 
       {renaming && <RenameModal playlist={renaming} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteModal playlist={deleting} onClose={() => setDeleting(null)} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} />}
       {showBulkRename && (
         <BulkRenameModal
           playlistIds={[...selection.selected]}

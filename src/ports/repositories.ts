@@ -27,6 +27,7 @@ export interface UpsertPlaylistData {
   ownerName?: string | null;
   notes?: string | null;
   tags?: string | null;
+  source?: string | null;
 }
 
 export interface IPlaylistRepository {

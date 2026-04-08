@@ -185,7 +185,7 @@ export class PlaylistService {
     description?: string;
     snapshotId?: string;
   }): Playlist {
-    return this.playlists.upsert(data);
+    return this.playlists.upsert({ ...data, source: "spotify" });
   }
 
   /** Upsert a track (insert or update by spotify_id). */
@@ -278,7 +278,7 @@ export class PlaylistService {
     playlistName: string,
     tracks: Array<{ title: string; artist: string; album?: string; durationMs?: number; isrc?: string }>,
   ): { playlistId: string; added: number; duplicates: number } {
-    const playlist = this.createLocalPlaylist(playlistName);
+    const playlist = this.createLocalPlaylist(playlistName, "file");
     const trackIds: string[] = [];
     const seen = new Set<string>();
     let duplicates = 0;
@@ -484,10 +484,10 @@ export class PlaylistService {
   }
 
   /** Create a new local-only playlist (no Spotify ID). */
-  createLocalPlaylist(name: string): Playlist {
+  createLocalPlaylist(name: string, source: string = "local"): Playlist {
     return this.db
       .insert(playlistsTable)
-      .values({ name })
+      .values({ name, source })
       .returning()
       .get();
   }

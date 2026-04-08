@@ -88,6 +88,14 @@ export function useSyncPlaylists() {
   });
 }
 
+export function useImportPlaylist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.importPlaylist,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["playlists"] }),
+  });
+}
+
 export function usePushPlaylist() {
   return useMutation({
     mutationFn: (params: { id: string; confirmed?: boolean }) =>

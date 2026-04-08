@@ -58,6 +58,11 @@ export const api = {
     }),
   syncPlaylists: () =>
     request<SyncResult>("/playlists/sync", { method: "POST" }),
+  importPlaylist: (params: { name: string; content: string; format: "m3u" | "csv" | "txt" }) =>
+    request<{ ok: boolean; playlistId: string; added: number; duplicates: number }>("/playlists/import", {
+      method: "POST",
+      body: JSON.stringify(params),
+    }),
 
   // Tracks
   getTracks: (q?: string) => request<Track[]>(`/tracks${q ? `?q=${encodeURIComponent(q)}` : ""}`),
@@ -187,6 +192,7 @@ export interface Playlist {
   ownerName: string | null;
   tags: string | null;
   notes: string | null;
+  source: string | null;
   pinned: number | null;
   brokenTracks: number | null;
   lastSynced: number | null;

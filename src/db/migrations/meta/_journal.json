@@ -78,6 +78,13 @@
       "when": 1775486795455,
       "tag": "0010_fair_outlaw_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1775684425088,
+      "tag": "0011_panoramic_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

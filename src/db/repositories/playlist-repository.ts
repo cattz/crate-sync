@@ -55,6 +55,7 @@ export class DrizzlePlaylistRepository implements IPlaylistRepository {
         ownerName: data.ownerName,
         notes: data.notes,
         tags: data.tags,
+        source: data.source,
       })
       .onConflictDoUpdate({
         target: playlists.spotifyId,
