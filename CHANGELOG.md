@@ -16,6 +16,7 @@
 - **Candidate fallback on download failure** — when a Soulseek download fails (timeout, peer rejection), the next-ranked candidate is tried automatically instead of giving up. Download failures are now recorded as rejections so the same user is skipped on retry. All candidates are tried before marking a track as failed.
 - **slskd destination not used in batch downloads** — `acquireAndMove()` now passes the playlist name as the slskd `destination` parameter, so batch downloads land in `downloads/{playlist}/` instead of the default remote-path location.
 - **slskd webhook not triggering** — added `extra_hosts: host.docker.internal:host-gateway` to docker-compose so the webhook URL resolves from inside the container on Linux hosts.
+- **Download validation accepts wrong duration in moderate mode** — moderate validation now rejects files with >30s duration mismatch (e.g. extended mix downloaded for a radio edit). Previously only strict mode checked duration, allowing wrong versions to be placed in Lexicon.
 
 ### Tests
 - **API route tests** — added test suites for downloads, review, and status API routes covering request/response shape, filtering, error cases, and config updates.

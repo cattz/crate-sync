@@ -644,6 +644,17 @@ export class DownloadService {
         return false;
       }
 
+      // Reject large duration mismatches (>30s) even in moderate mode
+      if (expected.durationMs != null && durationMs != null) {
+        const diffMs = Math.abs(expected.durationMs - durationMs);
+        if (diffMs > 30_000) {
+          const diffSec = (diffMs / 1000).toFixed(1);
+          await this.recordRejection(trackId, fileKey,
+            `Duration mismatch: ${diffSec}s difference (expected ${(expected.durationMs / 1000).toFixed(0)}s, got ${(durationMs / 1000).toFixed(0)}s)`);
+          return false;
+        }
+      }
+
       return true;
     } catch {
       await this.recordRejection(trackId, fileKey, "Corrupt or unreadable audio file");

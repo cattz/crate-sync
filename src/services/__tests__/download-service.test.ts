@@ -1131,6 +1131,47 @@ describe("DownloadService", () => {
         expect(db.insert).toHaveBeenCalled();
       });
 
+      it("rejects when duration mismatch > 30s in moderate mode", async () => {
+        const db = mockDb();
+        const service = makeService(db, { validationStrictness: "moderate" });
+
+        // Title+artist match perfectly but duration is way off (radio edit vs extended mix)
+        vi.mocked(parseFile).mockResolvedValueOnce({
+          common: { title: "House Music Machine", artist: "Pedroz" },
+          format: { duration: 354, codec: "FLAC" },
+        } as any);
+
+        const valid = await service.validateDownload(
+          "/tmp/file.flac",
+          { title: "House Music Machine", artist: "Pedroz", durationMs: 193_000 },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(false);
+        expect(db._insertValues.some((v: any) =>
+          v.reason?.includes("Duration mismatch"),
+        )).toBe(true);
+      });
+
+      it("accepts when duration mismatch <= 30s in moderate mode", async () => {
+        const service = makeService();
+
+        vi.mocked(parseFile).mockResolvedValueOnce({
+          common: { title: "My Song", artist: "My Artist" },
+          format: { duration: 220, codec: "FLAC" },
+        } as any);
+
+        const valid = await service.validateDownload(
+          "/tmp/file.flac",
+          { title: "My Song", artist: "My Artist", durationMs: 200_000 },
+          "track-1",
+          dummyFile,
+        );
+
+        expect(valid).toBe(true);
+      });
+
       it("rejects and records when parseFile throws", async () => {
         const db = mockDb();
         const service = makeService(db, { validationStrictness: "moderate" });
